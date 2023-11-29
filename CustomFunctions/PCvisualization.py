@@ -34,24 +34,30 @@ def save_mesh(mesh, savedir):
 def mesh_from_bins(binpos,
                    whichpcs,
                    avgpcs,
-                   pc1int,
-                   pc2int,
+                   PC1bins,
+                   PC2bins,
                    pca,
                    savedir,
                    lmax,
                    ):
     temppcs = avgpcs.copy()
+    
+    #get interpolator for PCbins back into PCs
+    pc1int = interpolate.interp1d(list(range(len(PC1bins))), list(PC1bins))
+    pc2int = interpolate.interp1d(list(range(len(PC2bins))), list(PC1bins))
+
     #transform PCs back from bins into PCs and put them in the proper location
     #in the average PC array
-    temppcs[whichpcs[0]-1] = pc1int(binpos[1])
-    temppcs[whichpcs[1]-1] = pc2int(binpos[2])
+
+    temppcs[whichpcs[0]-1] = pc1int(binpos[0])
+    temppcs[whichpcs[1]-1] = pc2int(binpos[1])
     #inverse pca transform
     coeffs = pca.inverse_transform(temppcs)
     #get mesh from coeffs
     mesh, _ = shtools.get_reconstruction_from_coeffs(coeffs.reshape(2,lmax+1,lmax+1))
 
     #save mesh
-    save_mesh(mesh, savedir+str(round(binpos[0],3))+'.vtp')
+    save_mesh(mesh, savedir)
     return
 
 
@@ -161,7 +167,7 @@ def interpolate_transitions_by_time(traj,
     return np.concatenate(interlist)
 
 
-def interpolate_contour_shapes(fourcorners,
+def interpolate_contour_shapes(vertices,
                                avgpcs,
                                whichpcs,
                                pca,
@@ -173,19 +179,13 @@ def interpolate_contour_shapes(fourcorners,
     
     
     #extend the corners to make a full loop
-    fourcorners = np.concatenate((fourcorners,np.array([fourcorners[0,:]])))
+    vertices = np.concatenate((vertices,np.array([vertices[0,:]])))
     
     #interpolate the trajectory in the transition space
-    interarray = interpolate_transitions_by_distance(fourcorners,interpfreq)
-
-
-    #get interpolator for PCbins back into PCs
-    pc1int = interpolate.interp1d(list(range(len(PC1bins))), PC1bins)
-    pc2int = interpolate.interp1d(list(range(len(PC2bins))), PC2bins)
-
+    interarray = interpolate_transitions_by_distance(vertices,interpfreq)
     
     #create the name of the current mesh
-    digitlist = re.findall(r'\d', np.array2string(fourcorners))
+    digitlist = re.findall(r'\d', np.array2string(vertices))
     dash = ['-'.join(digitlist[x:x+2]) for x in list(range(0,len(digitlist),2))]
     underscore = '_'.join(dash)
     loopname = 'loop_'+underscore
@@ -200,13 +200,13 @@ def interpolate_contour_shapes(fourcorners,
 
     for i in interarray:
         mesh_from_bins(
-                        i,
+                        i[1:],
                         whichpcs,
                         avgpcs,
-                        pc1int,
-                        pc2int,
+                        PC1bins,
+                        PC2bins,
                         pca,
-                        longsave,
+                        longsave+str(round(i[0],3))+'.vtp',
                         lmax)
 
     return interarray, loopname

@@ -420,11 +420,16 @@ def get_shcoeffs_mod(
 
     # Get coordinates of mesh points
     coords = numpy_support.vtk_to_numpy(mesh.GetPoints().GetData())
+    #get the centroid
+    centroid = coords.mean(axis=0, keepdims=True)
+    #subtract centroid from coordinates
+    coords -= centroid
+    #separate the coordinates
     x = coords[:, 0]
     y = coords[:, 1]
     z = coords[:, 2]
 
-    transform = centroid + ((angle,) if alignment_2d else ())
+    transform = tuple(centroid.squeeze()) + ((angle,) if alignment_2d else ())
 
     # Translate and update mesh normals
     mesh = shtools_mod.update_mesh_points(mesh, x, y, z)
@@ -1450,6 +1455,8 @@ def shcoeffs_and_PILR_nonuc(
     cell_mesh = transformFilter.GetOutput()
     
     
+    
+    
     # remove file if it already exists
     meshf = savedir+'Meshes/'
     #save cell mesh
@@ -1459,21 +1466,35 @@ def shcoeffs_and_PILR_nonuc(
     writer.Write()
     
     
-    #Get physical properties of both cell and nucleus
+    #Get physical properties of cell
     CellMassProperties = vtk.vtkMassProperties()
     CellMassProperties.SetInputData(cell_mesh)
     
     
-    #get cell major, minor, and mini axes
+    
+    #get cell major, minor, and mini axes using the segmented image
     cell_coords = numpy_support.vtk_to_numpy(cell_mesh.GetPoints().GetData())
+    #remove duplicate coordinates
+    duplicates = pd.DataFrame(cell_coords).duplicated().to_numpy()
+    mask = np.ones(len(cell_coords), dtype=bool)
+    mask[duplicates] = False
+    cell_coords = cell_coords[mask,:]
+    #get covariance matrix and find eigenvalues and vectors
     cov = np.cov(cell_coords.T)
     cell_evals, cell_evecs = np.linalg.eig(cov)
-    cell_sort_indices = np.argsort(cell_evals)[::-1]
-    rotationthing = R.align_vectors(np.array([[0,0,1],[0,1,0],[1,0,0]]), cell_evecs.T)
+    #make sure that the eigenvalues and vectors are in the order of highest to lowest
+    idx = np.argsort(cell_evals)[::-1]
+    cell_evals = cell_evals[idx]
+    cell_evecs = cell_evecs[:,idx]
+    #rotate the cell coordinates to align the major axis with the x, the minor axis to the y and the "mini" axis to the z
+    rotationthing = R.align_vectors(np.array([[1,0,0],[0,1,0]]), cell_evecs.T[:2,:])
     cell_coords = rotationthing[0].apply(cell_coords)
+    
     
     #measure the volume of the cell in the x domain
     FrontVolume = measure_volume_half(cell_mesh, 'x')
+    RightVolume = measure_volume_half(cell_mesh, 'y')
+    TopVolume = measure_volume_half(cell_mesh, 'z')
     
     
     #Shape stats dict
@@ -1487,19 +1508,21 @@ def shcoeffs_and_PILR_nonuc(
                   'Cell_Centroid_Z': centroid_mem[2],
                    'Cell_Volume': CellMassProperties.GetVolume(),
                     'Cell_Volume_Front': FrontVolume,
+                    'Cell_Volume_Right': RightVolume,
+                    'Cell_Volume_Top': TopVolume,
                    'Cell_SurfaceArea': CellMassProperties.GetSurfaceArea(),
-                   'Cell_MajorAxis': np.max(cell_coords[:,2])-np.min(cell_coords[:,2]),
-                   'Cell_MajorAxis_Vec_X': cell_evecs[:, cell_sort_indices[0]][0],
-                   'Cell_MajorAxis_Vec_Y': cell_evecs[:, cell_sort_indices[0]][1],
-                   'Cell_MajorAxis_Vec_Z': cell_evecs[:, cell_sort_indices[0]][2],
+                   'Cell_MajorAxis': np.max(cell_coords[:,0])-np.min(cell_coords[:,0]),
+                   'Cell_MajorAxis_Vec_X': cell_evecs[0,0],
+                   'Cell_MajorAxis_Vec_Y': cell_evecs[1,0],
+                   'Cell_MajorAxis_Vec_Z': cell_evecs[2,0],
                    'Cell_MinorAxis': np.max(cell_coords[:,1])-np.min(cell_coords[:,1]),
-                   'Cell_MinorAxis_Vec_X': cell_evecs[:, cell_sort_indices[1]][0],
-                   'Cell_MinorAxis_Vec_Y': cell_evecs[:, cell_sort_indices[1]][1],
-                   'Cell_MinorAxis_Vec_Z': cell_evecs[:, cell_sort_indices[1]][2],
-                   'Cell_MiniAxis': np.max(cell_coords[:,0])-np.min(cell_coords[:,0]),
-                   'Cell_MiniAxis_Vec_X': cell_evecs[:, cell_sort_indices[2]][0],
-                   'Cell_MiniAxis_Vec_Y': cell_evecs[:, cell_sort_indices[2]][1],
-                   'Cell_MiniAxis_Vec_Z': cell_evecs[:, cell_sort_indices[2]][2],
+                   'Cell_MinorAxis_Vec_X': cell_evecs[0,1],
+                   'Cell_MinorAxis_Vec_Y': cell_evecs[1,1],
+                   'Cell_MinorAxis_Vec_Z': cell_evecs[2,1],
+                   'Cell_MiniAxis': np.max(cell_coords[:,2])-np.min(cell_coords[:,2]),
+                   'Cell_MiniAxis_Vec_X': cell_evecs[0,2],
+                   'Cell_MiniAxis_Vec_Y': cell_evecs[1,2],
+                   'Cell_MiniAxis_Vec_Z': cell_evecs[2,2],
                    'OriginaltoReconError': OriginaltoReconError,
                    'RecontoOriginalError': RecontoOriginalError
                     }

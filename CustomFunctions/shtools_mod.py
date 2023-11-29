@@ -13,6 +13,44 @@ from scipy import stats as scistats
 EPS = 1e-12
 
 
+def update_mesh_points(
+    mesh: vtk.vtkPolyData, x_new: np.array, y_new: np.array, z_new: np.array
+):
+
+    """Updates the xyz coordinates of points in the input mesh
+    with new coordinates provided.
+
+    Parameters
+    ----------
+    mesh : vtkPolyData
+        Mesh in VTK format to be updated.
+    x_new, y_new and z_new : np.array
+        Array containing the new coordinates.
+    Returns
+    -------
+    mesh_updated : vtkPolyData
+        Mesh with updated coordinates.
+
+    Notes
+    -----
+    This function also re-calculate the new normal vectors
+    for the updated mesh.
+    """
+
+    mesh.GetPoints().SetData(numpy_support.numpy_to_vtk(np.c_[x_new, y_new, z_new]))
+    mesh.Modified()
+
+    # Fix normal vectors orientation
+
+    normals = vtk.vtkPolyDataNormals()
+    normals.SetInputData(mesh)
+    normals.Update()
+
+    mesh_updated = normals.GetOutput()
+
+    return mesh_updated
+
+
 def get_mesh_from_image(
     image: np.array,
     sigma: float = 0,
@@ -128,10 +166,13 @@ def get_mesh_from_image(
         coords = numpy_support.vtk_to_numpy(mesh.GetPoints().GetData())
         centroid = coords.mean(axis=0, keepdims=True)
     
-        # Translate to origin
+        #subtract centroid from coordinates
         coords -= centroid
-        mesh.GetPoints().SetData(numpy_support.numpy_to_vtk(coords))
+        # Translate to origin
+        mesh = update_mesh_points(mesh, coords[:, 0], coords[:, 1], coords[:, 2])
+
     else:
+        #this will translate to "center", a optional specificed point
         coords = numpy_support.vtk_to_numpy(mesh.GetPoints().GetData())
         centroid = center.copy()
         coords -= centroid
@@ -463,42 +504,6 @@ def apply_image_alignment_2d(image: np.array, angle: float):
     return img_aligned
 
 
-def update_mesh_points(
-    mesh: vtk.vtkPolyData, x_new: np.array, y_new: np.array, z_new: np.array
-):
-
-    """Updates the xyz coordinates of points in the input mesh
-    with new coordinates provided.
-
-    Parameters
-    ----------
-    mesh : vtkPolyData
-        Mesh in VTK format to be updated.
-    x_new, y_new and z_new : np.array
-        Array containing the new coordinates.
-    Returns
-    -------
-    mesh_updated : vtkPolyData
-        Mesh with updated coordinates.
-
-    Notes
-    -----
-    This function also re-calculate the new normal vectors
-    for the updated mesh.
-    """
-
-    mesh.GetPoints().SetData(numpy_support.numpy_to_vtk(np.c_[x_new, y_new, z_new]))
-    mesh.Modified()
-
-    # Fix normal vectors orientation
-
-    normals = vtk.vtkPolyDataNormals()
-    normals.SetInputData(mesh)
-    normals.Update()
-
-    mesh_updated = normals.GetOutput()
-
-    return mesh_updated
 
 
 def get_even_reconstruction_from_grid(

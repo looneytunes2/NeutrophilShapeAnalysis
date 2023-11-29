@@ -62,7 +62,11 @@ def interpolate_2dtrajectory(
     
     #remove duplicate coordinates
     #which breaks the interpolation function
+    #first make sure numpy array dtype is correct
+    traj = traj.astype(np.float32)
+    #find the indicies of the duplicates
     duplicates = [i for i,w in enumerate(traj) if all(w==traj[i-1])]
+    #add a small number to the duplicates so they're not the same, but not meaningfully different
     for d in duplicates:
         traj[d,:] = traj[d,:]+0.001
     
@@ -75,12 +79,18 @@ def interpolate_2dtrajectory(
     for t in range(len(traj)-1):
         di = distance.pdist([traj[t,:],traj[t+1,:]])[0]
         intt = round(di/0.1)
-        interpoints = np.linspace(start=t, stop = t+1, num = intt, endpoint = False)
-        x, y = interpolate.splev(interpoints,tck)
-        x = [round(i) for i in x]
-        y = [round(i) for i in y]
-        fr = [frames[t]]*len(interpoints)
-        interlist.append(np.stack([fr,x,y,interpoints]).T)
+        #if there's at least one bin position change during this frame, interpolate to find when it happens
+        if intt>0:
+            interpoints = np.linspace(start=t, stop = t+1, num = intt, endpoint = False)
+            x, y = interpolate.splev(interpoints,tck)
+            x = [round(i) for i in x]
+            y = [round(i) for i in y]
+            fr = [frames[t]]*len(interpoints)
+            interlist.append(np.stack([fr,x,y,interpoints]).T)
+        #if the cell doesn't actually change bin positions in this frame, just add it's info
+        else:
+            fr = frames[t]
+            interlist.append(np.array([[fr,traj[t][0],traj[t][1],t]]))
     
     #add last position
     interlist.append(np.array([[frames[-1], traj[-1,0], traj[-1,1], frames[-1]]]))
@@ -472,6 +482,7 @@ def bootstrap_trajectories(
         transpairsdf,
         ttot,
         nbins,
+        avoiddead: bool = False,
         ):
     #get the names of the first and second transitions of each pair
     firstnames = [x for x in transpairsdf.columns.to_list() if '_two' not in x]
@@ -489,54 +500,27 @@ def bootstrap_trajectories(
         cur = bslist[-1][secondnames.index('to_x_two'):secondnames.index('to_y_two')+1]
         #get all the transitions at the new position
         allat = transpairsdf[(transpairsdf.from_x == cur[0]) & (transpairsdf.from_y == cur[1])]
+        
         #if the next transition doesn't have any future transitions, don't go there and pick a new one
         if allat.empty:
-            del bslist[-2:]
-            #check is this happened at the beginning of the simulation and it needs to be started again 
-            #from another position, otherwise trim the last transition and continue
-            if len(bslist)<1:
-                ct = 0
-                bslist = []
-                #find the first random position
-                rando = transpairsdf.index.to_list()
-                shuffle(rando)
-                pick = transpairsdf.loc[rando[0]]
-                bslist.append(pick[firstnames].to_list())
-                bslist.append(pick[secondnames].to_list())
-            #subtract the time these transitions take
-            ct = ct - pick.time_elapsed - pick.time_elapsed_two
-            #set a timer for extreme cases of single transitions to deadends
-            loops = 0
-            while allat.empty:
-                #find the current postition after the second transition
-                cur = bslist[-1][secondnames.index('to_x_two'):secondnames.index('to_y_two')+1]
-                #get all the transitions at the new position
-                allat = transpairsdf[(transpairsdf.from_x == cur[0]) & (transpairsdf.from_y == cur[1])]
-                #randomly select a transition pair
-                rando = allat.index.to_list()
-                shuffle(rando)
-                pick = transpairsdf.loc[rando[0]]
-                #add to the timer for extreme cases
-                loops = loops + 1
-                #if this while loop has gone for 20 iterations and still not found a suitable transition
-                #back up an additional transition
-                if loops == 20:
-                    #subtract the time these transitions take
-                    tei = transpairsdf.columns.to_list().index('time_elapsed')
-                    ct = ct - bslist[-1][tei] - bslist[-2][tei]
-                    #delete a further two transitions
-                    del bslist[-2:]
-                    #check is this happened at the beginning of the simulation and it needs to be started again 
-                    #from another position, otherwise trim the last transition and continue
-                    if len(bslist)<1:
-                        ct = 0
-                        bslist = []
-                        #find the first random position
-                        rando = transpairsdf.index.to_list()
-                        shuffle(rando)
-                        pick = transpairsdf.loc[rando[0]]
-                        bslist.append(pick[firstnames].to_list())
-                        bslist.append(pick[secondnames].to_list())
+            if avoiddead:
+                del bslist[-2:]
+                #check is this happened at the beginning of the simulation and it needs to be started again 
+                #from another position, otherwise trim the last transition and continue
+                if len(bslist)<1:
+                    ct = 0
+                    bslist = []
+                    #find the first random position
+                    rando = transpairsdf.index.to_list()
+                    shuffle(rando)
+                    pick = transpairsdf.loc[rando[0]]
+                    bslist.append(pick[firstnames].to_list())
+                    bslist.append(pick[secondnames].to_list())
+                #subtract the time these transitions take
+                ct = ct - pick.time_elapsed - pick.time_elapsed_two
+                #set a timer for extreme cases of single transitions to deadends
+                loops = 0
+                while allat.empty:
                     #find the current postition after the second transition
                     cur = bslist[-1][secondnames.index('to_x_two'):secondnames.index('to_y_two')+1]
                     #get all the transitions at the new position
@@ -545,33 +529,64 @@ def bootstrap_trajectories(
                     rando = allat.index.to_list()
                     shuffle(rando)
                     pick = transpairsdf.loc[rando[0]]
-                #if the current position only has one transition (to the empty position)
-                #then trim it back an additional transition as well
-                elif len(allat)==1:
-                    #subtract the time these transitions take
-                    tei = transpairsdf.columns.to_list().index('time_elapsed')
-                    ct = ct - bslist[-1][tei] - bslist[-2][tei]
-                    #delete a further two transitions
-                    del bslist[-2:]
-                    #check is this happened at the beginning of the simulation and it needs to be started again 
-                    #from another position, otherwise trim the last transition and continue
-                    if len(bslist)<1:
-                        ct = 0
-                        bslist = []
-                        #find the first random position
-                        rando = transpairsdf.index.to_list()
+                    #add to the timer for extreme cases
+                    loops = loops + 1
+                    #if this while loop has gone for 20 iterations and still not found a suitable transition
+                    #back up an additional transition
+                    if loops == 20:
+                        #subtract the time these transitions take
+                        tei = transpairsdf.columns.to_list().index('time_elapsed')
+                        ct = ct - bslist[-1][tei] - bslist[-2][tei]
+                        #delete a further two transitions
+                        del bslist[-2:]
+                        #check is this happened at the beginning of the simulation and it needs to be started again 
+                        #from another position, otherwise trim the last transition and continue
+                        if len(bslist)<1:
+                            ct = 0
+                            bslist = []
+                            #find the first random position
+                            rando = transpairsdf.index.to_list()
+                            shuffle(rando)
+                            pick = transpairsdf.loc[rando[0]]
+                            bslist.append(pick[firstnames].to_list())
+                            bslist.append(pick[secondnames].to_list())
+                        #find the current postition after the second transition
+                        cur = bslist[-1][secondnames.index('to_x_two'):secondnames.index('to_y_two')+1]
+                        #get all the transitions at the new position
+                        allat = transpairsdf[(transpairsdf.from_x == cur[0]) & (transpairsdf.from_y == cur[1])]
+                        #randomly select a transition pair
+                        rando = allat.index.to_list()
                         shuffle(rando)
                         pick = transpairsdf.loc[rando[0]]
-                        bslist.append(pick[firstnames].to_list())
-                        bslist.append(pick[secondnames].to_list())
-                    #find the current postition after the second transition
-                    cur = bslist[-1][secondnames.index('to_x_two'):secondnames.index('to_y_two')+1]
-                    #get all the transitions at the new position
-                    allat = transpairsdf[(transpairsdf.from_x == cur[0]) & (transpairsdf.from_y == cur[1])]
-                    #randomly select a transition pair
-                    rando = allat.index.to_list()
-                    shuffle(rando)
-                    pick = transpairsdf.loc[rando[0]]
+                    #if the current position only has one transition (to the empty position)
+                    #then trim it back an additional transition as well
+                    elif len(allat)==1:
+                        #subtract the time these transitions take
+                        tei = transpairsdf.columns.to_list().index('time_elapsed')
+                        ct = ct - bslist[-1][tei] - bslist[-2][tei]
+                        #delete a further two transitions
+                        del bslist[-2:]
+                        #check is this happened at the beginning of the simulation and it needs to be started again 
+                        #from another position, otherwise trim the last transition and continue
+                        if len(bslist)<1:
+                            ct = 0
+                            bslist = []
+                            #find the first random position
+                            rando = transpairsdf.index.to_list()
+                            shuffle(rando)
+                            pick = transpairsdf.loc[rando[0]]
+                            bslist.append(pick[firstnames].to_list())
+                            bslist.append(pick[secondnames].to_list())
+                        #find the current postition after the second transition
+                        cur = bslist[-1][secondnames.index('to_x_two'):secondnames.index('to_y_two')+1]
+                        #get all the transitions at the new position
+                        allat = transpairsdf[(transpairsdf.from_x == cur[0]) & (transpairsdf.from_y == cur[1])]
+                        #randomly select a transition pair
+                        rando = allat.index.to_list()
+                        shuffle(rando)
+                        pick = transpairsdf.loc[rando[0]]
+            else:
+                break
         else:
             #append the pair of transitions to a list
             bslist.append(pick[firstnames].to_list())
@@ -639,9 +654,12 @@ def contour_integral(
     for i, c in enumerate(contourcoords):
         #get tangent vector
         current = cdf[(cdf.x == c[0]) & (cdf.y == c[1])]
-        xcurrent = (current.x_plus_rate - current.x_minus_rate)/2
-        ycurrent = (current.y_plus_rate - current.y_minus_rate)/2
-        tanv = [xcurrent.values[0],ycurrent.values[0]]
+        if current.empty:
+            tanv = [0,0]
+        else:
+            xcurrent = (current.x_plus_rate - current.x_minus_rate)/2
+            ycurrent = (current.y_plus_rate - current.y_minus_rate)/2
+            tanv = [xcurrent.values[0],ycurrent.values[0]]
         #avoid [positions where positive and negative rates are perfectly balanced]
         if tanv == [0,0]:
             pass
