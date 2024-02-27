@@ -66,7 +66,8 @@ def digitize_shape_mode(
     filter_based_on: list,
     filter_extremes_pct: float = 1,
     save: str = None,
-    return_freqs_per_structs: bool = False
+    return_freqs_per_structs: bool = False,
+    stdlim: float = 2.0,
 ):
 
     """
@@ -139,13 +140,13 @@ def digitize_shape_mode(
     values /= pc_std
 
     # Calculate bin half width based on std interval and nbins
-    LINF = -2.0 # inferior limit = -2 std
-    LSUP = 2.0 # superior limit = 2 std
+    LINF = -stdlim # inferior limit = -2 std
+    LSUP = stdlim # superior limit = 2 std
     binw = (LSUP-LINF)/(2*(nbins-1))
     
     # Force samples below/above -/+ 2std to fall into first/last bin
     bin_centers = np.linspace(LINF, LSUP, nbins)
-    bin_edges = np.unique([(b-binw, b+binw) for b in bin_centers])
+    bin_edges = np.unique([(round(b-binw,4), round(b+binw,4)) for b in bin_centers])
     bin_edges[0] = -np.inf
     bin_edges[-1] = np.inf
     

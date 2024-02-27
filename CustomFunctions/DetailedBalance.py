@@ -610,7 +610,7 @@ def bootstrap_trajectories(
                 y+1,
                 fromm,
                 to,
-                ttot,
+                ct, #use the time actually observed during the simulation, especially important for simulations that terminate early
                 ))
 
     bstrans_rate_df = pd.DataFrame(results)
@@ -651,6 +651,7 @@ def contour_integral(
 
     corners = [uple,lori,[lori[0], uple[1]], [uple[0], lori[1]]]
     omega = 0
+    dottlist = []
     for i, c in enumerate(contourcoords):
         #get tangent vector
         current = cdf[(cdf.x == c[0]) & (cdf.y == c[1])]
@@ -662,7 +663,7 @@ def contour_integral(
             tanv = [xcurrent.values[0],ycurrent.values[0]]
         #avoid [positions where positive and negative rates are perfectly balanced]
         if tanv == [0,0]:
-            pass
+            dottlist.append([cdf.bs_iteration.values[0], c[0], c[1], 0])
         else:
             if norm:
                 unittan = tanv/np.linalg.norm(tanv)
@@ -676,12 +677,15 @@ def contour_integral(
                 dott = np.dot(unitcon, unittan)
                 if not np.isnan(dott):
                     omega = omega + dott
+                dottlist.append([cdf.bs_iteration.values[0], c[0], c[1], dott])
             elif der[0]==0:
                 dott = np.dot(der, unittan)
                 if not np.isnan(dott):
                     omega = omega + dott
+                dottlist.append([cdf.bs_iteration.values[0], c[0], c[1], dott])
             elif der[1]==0:
                 dott = np.dot(der, unittan)
                 omega = omega + dott
-    return omega
+                dottlist.append([cdf.bs_iteration.values[0], c[0], c[1], dott])
+    return omega, dottlist
 

@@ -180,3 +180,44 @@ def get_pa_drift(
     speed = pd.Series(dx**2 + dy**2 + dz**2).apply(lambda x: math.sqrt(x))/interval
     
     return persistence, activity, speed.to_numpy()
+
+
+
+def velocity_and_distance(df, #data frame with at x, y, and z positions
+                        interval, #time interval between data points
+                        signal_vector = np.array([0,0,0]), #vector of directional cue, must be a unit vector in XYZ format
+                        ):
+    #if signal vector provided use that, otherwise use endpoint of migration as "signal"
+    if not (signal_vector == np.zeros((1,3))).all():
+        totaldisplacement = df.iloc[-1][['x','y','z']].to_numpy() - df.iloc[0][['x','y','z']].to_numpy()
+        signal_vector = totaldisplacement/np.linalg.norm(totaldisplacement)
+    
+    # get "velocity" of cell towards a signal
+    # aka distance travelled in the direction of the signal over time
+    sds = []
+    isvs = []
+    track_length = 0
+    total_distance = []
+    euclidean_distance = []
+    for l in range(len(df)-1):
+        #signal displacement
+        totaldisplacement = df.iloc[l+1][['x','y','z']].to_numpy() - df.iloc[0][['x','y','z']].to_numpy()
+        sd = np.dot(totaldisplacement, signal_vector)
+        sds.append(sd/(interval*(l+1)))
+        #get euclidean distance from start at each time point
+        euclidean = math.sqrt(totaldisplacement[0]**2 + totaldisplacement[1]**2 + totaldisplacement[2]**2)
+        euclidean_distance.append(euclidean)
+        #instantaneous signal velocity
+        instantdisplacement = df.iloc[l+1][['x','y','z']].to_numpy() - df.iloc[l][['x','y','z']].to_numpy()
+        isv = np.dot(instantdisplacement, signal_vector)
+        isvs.append(isv/(interval))
+        #get instantaneous distance travelled to sum together
+        instantdistance = math.sqrt(instantdisplacement[0]**2 + instantdisplacement[1]**2 + instantdisplacement[2]**2)
+        #sum total distance travelled along cell path so far
+        track_length = track_length + instantdistance
+        total_distance.append(track_length)
+        
+    return isvs, sds, total_distance, euclidean_distance
+
+
+

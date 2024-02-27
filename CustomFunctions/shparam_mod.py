@@ -5,11 +5,13 @@ Created on Mon May 31 18:03:57 2021
 @author: Aaron
 """
 
+import re
 import os
 import vtk
 import warnings
 import pyshtools
 import numpy as np
+import pandas as pd
 from vtk.util import numpy_support
 from vtkmodules.vtkFiltersCore import (
     vtkCleanPolyData,
@@ -18,15 +20,153 @@ from vtkmodules.vtkFiltersCore import (
 from vtkmodules.vtkFiltersGeneral import vtkBooleanOperationPolyDataFilter
 from vtkmodules.vtkFiltersSources import vtkCubeSource
 from skimage import transform as sktrans
+from scipy import signal
 from scipy import interpolate as spinterp
+from scipy.spatial import KDTree
 from scipy.spatial.transform import Rotation as R
-import pandas as pd
+
 
 from . import shtools_mod, cytoparam_mod
 
 from aicsimageio.writers.ome_tiff_writer import OmeTiffWriter
 from aicsimageio.readers.tiff_reader import TiffReader
 
+
+
+def find_normal_width_peaks(
+        impath: str,
+        xyres: float,
+        zstep: float,
+        sigma: float = 0,
+        align_method: str = 'None',
+        ):
+
+    
+    #get cell name from impath
+    cell_name = impath.split('/')[-1].split('_segmented')[0]
+    #read image
+    im = TiffReader(impath)
+    
+    #read euler angles for alignment
+    infopath = '/'.join(impath.split('/')[:-1]) + '/' + cell_name + '_cell_info.csv'
+    #if align_method is a numpy array, use that as the vector to align to
+    if type(align_method) == np.ndarray:
+        vec = align_method.copy()
+        #align current vector with x axis and get euler angles of resulting rotation matrix https://docs.scipy.org/doc/scipy/reference/generated/scipy.spatial.transform.Rotation.html
+        xaxis = np.array([[0,0,0],[1,0,0], [5,0,0]]).astype('float64')
+        current_vec = np.stack(([0,0,0],vec), axis = 0)
+        current_vec = np.concatenate((current_vec,[5*vec]), axis = 0)
+        rotationthing = R.align_vectors(xaxis, current_vec)
+        #below is actual rotation matrix if needed
+        #rot_mat = rotationthing[0].as_matrix()
+        rotthing_euler = rotationthing[0].as_euler('xyz', degrees = True)
+        Euler_Angles = np.array([rotthing_euler[0], rotthing_euler[1], rotthing_euler[2]])
+    elif align_method == 'trajectory':
+        info = pd.read_csv(infopath, index_col=0)
+        vec = np.array([info.Trajectory_X[0], info.Trajectory_Y[0], info.Trajectory_Z[0]])
+        #align current vector with x axis and get euler angles of resulting rotation matrix https://docs.scipy.org/doc/scipy/reference/generated/scipy.spatial.transform.Rotation.html
+        xaxis = np.array([[0,0,0],[1,0,0], [5,0,0]]).astype('float64')
+        current_vec = np.stack(([0,0,0],vec), axis = 0)
+        current_vec = np.concatenate((current_vec,[5*vec]), axis = 0)
+        rotationthing = R.align_vectors(xaxis, current_vec)
+        #below is actual rotation matrix if needed
+        #rot_mat = rotationthing[0].as_matrix()
+        rotthing_euler = rotationthing[0].as_euler('xyz', degrees = True)
+        Euler_Angles = np.array([rotthing_euler[0], rotthing_euler[1], rotthing_euler[2]])
+        
+    if len(im.shape)>3:
+        image = im.data[0,:,:,:]
+    else:
+        image = im.data
+    
+    
+    if len(image.shape) != 3:
+        raise ValueError(
+            "Incorrect dimensions: {}. Expected 3 dimensions.".format(image.shape)
+        )
+
+
+    # Binarize the input. We assume that everything that is not background will
+    # be use for parametrization
+    image_ = image.copy()
+    image_[image_ > 0] = 1
+
+    # Converting the input image into a mesh using regular marching cubes
+    mesh, image_, centroid = shtools_mod.get_mesh_from_image(image=image_, sigma=sigma)
+    
+    #rotate and scale mesh
+    #worked from https://kitware.github.io/vtk-examples/site/Python/PolyData/AlignTwoPolyDatas/
+    #rotate around z axis
+    transformation = vtk.vtkTransform()
+    #rotate the shape
+    transformation.RotateWXYZ(Euler_Angles[2], 0, 0, 1)
+    transformation.RotateWXYZ(Euler_Angles[0], 1, 0, 0)
+    #set scale to actual image scale
+    transformation.Scale(xyres, xyres, zstep)
+    transformFilter = vtk.vtkTransformPolyDataFilter()
+    transformFilter.SetTransform(transformation)
+    transformFilter.SetInputData(mesh)
+    transformFilter.Update()
+    mesh = transformFilter.GetOutput()
+
+    
+    #rotate around the x axis until you find the widest distance in y
+    angles = np.arange(0,360,0.5)
+    widths = np.empty(len(angles))
+    for i, a in enumerate(angles):
+        
+        transformation = vtk.vtkTransform()
+        #rotate the shape
+        transformation.RotateWXYZ(a, 1, 0, 0)
+        transformFilter = vtk.vtkTransformPolyDataFilter()
+        transformFilter.SetTransform(transformation)
+        transformFilter.SetInputData(mesh)
+        transformFilter.Update()
+        rotatedmesh = transformFilter.GetOutput()
+        coords = numpy_support.vtk_to_numpy(rotatedmesh.GetPoints().GetData())
+        #store the average of the negative y coordinates
+        widths[i] = coords[np.where(coords[:,1]<0)][:,1].mean()
+    
+    #get the angle that rotates the least to achieve a "width" peak
+    both = np.concatenate((widths, widths))
+    peaks, properties = signal.find_peaks(abs(both),prominence=0.11, width=55)
+    angpeaks = np.concatenate((angles,angles))[peaks]
+    tangpeaks = angpeaks.copy()
+    tangpeaks = list(set(tangpeaks))
+    # tangpeaks[tangpeaks>180] -= 360
+
+    return [cell_name, tangpeaks]
+
+def measure_volume_half(
+        mesh,
+        domain,
+        ):
+    
+    #turn off warnings
+    vtk.vtkObject.GlobalWarningDisplayOff()
+    
+    #Create a plane in the domain from the input
+    plane = vtk.vtkPlane()
+
+    if domain == 'x':
+        plane.SetNormal(1,0,0)
+    if domain == 'y':
+        plane.SetNormal(0,1,0)
+    if domain == 'z':
+        plane.SetNormal(0,0,1)
+    
+
+    clip = vtk.vtkClipPolyData()
+    clip.SetClipFunction(plane)
+    clip.SetInputData(mesh)
+    clip.Update()
+    clipped = clip.GetOutput(0)
+    
+    #get the volume of the intersection
+    CellMassProperties = vtk.vtkMassProperties()
+    CellMassProperties.SetInputData(clipped)
+    
+    return CellMassProperties.GetVolume()
 
 
 
@@ -184,8 +324,24 @@ def get_shcoeffs_mod(
     #set a normal rotation angle even if not rotating
     widestangle = 0
     
+    #################### normal rotation by provided angle ###############
+    if bool(type(normal_rotation_method) == float):
+        #get the rotation angle with the most heavy negative y direction bias
+        widestangle = normal_rotation_method
+        
+        #rotate around x by the widest y axis
+        transformation = vtk.vtkTransform()
+        #rotate the shape
+        transformation.RotateWXYZ(widestangle, 1, 0, 0)
+        transformFilter = vtk.vtkTransformPolyDataFilter()
+        transformFilter.SetTransform(transformation)
+        transformFilter.SetInputData(mesh)
+        transformFilter.Update()
+        mesh = transformFilter.GetOutput()
+        
+        
     #################### find the absolute widest axis perpendicular to the trajectory ###############
-    if normal_rotation_method == 'widest':
+    elif normal_rotation_method == 'widest':
         #rotate around the x axis until you find the widest distance in y
         angles = np.arange(0,360,0.5)
         widths = np.empty((len(angles),3))
@@ -252,6 +408,77 @@ def get_shcoeffs_mod(
         transformFilter.SetInputData(mesh)
         transformFilter.Update()
         mesh = transformFilter.GetOutput()
+        
+        
+    ##################### find the widest axis perpendicular to trajectory by volume ##################
+    elif normal_rotation_method == 'widest volume':
+        #rotate around the x axis until you find the widest distance in y
+        angles = np.arange(0,360,0.5)
+        widths = np.empty(len(angles))
+        for i, a in enumerate(angles):
+            
+            transformation = vtk.vtkTransform()
+            #rotate the shape
+            transformation.RotateWXYZ(a, 1, 0, 0)
+            transformFilter = vtk.vtkTransformPolyDataFilter()
+            transformFilter.SetTransform(transformation)
+            transformFilter.SetInputData(mesh)
+            transformFilter.Update()
+            rotatedmesh = transformFilter.GetOutput()
+
+            #store the volume in the positive y direction
+            widths[i] = measure_volume_half(rotatedmesh, 'y')
+        
+        #get the rotation angle with the most heavy negative y direction bias
+        widestangle = angles[np.where(widths==widths.max())[0][0]]
+        
+        #rotate around x by the widest y axis
+        transformation = vtk.vtkTransform()
+        #rotate the shape
+        transformation.RotateWXYZ(widestangle, 1, 0, 0)
+        transformFilter = vtk.vtkTransformPolyDataFilter()
+        transformFilter.SetTransform(transformation)
+        transformFilter.SetInputData(mesh)
+        transformFilter.Update()
+        mesh = transformFilter.GetOutput()
+
+
+    elif normal_rotation_method == 'first wide':
+        #rotate around the x axis until you find the widest distance in y
+        angles = np.arange(0,360,0.5)
+        widths = np.empty(len(angles))
+        for i, a in enumerate(angles):
+            
+            transformation = vtk.vtkTransform()
+            #rotate the shape
+            transformation.RotateWXYZ(a, 1, 0, 0)
+            transformFilter = vtk.vtkTransformPolyDataFilter()
+            transformFilter.SetTransform(transformation)
+            transformFilter.SetInputData(mesh)
+            transformFilter.Update()
+            rotatedmesh = transformFilter.GetOutput()
+            coords = numpy_support.vtk_to_numpy(rotatedmesh.GetPoints().GetData())
+            #store the average of the negative y coordinates
+            widths[i] = coords[np.where(coords[:,1]<0)][:,1].mean()
+        
+        #get the angle that rotates the least to achieve a "width" peak
+        both = np.concatenate((widths, widths))
+        peaks, properties = signal.find_peaks(abs(both),prominence=0.13, width=70)
+        angpeaks = np.concatenate((angles,angles))[peaks]
+        tangpeaks = angpeaks.copy()
+        tangpeaks[tangpeaks>180] -= 360
+        widestangle = angpeaks[np.argmin(abs(tangpeaks))]
+
+        #rotate around x by the widest y axis
+        transformation = vtk.vtkTransform()
+        #rotate the shape
+        transformation.RotateWXYZ(widestangle, 1, 0, 0)
+        transformFilter = vtk.vtkTransformPolyDataFilter()
+        transformFilter.SetTransform(transformation)
+        transformFilter.SetInputData(mesh)
+        transformFilter.Update()
+        mesh = transformFilter.GetOutput()
+
 
     elif normal_rotation_method == 'widest and flip':
         volumes = []
@@ -777,41 +1004,10 @@ def get_shcoeffs_ReverseNanerRotation(
 
 
 
-def measure_volume_half(
-        mesh,
-        domain,
-        ):
-    
-    #turn off warnings
-    vtk.vtkObject.GlobalWarningDisplayOff()
-    
-    #Create a plane in the domain from the input
-    plane = vtk.vtkPlane()
-
-    if domain == 'x':
-        plane.SetNormal(1,0,0)
-    if domain == 'y':
-        plane.SetNormal(0,1,0)
-    if domain == 'z':
-        plane.SetNormal(0,0,1)
-    
-
-    clip = vtk.vtkClipPolyData()
-    clip.SetClipFunction(plane)
-    clip.SetInputData(mesh)
-    clip.Update()
-    clipped = clip.GetOutput(0)
-    
-    #get the volume of the intersection
-    CellMassProperties = vtk.vtkMassProperties()
-    CellMassProperties.SetInputData(clipped)
-    
-    return CellMassProperties.GetVolume()
 
 
 
-from scipy.spatial import KDTree
-import re
+
 def recondistances(
         img_name,
         cell,
@@ -1317,7 +1513,19 @@ def shcoeffs_and_PILR_nonuc(
     
     #read euler angles for alignment
     infopath = '/'.join(impath.split('/')[:-1]) + '/' + cell_name + '_cell_info.csv'
-    if align_method == 'trajectory':
+    #if align_method is a numpy array, use that as the vector to align to
+    if type(align_method) == np.ndarray:
+        vec = align_method.copy()
+        #align current vector with x axis and get euler angles of resulting rotation matrix https://docs.scipy.org/doc/scipy/reference/generated/scipy.spatial.transform.Rotation.html
+        xaxis = np.array([[0,0,0],[1,0,0], [5,0,0]]).astype('float64')
+        current_vec = np.stack(([0,0,0],vec), axis = 0)
+        current_vec = np.concatenate((current_vec,[5*vec]), axis = 0)
+        rotationthing = R.align_vectors(xaxis, current_vec)
+        #below is actual rotation matrix if needed
+        #rot_mat = rotationthing[0].as_matrix()
+        rotthing_euler = rotationthing[0].as_euler('xyz', degrees = True)
+        euler_angles = np.array([rotthing_euler[0], rotthing_euler[1], rotthing_euler[2]])
+    elif align_method == 'trajectory':
         info = pd.read_csv(infopath, index_col=0)
         vec = np.array([info.Trajectory_X[0], info.Trajectory_Y[0], info.Trajectory_Z[0]])
         #align current vector with x axis and get euler angles of resulting rotation matrix https://docs.scipy.org/doc/scipy/reference/generated/scipy.spatial.transform.Rotation.html
@@ -1329,7 +1537,7 @@ def shcoeffs_and_PILR_nonuc(
         #rot_mat = rotationthing[0].as_matrix()
         rotthing_euler = rotationthing[0].as_euler('xyz', degrees = True)
         euler_angles = np.array([rotthing_euler[0], rotthing_euler[1], rotthing_euler[2]])
-    
+        
     if len(im.shape)>3:
         ci = im.data[0,:,:,:]
         si = im.data[1,:,:,:]

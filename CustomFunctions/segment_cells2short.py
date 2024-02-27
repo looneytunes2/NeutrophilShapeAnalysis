@@ -39,7 +39,7 @@ from CustomFunctions import shparam_mod
 from skimage.filters import threshold_otsu, threshold_triangle
 import skimage.measure
 from skimage import transform
-
+import cv2
 
 import vtk
 from vtk.util import numpy_support
@@ -95,12 +95,17 @@ def partial_cell_removal_caax(caax_ch, #raw data
                               num, #intensity in im_labelled to use as "mask"
                               ):
     #get the positions of the noise peak and everything below that
-    hist = np.histogram(caax_ch, bins=np.arange(0,1,0.01))
-    peaks, properties = signal.find_peaks(hist[0],prominence=50000)
-    noise_positions = np.where(caax_ch<=hist[1][properties['right_bases'][0]])
+    hist = np.histogram(caax_ch, bins=np.arange(0,1,0.002))
+    noisemax = hist[1][np.argmax(hist[0])+1]
+    noise_positions = np.where(caax_ch<=noisemax)
     noise_sample = caax_ch[noise_positions[0],noise_positions[1],noise_positions[2]]
-    r_fill = np.random.choice(noise_sample, len(np.where(im_labeled ==num)[0]))
-    caax_ch[np.where(im_labeled == num)] = r_fill
+    #dilate image a bit so that the partial cell gets more completely removed
+    kern = np.ones((5,5), np.uint8)
+    new = np.zeros(im_labeled.shape)
+    for x in range(im_labeled.shape[0]):
+        new[x,:,:] = cv2.dilate(im_labeled[x,:,:].astype(np.uint8), kern, iterations = 1)
+    r_fill = np.random.choice(noise_sample, len(np.where(new ==num)[0]))
+    caax_ch[np.where(new == num)] = r_fill
     return caax_ch
 
 def segment_caax(img):
@@ -294,7 +299,7 @@ def segment_caax_norot(img):
                 structure_img_smooth = partial_cell_removal_caax(structure_img_smooth, im_labeled, n+1)
 
         #remove the brightest pixels from the cell of interest
-        values = structure_img_smooth[im_labeled==realin].flatten()
+        values = structure_img_smooth[im_labeled==realin+1].flatten()
         structure_img_smooth[structure_img_smooth>np.percentile(values, 98)] = np.percentile(values, 90)
         # threshold the new modified image
         thresh_img = MO(structure_img_smooth, global_thresh_method='tri', object_minArea=750, local_adjust = 0.95)
@@ -320,7 +325,7 @@ def segment_caax_norot(img):
     seg = thresh_img + fil_img
     
     # fill in the holes
-    hole_max = 750
+    hole_max = 2500
     hole_min = 1
     seg = hole_filling(seg, hole_min, hole_max) 
     

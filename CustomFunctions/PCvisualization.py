@@ -18,7 +18,7 @@ import math
 import operator
 from functools import reduce
 import matplotlib.pyplot as plt
-
+import pandas as pd
 
 def save_mesh(mesh, savedir):
     #delete file if it already exists
@@ -34,23 +34,19 @@ def save_mesh(mesh, savedir):
 def mesh_from_bins(binpos,
                    whichpcs,
                    avgpcs,
-                   PC1bins,
-                   PC2bins,
+                   PC1bins, #list of bin centers for PC1
+                   PC2bins,#list of bin centers for PC2
                    pca,
                    savedir,
                    lmax,
+                   binsorPCs: str = 'PCs',
                    ):
     temppcs = avgpcs.copy()
-    
-    #get interpolator for PCbins back into PCs
-    pc1int = interpolate.interp1d(list(range(len(PC1bins))), list(PC1bins))
-    pc2int = interpolate.interp1d(list(range(len(PC2bins))), list(PC1bins))
 
-    #transform PCs back from bins into PCs and put them in the proper location
-    #in the average PC array
-
-    temppcs[whichpcs[0]-1] = pc1int(binpos[0])
-    temppcs[whichpcs[1]-1] = pc2int(binpos[1])
+    #exchange the values of the appropriate PCs in temppcs with the desired PC values
+    temppcs[whichpcs[0]-1] = PC1bins[int(binpos[0]-1)]
+    temppcs[whichpcs[1]-1] = PC2bins[int(binpos[1]-1)]
+        
     #inverse pca transform
     coeffs = pca.inverse_transform(temppcs)
     #get mesh from coeffs
@@ -175,7 +171,10 @@ def interpolate_contour_shapes(vertices,
                                PC2bins,
                                savedir,
                                lmax,
-                               interpfreq: float = 0.1):
+                               TotalFrame,
+                               metrics: list = [], #calculate average metrics at positions along the trajectory
+                               interpfreq: float = 0.1 #interpolation frequency
+                               ):
     
     
     #extend the corners to make a full loop
@@ -196,9 +195,11 @@ def interpolate_contour_shapes(vertices,
     if not os.path.exists(longsave):
         os.makedirs(longsave)
     
-    
-
-    for i in interarray:
+    #prepare the dataframe stuff if metrics along trajectory are to be calculated
+    TotalFrame = TotalFrame.sort_values(['CellID','frame'])
+    metricsarray = np.zeros((interarray.shape[0],interarray.shape[1]+len(metrics)))
+    #get actual meshes along interpolated trajectory and/or calculate metrics in those positions
+    for count, i in enumerate(interarray):
         mesh_from_bins(
                         i[1:],
                         whichpcs,
@@ -208,8 +209,21 @@ def interpolate_contour_shapes(vertices,
                         pca,
                         longsave+str(round(i[0],3))+'.vtp',
                         lmax)
+        #get some average stats for the bins in the contour
+        if len(metrics)>0:
+            current =  TotalFrame[(TotalFrame['PC1bins'] == round(i[1])) & (TotalFrame['PC2bins'] == round(i[2]))]
+            if current.empty:
+                metricsarray[count,:] = np.concatenate((i ,[0]*len(metrics)))
+            elif len(current)==1:
+                metricsarray[count,:] = np.concatenate((i ,current[metrics].iloc[0,:].values.tolist()))
+            else:
+                metricsarray[count,:] = np.concatenate((i ,current[metrics].mean().values.tolist()))
+    
+    metricsframe = pd.DataFrame(metricsarray, columns=['arbitrarytime','PC1bin','PC2bin']+metrics)
+    metricsframe.to_csv(longsave+'interarray.csv')
+    # np.save(longsave+'interarray.npy', metricsarray)    
 
-    return interarray, loopname
+    return interarray, loopname, metricsframe
 
 
 
