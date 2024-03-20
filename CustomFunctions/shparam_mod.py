@@ -53,9 +53,13 @@ def find_normal_width_peaks(
     if type(align_method) == np.ndarray:
         vec = align_method.copy()
         #align current vector with x axis and get euler angles of resulting rotation matrix https://docs.scipy.org/doc/scipy/reference/generated/scipy.spatial.transform.Rotation.html
-        xaxis = np.array([[0,0,0],[1,0,0], [5,0,0]]).astype('float64')
-        current_vec = np.stack(([0,0,0],vec), axis = 0)
-        current_vec = np.concatenate((current_vec,[5*vec]), axis = 0)
+        xaxis = np.array([[1,0,0],[0,1,0], [0,0,1]]).astype('float64')
+        upnorm = np.cross(vec,[1,0,0])
+        # if upnorm[2]<0:
+        #     upnorm = upnorm.copy() * -1
+        sidenorm = np.cross(vec,upnorm)
+        current_vec = np.stack((vec, sidenorm, upnorm), axis = 0)
+        # current_vec = np.concatenate((current_vec,[5*vec]), axis = 0)
         rotationthing = R.align_vectors(xaxis, current_vec)
         #below is actual rotation matrix if needed
         #rot_mat = rotationthing[0].as_matrix()
@@ -65,9 +69,13 @@ def find_normal_width_peaks(
         info = pd.read_csv(infopath, index_col=0)
         vec = np.array([info.Trajectory_X[0], info.Trajectory_Y[0], info.Trajectory_Z[0]])
         #align current vector with x axis and get euler angles of resulting rotation matrix https://docs.scipy.org/doc/scipy/reference/generated/scipy.spatial.transform.Rotation.html
-        xaxis = np.array([[0,0,0],[1,0,0], [5,0,0]]).astype('float64')
-        current_vec = np.stack(([0,0,0],vec), axis = 0)
-        current_vec = np.concatenate((current_vec,[5*vec]), axis = 0)
+        xaxis = np.array([[1,0,0],[0,1,0], [0,0,1]]).astype('float64')
+        upnorm = np.cross(vec,[1,0,0])
+        # if upnorm[2]<0:
+        #     upnorm = upnorm.copy() * -1
+        sidenorm = np.cross(vec,upnorm)
+        current_vec = np.stack((vec, sidenorm, upnorm), axis = 0)
+        # current_vec = np.concatenate((current_vec,[5*vec]), axis = 0)
         rotationthing = R.align_vectors(xaxis, current_vec)
         #below is actual rotation matrix if needed
         #rot_mat = rotationthing[0].as_matrix()
@@ -1517,9 +1525,13 @@ def shcoeffs_and_PILR_nonuc(
     if type(align_method) == np.ndarray:
         vec = align_method.copy()
         #align current vector with x axis and get euler angles of resulting rotation matrix https://docs.scipy.org/doc/scipy/reference/generated/scipy.spatial.transform.Rotation.html
-        xaxis = np.array([[0,0,0],[1,0,0], [5,0,0]]).astype('float64')
-        current_vec = np.stack(([0,0,0],vec), axis = 0)
-        current_vec = np.concatenate((current_vec,[5*vec]), axis = 0)
+        xaxis = np.array([[1,0,0], [0,1,0], [0,0,1]]).astype('float64')
+        upnorm = np.cross(vec,[1,0,0])
+        # if upnorm[2]<0:
+        #     upnorm = upnorm.copy() * -1
+        sidenorm = np.cross(vec,upnorm)
+        current_vec = np.stack((vec, sidenorm, upnorm), axis = 0)
+        # current_vec = np.concatenate((current_vec,[5*vec]), axis = 0)
         rotationthing = R.align_vectors(xaxis, current_vec)
         #below is actual rotation matrix if needed
         #rot_mat = rotationthing[0].as_matrix()
@@ -1529,9 +1541,13 @@ def shcoeffs_and_PILR_nonuc(
         info = pd.read_csv(infopath, index_col=0)
         vec = np.array([info.Trajectory_X[0], info.Trajectory_Y[0], info.Trajectory_Z[0]])
         #align current vector with x axis and get euler angles of resulting rotation matrix https://docs.scipy.org/doc/scipy/reference/generated/scipy.spatial.transform.Rotation.html
-        xaxis = np.array([[0,0,0],[1,0,0], [5,0,0]]).astype('float64')
-        current_vec = np.stack(([0,0,0],vec), axis = 0)
-        current_vec = np.concatenate((current_vec,[5*vec]), axis = 0)
+        xaxis = np.array([[1,0,0], [0,1,0], [0,0,1]]).astype('float64')
+        upnorm = np.cross(vec,[1,0,0])
+        # if upnorm[2]<0:
+        #     upnorm = upnorm.copy() * -1
+        sidenorm = np.cross(vec,upnorm)
+        current_vec = np.stack((vec, sidenorm, upnorm), axis = 0)
+        # current_vec = np.concatenate((current_vec,[5*vec]), axis = 0)
         rotationthing = R.align_vectors(xaxis, current_vec)
         #below is actual rotation matrix if needed
         #rot_mat = rotationthing[0].as_matrix()

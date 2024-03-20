@@ -61,7 +61,6 @@ def mesh_from_PCs(avgpcs, #average value for all PCs generated with the pca
                     whichpcs, #which PC number is being reconstructed
                     PCs, #list of PCs, [0] is the first PC, [1] is the second
                     pca, #actual pca file
-                    savedir,
                     lmax,):
     temppcs = avgpcs.copy()
     #transform PCs back from bins into PCs and put them in the proper location
@@ -82,7 +81,7 @@ def animate_PCs(avgpcs, #average value for all PCs generated with the pca
                 lmax,
                 rotations = [],):
     #generate mesh from PCs given
-    mesh = mesh_from_PCs(avgpcs,whichpcs, PCs, pca, savedir, lmax,)
+    mesh = mesh_from_PCs(avgpcs,whichpcs, PCs, pca, lmax,)
     #rotate if needed
     if any(rotations):
         #rotate  mesh
@@ -114,28 +113,44 @@ def animate_PCs(avgpcs, #average value for all PCs generated with the pca
 
 
 def interpolate_transitions_by_distance(traj,
-                            interpfreq: float = 0.1):
+                                        interpfreq: float = 0.1, #distance interval
+                                        ):
     
-    #get interval 
-    int_int = 1/(len(traj)-1)
+
+    #ensure float for duplicates adjustment
+    traj = traj.astype(float)
     
+    #get total distance to use for intervals
+    totaldist = []
+    for i, y in enumerate(traj[:-1]):
+        totaldist.append(distance.pdist([traj[i,:],traj[i+1,:]])[0])
+    totaldist = sum(totaldist)
+
+    #remove duplicates
+    #generate the tiny amount to add incase there's consecutive duplicates
+    tinyadd = 0
     duplicates = [i for i,w in enumerate(traj) if all(w==traj[i-1])]
     for d in duplicates:
-        traj[d,:] = traj[d,:]+0.001
+        tinyadd = tinyadd + 0.0001
+        traj[d,:] = traj[d,:]+tinyadd
     
     #interpolate 
     tck, b = interpolate.splprep(traj.T, k=1, s=0)
 
-
     #measure the trajectory and interpolate evenly by distance
     interlist = []
+    rollingstart = 0
     for t in range(len(traj)-1):
         di = distance.pdist([traj[t,:],traj[t+1,:]])[0]
         intt = round(di/interpfreq)
-        interpoints = np.linspace(start=t*int_int, stop = t*int_int+int_int, num = intt, endpoint = False)
+        #### distances for duplicates are low so make sure to include at least one point 
+        #### for that frame even through things don't move much
+        if intt<1:
+            intt = 1
+        interpoints = np.linspace(start=rollingstart/totaldist, stop = (rollingstart+di)/totaldist, num = intt, endpoint = False)
         x, y = interpolate.splev(interpoints,tck)
-        interlist.append(np.stack([interpoints,x,y]).T)
-
+        interlist.append(np.stack([np.array([t]*len(x)),interpoints,x,y]).T)
+        rollingstart = rollingstart + di
 
     return np.concatenate(interlist)
 
@@ -143,12 +158,16 @@ def interpolate_transitions_by_distance(traj,
 def interpolate_transitions_by_time(traj,
                                     ppt: int = 5, #points per time
                                     ):
+    #ensure float for duplicates adjustment
+    traj = traj.astype(float)
     #get interval 
     int_int = 1/(len(traj)-1)
-    
+    #generate the tiny amount to add incase there's consecutive duplicates
+    tinyadd = 0
     duplicates = [i for i,w in enumerate(traj) if all(w==traj[i-1])]
     for d in duplicates:
-        traj[d,:] = traj[d,:]+0.001
+        tinyadd = tinyadd + 0.0001
+        traj[d,:] = traj[d,:]+tinyadd
     
     #interpolate 
     tck, b = interpolate.splprep(traj.T, k=1, s=0)
@@ -176,12 +195,17 @@ def interpolate_contour_shapes(vertices,
                                interpfreq: float = 0.1 #interpolation frequency
                                ):
     
+    #exchange the values of the appropriate PCs in temppcs with the desired PC values
+    newverts = vertices.copy()
+    for i, v in enumerate(newverts):
+        newverts[i,0] = PC1bins[int(v[0]-1)]
+        newverts[i,1] = PC2bins[int(v[1]-1)]
     
     #extend the corners to make a full loop
-    vertices = np.concatenate((vertices,np.array([vertices[0,:]])))
+    newverts = np.concatenate((newverts,np.array([newverts[0,:]])))
     
     #interpolate the trajectory in the transition space
-    interarray = interpolate_transitions_by_distance(vertices,interpfreq)
+    interarray = interpolate_transitions_by_distance(newverts,interpfreq)
     
     #create the name of the current mesh
     digitlist = re.findall(r'\d', np.array2string(vertices))
@@ -200,15 +224,13 @@ def interpolate_contour_shapes(vertices,
     metricsarray = np.zeros((interarray.shape[0],interarray.shape[1]+len(metrics)))
     #get actual meshes along interpolated trajectory and/or calculate metrics in those positions
     for count, i in enumerate(interarray):
-        mesh_from_bins(
-                        i[1:],
-                        whichpcs,
-                        avgpcs,
-                        PC1bins,
-                        PC2bins,
-                        pca,
-                        longsave+str(round(i[0],3))+'.vtp',
-                        lmax)
+        mesh = mesh_from_PCs(avgpcs,
+                          whichpcs,
+                          i[1:],
+                          pca,
+                          lmax)
+        save_mesh(mesh, longsave+str(round(i[0],3))+'.vtp')
+        
         #get some average stats for the bins in the contour
         if len(metrics)>0:
             current =  TotalFrame[(TotalFrame['PC1bins'] == round(i[1])) & (TotalFrame['PC2bins'] == round(i[2]))]

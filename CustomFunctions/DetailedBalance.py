@@ -14,7 +14,8 @@ from CustomFunctions import PCvisualization
 import os
 import re
 import multiprocessing
-
+from itertools import groupby
+from operator import itemgetter
 
 
 def contour_coords_slant_corners(
@@ -299,40 +300,55 @@ def get_transition_counts(
         to, #all the transitions to that same box
         ttot, #total time represented by the experiment
         ):
-
-    x_minus_count = len([fromm['to_x'][a] for a in fromm['to_x'] if fromm['to_x'][a]<x])
+    
+    x_minus_count_for = len([fromm['to_x'][a] for a in fromm['to_x'] if fromm['to_x'][a]<x])
+    x_minus_for_rate = x_minus_count_for/ttot
     x_minus_count_rev = len([to['from_x'][a] for a in to['from_x'] if to['from_x'][a]<x])
-    x_minus_rate = (x_minus_count - x_minus_count_rev)/ttot
+    x_minus_rev_rate = x_minus_count_rev/ttot
+    x_minus_rate = (x_minus_count_for - x_minus_count_rev)/ttot
     
-    x_plus_count = len([fromm['to_x'][a] for a in fromm['to_x'] if fromm['to_x'][a]>x])
+    x_plus_count_for = len([fromm['to_x'][a] for a in fromm['to_x'] if fromm['to_x'][a]>x])
+    x_plus_for_rate = x_plus_count_for/ttot
     x_plus_count_rev = len([to['from_x'][a] for a in to['from_x'] if to['from_x'][a]>x])
-    x_plus_rate = (x_plus_count - x_plus_count_rev)/ttot
+    x_plus_rev_rate = x_plus_count_rev/ttot
+    x_plus_rate = (x_plus_count_for - x_plus_count_rev)/ttot
     
-    y_minus_count = len([fromm['to_y'][a] for a in fromm['to_y'] if fromm['to_y'][a]<y])
+    y_minus_count_for = len([fromm['to_y'][a] for a in fromm['to_y'] if fromm['to_y'][a]<y])
+    y_minus_for_rate = y_minus_count_for/ttot
     y_minus_count_rev = len([to['from_y'][a] for a in to['from_y'] if to['from_y'][a]<y])
-    y_minus_rate = (y_minus_count - y_minus_count_rev)/ttot
+    y_minus_rev_rate = y_minus_count_rev/ttot
+    y_minus_rate = (y_minus_count_for - y_minus_count_rev)/ttot
     
-    y_plus_count = len([fromm['to_y'][a] for a in fromm['to_y'] if fromm['to_y'][a]>y])
+    y_plus_count_for = len([fromm['to_y'][a] for a in fromm['to_y'] if fromm['to_y'][a]>y])
+    y_plus_for_rate = y_plus_count_for/ttot
     y_plus_count_rev = len([to['from_y'][a] for a in to['from_y'] if to['from_y'][a]>y])
-    y_plus_rate = (y_plus_count - y_plus_count_rev)/ttot
+    y_plus_rev_rate = y_plus_count_rev/ttot
+    y_plus_rate = (y_plus_count_for - y_plus_count_rev)/ttot
 
     trans_count = {
         'x':x,
         'y':y,
-        'x_minus_count':x_minus_count,
+        'x_minus_count':x_minus_count_for,
         'x_minus_count_rev':x_minus_count_rev,
+        'x_minus_for_rate':x_minus_for_rate,
+        'x_minus_rev_rate':x_minus_rev_rate,
         'x_minus_rate':x_minus_rate,
-        'x_plus_count':x_plus_count,
+        'x_plus_count':x_plus_count_for,
         'x_plus_count_rev':x_plus_count_rev,
+        'x_plus_for_rate':x_plus_for_rate,
+        'x_plus_rev_rate':x_plus_rev_rate,
         'x_plus_rate':x_plus_rate,
-        'y_minus_count':y_minus_count,
+        'y_minus_count':y_minus_count_for,
         'y_minus_count_rev':y_minus_count_rev,
+        'y_minus_for_rate':y_minus_for_rate,
+        'y_minus_rev_rate':y_minus_rev_rate,
         'y_minus_rate':y_minus_rate,
-        'y_plus_count':y_plus_count,
+        'y_plus_count':y_plus_count_for,
         'y_plus_count_rev':y_plus_count_rev,
+        'y_plus_for_rate':y_plus_for_rate,
+        'y_plus_rev_rate':y_plus_rev_rate,
         'y_plus_rate':y_plus_rate
             }
-    
     return trans_count
 
 def get_transition_counts_3d(
@@ -689,3 +705,74 @@ def contour_integral(
                 dottlist.append([cdf.bs_iteration.values[0], c[0], c[1], dott])
     return omega, dottlist
 
+
+   
+
+def get_area_enclosing_rate(transrates,
+                            center = 'center',):
+    if center == 'center':
+        shiftbyx = round(transrates.x.max()/2)
+        shiftbyy = round(transrates.x.max()/2)
+    if type(center) == list:
+        shiftbyx = center[0]
+        shiftbyy = center[1]
+    aerlist = []
+    for x in range(1,int(transrates.x.max()+1)):
+        for y in range(1,int(transrates.y.max()+1)):
+            current = transrates[(transrates['x'] == x) & (transrates['y'] == y)]
+            aerlist.append({'x':x,
+                            'y':y,
+                            'aer':(((y-shiftbyy)*(current.x_plus_rate.values[0] - current.x_minus_rate.values[0])) - 
+                                   ((x-shiftbyx)*(current.y_plus_rate.values[0] - current.y_minus_rate.values[0])))/2
+                            })
+    return pd.DataFrame(aerlist).sort_values(by = ['x','y']).reset_index(drop=True)
+
+
+
+
+
+
+
+######## from https://stackoverflow.com/questions/13728392/moving-average-or-running-mean
+def running_mean(x, N):
+    cumsum = np.cumsum(np.insert(x, 0, 0)) 
+    return (cumsum[N:] - cumsum[:-N]) / float(N)
+
+def filter_dataframe(df,
+                     factor,
+                     thresh = 0.05,
+                     N = 20,
+                     ):
+    allcellsabv = []
+    df = df.sort_values(by='frame').reset_index(drop=True)
+    for i, cells in df.groupby('CellID'):
+        cells = cells.reset_index(drop = True)
+        ############ actually filter the runs ################
+        runs = list()
+        #######https://stackoverflow.com/questions/2361945/detecting-consecutive-integers-in-a-list
+        for k, g in groupby(enumerate(cells['frame']), lambda ix: ix[0] - ix[1]):
+            currentrun = list(map(itemgetter(1), g))
+            list.append(runs, currentrun)
+        for r in runs:
+            r = np.array(r, dtype=int)
+            #skip runs less than 3 frames long
+            if len(r)<2:
+                pass
+            else:
+                cell = cells.iloc[[cells[cells.frame==y].index[0] for y in r]]
+                N=20
+                #shrink the convolution window if the track isn't long enough
+                if len(cell)<N:
+                    N=round(len(cell)/3)
+                ####### alternatively use:
+                ####### con = np.convolve(np.nan_to_num(data.speed), np.ones(N)/N, mode='valid')
+                con = running_mean(np.nan_to_num(cell[factor]),N)
+                abvthresh = np.where(con>thresh)[0]
+                if len(abvthresh)>0:
+                    indtopull = abvthresh + (N-1)
+                    if abvthresh[0] == 0:
+                        indtopull = np.insert(indtopull, 0, range(N-1))
+                    cellabv = cell.iloc[indtopull].copy()
+                    allcellsabv.append(cellabv)
+
+    return pd.concat(allcellsabv).reset_index(drop=True)
