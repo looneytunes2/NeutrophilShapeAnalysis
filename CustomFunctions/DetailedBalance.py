@@ -55,10 +55,10 @@ def contour_coords(
 
 
 def interpolate_2dtrajectory(
-        t_int,
-        cellname,
-        frames,
-        traj,
+        t_int, # time interval between frames in seconds
+        cellname, #name of cell
+        frames, #list of frames
+        traj, #numpy array with coordinates of cell at each timepoint
         ):
     
     #remove duplicate coordinates

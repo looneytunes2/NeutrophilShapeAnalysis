@@ -226,14 +226,14 @@ def interpolate_contour_shapes(vertices,
     for count, i in enumerate(interarray):
         mesh = mesh_from_PCs(avgpcs,
                           whichpcs,
-                          i[1:],
+                          i[2:],
                           pca,
                           lmax)
-        save_mesh(mesh, longsave+str(round(i[0],3))+'.vtp')
+        save_mesh(mesh, longsave+str(format(i[1],'.5f'))+'.vtp')
         
         #get some average stats for the bins in the contour
         if len(metrics)>0:
-            current =  TotalFrame[(TotalFrame['PC1bins'] == round(i[1])) & (TotalFrame['PC2bins'] == round(i[2]))]
+            current =  TotalFrame[(TotalFrame['PC1bins'] == round(i[2])) & (TotalFrame['PC2bins'] == round(i[3]))]
             if current.empty:
                 metricsarray[count,:] = np.concatenate((i ,[0]*len(metrics)))
             elif len(current)==1:
@@ -241,7 +241,7 @@ def interpolate_contour_shapes(vertices,
             else:
                 metricsarray[count,:] = np.concatenate((i ,current[metrics].mean().values.tolist()))
     
-    metricsframe = pd.DataFrame(metricsarray, columns=['arbitrarytime','PC1bin','PC2bin']+metrics)
+    metricsframe = pd.DataFrame(metricsarray, columns=['original coord number','arbitrarytime','PC1bin','PC2bin']+metrics)
     metricsframe.to_csv(longsave+'interarray.csv')
     # np.save(longsave+'interarray.npy', metricsarray)    
 

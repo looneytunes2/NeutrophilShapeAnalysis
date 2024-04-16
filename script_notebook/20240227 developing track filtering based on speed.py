@@ -13,10 +13,10 @@ from itertools import groupby
 from operator import itemgetter
 import matplotlib.pyplot as plt
 ########## find a cell of interest ###########
-savedir = 'D:/Aaron/Data/Combined_Confocal_PCA/'
+savedir = 'F:/Combined_Confocal_PCA_newrotation_newalign/'
 infrsavedir = savedir + 'Inframe_Videos/'
 
-TotalFrame = pd.read_csv('D:/Aaron/Data/Combined_Confocal_PCA_newrotation/Shape_Metrics_transitionPCbins.csv', index_col=0)
+TotalFrame = pd.read_csv(savedir+'Shape_Metrics_transitionPCbins.csv', index_col=0)
 
 #find the length of cell consecutive frames
 results = []
@@ -37,7 +37,7 @@ stdf.CellID.head(30)
 
 
 
-for x in range(20):
+for x in range(30):
     #select cell from list above
     row = stdf.loc[x]
     print(row.CellID)
@@ -46,8 +46,9 @@ for x in range(20):
     
     
     N = 20
-    plt.plot(np.convolve(data.speed, np.ones(N)/N, mode='valid'))
-    
+    plt.plot(np.convolve(data.speed, np.ones(N)/N, mode='valid'), label=x)
+
+plt.legend()
 
 
 
