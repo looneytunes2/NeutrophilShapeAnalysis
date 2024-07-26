@@ -112,9 +112,9 @@ from CustomFunctions.persistance_activity import get_pa, velocity_and_distance
 
 
 # path to folder(s)
-folder_fl = 'D:/Aaron/Data/Galvanotaxis_Confocal_40x_30C_10s/Tracking_Images/'
+folder_fl = 'E:/Aaron/Galvanotaxis_Confocal_40x_30C_10s/Tracking_Images/'
 filelist_fl = os.listdir(folder_fl)
-savedir = 'D:/Aaron/Data/Galvanotaxis_Confocal_40x_30C_10s/Processed_Data/'
+savedir = 'E:/Aaron/Galvanotaxis_Confocal_40x_30C_10s/Processed_Data/'
 #make the savedir if it doesn't exist
 if not os.path.exists(savedir):
     os.makedirs(savedir)
@@ -279,7 +279,7 @@ ax.legend()
 
 plt.show()
 
-tck, b = interpolate.splprep(cell[['x','y','z']].to_numpy().T, k=5)
+tck, b = interpolate.splprep(cell[['x','y','z']].to_numpy().T, k=5, s=120)
 yderv = interpolate.splev(b,tck,der=0)
 traj = np.vstack(yderv).T
 
@@ -471,7 +471,7 @@ if df_track.empty == False:
                         
                         
 ########## find a cell of interest ###########
-savedir = 'D:/Aaron/Data/Combined_Confocal_PCA/'
+savedir = 'E:/Aaron/Combined_Confocal_PCA/'
 infrsavedir = savedir + 'Inframe_Videos/'
 
 TotalFrame = pd.read_csv(savedir + 'Shape_Metrics_transitionPCbins.csv', index_col=0)

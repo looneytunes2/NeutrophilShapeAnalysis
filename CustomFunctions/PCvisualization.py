@@ -44,8 +44,8 @@ def mesh_from_bins(binpos,
     temppcs = avgpcs.copy()
 
     #exchange the values of the appropriate PCs in temppcs with the desired PC values
-    temppcs[whichpcs[0]-1] = PC1bins[int(binpos[0]-1)]
-    temppcs[whichpcs[1]-1] = PC2bins[int(binpos[1]-1)]
+    for w in range(len(whichpcs)):
+        temppcs[whichpcs[w]-1] = PC1bins[int(binpos[w]-1)]
         
     #inverse pca transform
     coeffs = pca.inverse_transform(temppcs)
@@ -65,8 +65,8 @@ def mesh_from_PCs(avgpcs, #average value for all PCs generated with the pca
     temppcs = avgpcs.copy()
     #transform PCs back from bins into PCs and put them in the proper location
     #in the average PC array
-    temppcs[whichpcs[0]-1] = PCs[0]
-    temppcs[whichpcs[1]-1] = PCs[1]
+    for w in range(len(whichpcs)):
+        temppcs[whichpcs[w]-1] = PCs[w]
     #inverse pca transform
     coeffs = pca.inverse_transform(temppcs)
     #get mesh from coeffs

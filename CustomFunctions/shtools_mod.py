@@ -13,6 +13,31 @@ from scipy import stats as scistats
 EPS = 1e-12
 
 
+
+
+def rotate_and_scale_mesh(
+        mesh,
+        rotations: np.array = np.array([0,0,0]), #rotations in [x,y,z]
+        scale: np.array = np.array([1,1,1]), #scaling factors for dimensions in [x,y,z]
+        ):
+    #rotate and scale mesh
+    #worked from https://kitware.github.io/vtk-examples/site/Python/PolyData/AlignTwoPolyDatas/
+    transformation = vtk.vtkTransform()
+    #input rotations
+    transformation.RotateWXYZ(rotations[2], 0, 0, 1)
+    transformation.RotateWXYZ(rotations[1], 0, 1, 0)
+    transformation.RotateWXYZ(rotations[0], 1, 0, 0)
+    #input scaling
+    transformation.Scale(scale[0], scale[1], scale[2])
+    #apply transformations
+    transformFilter = vtk.vtkTransformPolyDataFilter()
+    transformFilter.SetTransform(transformation)
+    transformFilter.SetInputData(mesh)
+    transformFilter.Update()
+    
+    return transformFilter.GetOutput()
+    
+
 def update_mesh_points(
     mesh: vtk.vtkPolyData, x_new: np.array, y_new: np.array, z_new: np.array
 ):
@@ -176,171 +201,10 @@ def get_mesh_from_image(
         coords = numpy_support.vtk_to_numpy(mesh.GetPoints().GetData())
         centroid = center.copy()
         coords -= centroid
-        mesh.GetPoints().SetData(numpy_support.numpy_to_vtk(coords))
+        mesh = update_mesh_points(mesh, coords[:, 0], coords[:, 1], coords[:, 2])
 
     return mesh, img_output, tuple(centroid.squeeze())
 
-
-
-def get_mesh_from_image_and_rotate(
-    image: np.array,
-    xyres: float,
-    zstep: float,
-    Euler_Angles: np.array,
-    sigma: float = 0,
-    provided_normal_rotation_angle: float = 0,
-    lcc: bool = True,
-    translate_to_origin: bool = True,
-    center: np.array = None,
-):
-
-    """Converts a numpy array into a vtkImageData and then into a 3d mesh
-    using vtkContourFilter. The input is assumed to be binary and the
-    isosurface value is set to 0.5.
-
-    Optionally the input can be pre-processed by i) extracting the largest
-    connected component and ii) applying a gaussian smooth to it. In case
-    smooth is used, the image is binarize using thershold 1/e.
-
-    A size threshold is applying to garantee that enough points will be
-    used to compute the SH parametrization.
-
-    Also, points as the edge of the image are set to zero (background)
-    to make sure the mesh forms a manifold.
-
-    Parameters
-    ----------
-    image : np.array
-        Input array where the mesh will be computed on
-    Returns
-    -------
-    mesh : vtkPolyData
-        3d mesh in VTK format
-    img_output : np.array
-        Input image after pre-processing
-    centroid : np.array
-        x, y, z coordinates of the mesh centroid
-
-    Other parameters
-    ----------------
-    lcc : bool, optional
-        Wheather or not to compute the mesh only on the largest
-        connected component found in the input connected component,
-        default is True.
-    sigma : float, optional
-        The degree of smooth to be applied to the input image, default
-        is 0 (no smooth).
-    translate_to_origin : bool, optional
-        Wheather or not translate the mesh to the origin (0,0,0),
-        default is True.
-    """
-
-    img = image.copy()
-
-    # VTK requires YXZ
-    img = np.swapaxes(img, 0, 2)
-
-    # Extracting the largest connected component
-    if lcc:
-
-        img = skmorpho.label(img.astype(np.uint8))
-
-        counts = np.bincount(img.flatten())
-
-        lcc = 1 + np.argmax(counts[1:])
-
-        img[img != lcc] = 0
-        img[img == lcc] = 1
-
-    # Smooth binarize the input image and binarize
-    if sigma:
-
-        img = skfilters.gaussian(img.astype(np.float32), sigma=(sigma, sigma, sigma))
-
-        img[img < 1.0 / np.exp(1.0)] = 0
-        img[img > 0] = 1
-
-        if img.sum() == 0:
-            raise ValueError(
-                "No foreground voxels found after pre-processing. Try using sigma=0."
-            )
-
-    # Set image border to 0 so that the mesh forms a manifold
-    img[[0, -1], :, :] = 0
-    img[:, [0, -1], :] = 0
-    img[:, :, [0, -1]] = 0
-    img = img.astype(np.float32)
-
-    if img.sum() == 0:
-        raise ValueError(
-            "No foreground voxels found after pre-processing."
-            "Is the object of interest centered?"
-        )
-
-    # Create vtkImageData
-    imgdata = vtk.vtkImageData()
-    imgdata.SetDimensions(img.shape)
-
-    img = img.transpose(2, 1, 0)
-    img_output = img.copy()
-    img = img.flatten()
-    arr = numpy_support.numpy_to_vtk(img, array_type=vtk.VTK_FLOAT)
-    arr.SetName("Scalar")
-    imgdata.GetPointData().SetScalars(arr)
-
-    # Create 3d mesh
-    cf = vtk.vtkContourFilter()
-    cf.SetInputData(imgdata)
-    cf.SetValue(0, 0.5)
-    cf.Update()
-
-    mesh = cf.GetOutput()
-
-    if translate_to_origin:
-        # Calculate the mesh centroid
-        coords = numpy_support.vtk_to_numpy(mesh.GetPoints().GetData())
-        centroid = coords.mean(axis=0, keepdims=True)
-    
-        # Translate to origin
-        coords -= centroid
-        mesh.GetPoints().SetData(numpy_support.numpy_to_vtk(coords))
-    else:
-        coords = numpy_support.vtk_to_numpy(mesh.GetPoints().GetData())
-        centroid = center.copy()
-        coords -= centroid
-        mesh.GetPoints().SetData(numpy_support.numpy_to_vtk(coords))    
-    
-    #rotate and scale mesh
-    #worked from https://kitware.github.io/vtk-examples/site/Python/PolyData/AlignTwoPolyDatas/
-    #rotate around z axis
-    transformation = vtk.vtkTransform()
-    #rotate the shape
-    transformation.RotateWXYZ(Euler_Angles[2], 0, 0, 1)
-    transformation.RotateWXYZ(Euler_Angles[0], 1, 0, 0)
-    #set scale to actual image scale
-    transformation.Scale(xyres, xyres, zstep)
-    transformFilter = vtk.vtkTransformPolyDataFilter()
-    transformFilter.SetTransform(transformation)
-    transformFilter.SetInputData(mesh)
-    transformFilter.Update()
-    mesh = transformFilter.GetOutput()
-    
-
-
-    #rotate the mesh around x by a specific angle
-    if provided_normal_rotation_angle>0:
-        #rotate around x by the widest y axis
-        transformation = vtk.vtkTransform()
-        #rotate the shape
-        transformation.RotateWXYZ(provided_normal_rotation_angle, 1, 0, 0)
-        transformFilter = vtk.vtkTransformPolyDataFilter()
-        transformFilter.SetTransform(transformation)
-        transformFilter.SetInputData(mesh)
-        transformFilter.Update()
-        mesh = transformFilter.GetOutput()
-
-
-    return mesh, img_output, tuple(centroid.squeeze())
 
 
 
@@ -826,6 +690,22 @@ def save_polydata(mesh: vtk.vtkPolyData, filename: str):
         writer = vtk.vtkPolyDataWriter()
     else:
         writer = vtk.vtkPLYWriter()
+    writer.SetInputData(mesh)
+    writer.SetFileName(filename)
+    writer.Write()
+
+
+def save_vtp(mesh: vtk.vtkPolyData, filename: str):
+
+    """Saves a mesh as a vtkPolyData file.
+
+    Parameters
+    ----------
+    mesh : vtkPolyData
+        Input mesh
+    filename : str
+        File path where the mesh will be saved
+    """
     writer.SetInputData(mesh)
     writer.SetFileName(filename)
     writer.Write()

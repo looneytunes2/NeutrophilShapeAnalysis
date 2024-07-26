@@ -221,3 +221,27 @@ def velocity_and_distance(df, #data frame with at x, y, and z positions
 
 
 
+def DA_3D(
+        #get the 3D directional autocorrelation
+        pos: np.array,  # x,y,z positions in shape (N,3)
+        lag: float = 1, # time interval over which to take the DA
+        ):
+    # Ensure lag is a valid positive integer
+    if lag < 1 or lag >= len(pos):
+        raise ValueError("Lag must be a positive integer less than the length of the coordinates")
+
+    traj = np.zeros((len(pos)-lag,3))
+    traj[:,0] = pos[lag:,0] - pos[:-lag,0]
+    traj[:,1] = pos[lag:,1] - pos[:-lag,1]
+    traj[:,2] = pos[lag:,2] - pos[:-lag,2]
+    # Normalize vectors to get unit direction vectors
+    unitvecs = traj/np.linalg.norm(traj, axis = 1)[:, np.newaxis]
+    # Calculate dot products of consecutive unit vectors with the given lag
+    dot_products = np.sum(unitvecs[:-1] * unitvecs[1:], axis=1)
+    # Create an array with NaN values and insert the dot products in the correct positions
+    DA = np.full(len(pos), np.nan)
+    DA[lag+1:] = dot_products
+    
+    return DA
+
+

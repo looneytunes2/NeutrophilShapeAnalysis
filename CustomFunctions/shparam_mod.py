@@ -311,7 +311,7 @@ def get_shcoeffs_mod(
         image_ = image_.squeeze()
 
     # Converting the input image into a mesh using regular marching cubes
-    mesh, image_, centroid = shtools_mod.get_mesh_from_image(image=image_, sigma=sigma)
+    mesh, image_, first_center = shtools_mod.get_mesh_from_image(image=image_, sigma=sigma)
     
     #rotate and scale mesh
     #worked from https://kitware.github.io/vtk-examples/site/Python/PolyData/AlignTwoPolyDatas/
@@ -643,7 +643,7 @@ def get_shcoeffs_mod(
     
     
     
-    if not image_[tuple([int(u) for u in centroid[::-1]])]:
+    if not image_[tuple([int(u) for u in first_center[::-1]])]:
         warnings.warn(
             "Mesh centroid seems to fall outside the object. This indicates\
         the mesh may not be a manifold suitable for spherical harmonics\
@@ -656,15 +656,15 @@ def get_shcoeffs_mod(
     # Get coordinates of mesh points
     coords = numpy_support.vtk_to_numpy(mesh.GetPoints().GetData())
     #get the centroid
-    centroid = coords.mean(axis=0, keepdims=True)
+    second_center = coords.mean(axis=0, keepdims=True)
     #subtract centroid from coordinates
-    coords -= centroid
+    coords -= second_center
     #separate the coordinates
     x = coords[:, 0]
     y = coords[:, 1]
     z = coords[:, 2]
 
-    transform = tuple(centroid.squeeze()) + ((angle,) if alignment_2d else ())
+    transform = tuple((np.array(first_center).squeeze(), second_center.squeeze())) + ((angle,) if alignment_2d else ())
 
     # Translate and update mesh normals
     mesh = shtools_mod.update_mesh_points(mesh, x, y, z)
@@ -1586,7 +1586,7 @@ def shcoeffs_and_PILR_nonuc(
     RecontoOriginalError = np.mean(d)
     
     
-    if 'si' in locals():
+    if ('si' in locals()) and (si.max()>0):
         #create inner sphere
         sphereSource = vtk.vtkSphereSource()
         sphereSource.SetCenter(0.0, 0.0, 0.0)
@@ -1614,16 +1614,23 @@ def shcoeffs_and_PILR_nonuc(
         
         else:
             #get structure mesh
-            str_mesh, _, cent = shtools_mod.get_mesh_from_image_and_rotate(
+            str_mesh, _, cent = shtools_mod.get_mesh_from_image(
                 image = si,
-                xyres = xyres/xyres, #use pixels and not microns because I'll need pixel dimensions for PILRs
-                zstep = zstep/xyres,
-                Euler_Angles = euler_angles,
-                provided_normal_rotation_angle = widestangle,
                 translate_to_origin=False,
                 lcc = False,
-                center = np.array(centroid_mem)
-            )
+                center = np.array(centroid_mem)[0]
+                )
+            #euler rotation and scaling
+            str_mesh = shtools_mod.rotate_and_scale_mesh(str_mesh,
+                                              euler_angles,
+                                              np.array([xyres, xyres, zstep])/xyres)
+            #widest angle rotation
+            str_mesh = shtools_mod.rotate_and_scale_mesh(str_mesh,
+                                              rotations = np.array([widestangle,0,0]))
+            #adjust the structure center to the final position of the cell after rotation
+            coords = numpy_support.vtk_to_numpy(str_mesh.GetPoints().GetData())
+            coords -= np.array(centroid_mem)[1]
+            str_mesh = shtools_mod.update_mesh_points(str_mesh, coords[:, 0], coords[:, 1], coords[:, 2])
         
             #get voxelized intracellular structure image
             img, origin = cytoparam_mod.voxelize_meshes([cell_mesh,str_mesh])
@@ -1727,9 +1734,9 @@ def shcoeffs_and_PILR_nonuc(
                    'Euler_angles_Y':euler_angles[1],
                    'Euler_angles_Z':euler_angles[2],
                    'Width_Rotation_Angle': widestangle,
-                  'Cell_Centroid_X': centroid_mem[0],
-                  'Cell_Centroid_Y': centroid_mem[1],
-                  'Cell_Centroid_Z': centroid_mem[2],
+                  'Cell_Centroid_X': centroid_mem[0][0],
+                  'Cell_Centroid_Y': centroid_mem[0][1],
+                  'Cell_Centroid_Z': centroid_mem[0][2],
                    'Cell_Volume': CellMassProperties.GetVolume(),
                     'Cell_Volume_Front': FrontVolume,
                     'Cell_Volume_Right': RightVolume,

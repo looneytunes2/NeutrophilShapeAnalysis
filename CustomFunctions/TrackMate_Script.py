@@ -22,11 +22,11 @@ from fiji.plugin.trackmate.visualization.hyperstack import HyperStackDisplayer
 #from loci.common import Region
 #from loci.plugins.in import ImporterOptions
 
-direct = 'D:/Aaron/Data/Galvanotaxis_Confocal_40x_30C/Tracking_Images/'
+direct = 'E:/Aaron/Galvanotaxis_Confocal_40x_EFR/Tracking_Images/'
 
 #need windowless bioformats opening
 
-for fi in os.listdir(direct)[4:]:
+for fi in os.listdir(direct):
 	#fi = os.listdir(direct)[0]
 	imname = [x for x in os.listdir(direct + '/' + fi) if x.endswith('segmented.ome.tiff')]
 	for x in imname:
