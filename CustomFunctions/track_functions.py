@@ -560,7 +560,7 @@ def tracking_track(df):
     Parameters
     ----------
     df: pandas DataFrame
-        DataFrame with columns of 'x', 'y', and 'z' positions.
+        DataFrame with columns of 'cell', 'frame', 'x', 'y', and 'z' positions.
 
     Returns
     -------
