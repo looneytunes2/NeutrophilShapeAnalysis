@@ -237,7 +237,7 @@ def DA_3D(
     # Normalize vectors to get unit direction vectors
     unitvecs = traj/np.linalg.norm(traj, axis = 1)[:, np.newaxis]
     # Calculate dot products of consecutive unit vectors with the given lag
-    dot_products = np.sum(unitvecs[:-1] * unitvecs[1:], axis=1)
+    dot_products = np.sum(unitvecs[:-lag] * unitvecs[lag:], axis=1)
     # Create an array with NaN values and insert the dot products in the correct positions
     DA = np.full(len(pos), np.nan)
     DA[lag+1:] = dot_products

@@ -35,6 +35,7 @@ from aicsimageio.readers.tiff_reader import TiffReader
 
 def find_normal_width_peaks(
         impath: str,
+        csvdir: str,
         xyres: float,
         zstep: float,
         sigma: float = 0,
@@ -48,7 +49,7 @@ def find_normal_width_peaks(
     im = TiffReader(impath)
     
     #read euler angles for alignment
-    infopath = '/'.join(impath.split('/')[:-1]) + '/' + cell_name + '_cell_info.csv'
+    infopath = csvdir + cell_name + '_cell_info.csv'
     #if align_method is a numpy array, use that as the vector to align to
     if type(align_method) == np.ndarray:
         vec = align_method.copy()
@@ -1446,7 +1447,7 @@ def shcoeffs_and_PILR(
 
 def shcoeffs_and_PILR_nonuc(
         impath: str,
-        savedir: str,
+        direct: str,
         xyres: float,
         zstep: float,
         str_name: str,
@@ -1454,6 +1455,7 @@ def shcoeffs_and_PILR_nonuc(
         normal_rotation_method: str,
         l_order: int,
         nisos: int,
+        pilr_method: str,
         sigma: float = 0,
         align_method: str = 'None',
         ):
@@ -1515,12 +1517,14 @@ def shcoeffs_and_PILR_nonuc(
             """
     
     #get cell name from impath
+    impath = direct + 'processed_images/' + impath
+    print(impath)
     cell_name = impath.split('/')[-1].split('_segmented')[0]
     #read image
     im = TiffReader(impath)
     
     #read euler angles for alignment
-    infopath = '/'.join(impath.split('/')[:-1]) + '/' + cell_name + '_cell_info.csv'
+    infopath = direct + 'processed_data/' + cell_name + '_cell_info.csv'
     #if align_method is a numpy array, use that as the vector to align to
     if type(align_method) == np.ndarray:
         vec = align_method.copy()
@@ -1555,8 +1559,12 @@ def shcoeffs_and_PILR_nonuc(
         euler_angles = np.array([rotthing_euler[0], rotthing_euler[1], rotthing_euler[2]])
         
     if len(im.shape)>3:
-        ci = im.data[0,:,:,:]
-        si = im.data[1,:,:,:]
+        if im.shape[0]>2:
+            ci = im.data[0,:,:,:]
+            si = im.data[1:,:,:,:]
+        else:
+            ci = im.data[0,:,:,:]
+            si = im.data[1,:,:,:][np.newaxis]
     else:
         ci = im.data
         
@@ -1585,6 +1593,10 @@ def shcoeffs_and_PILR_nonuc(
     d, idx = tree.query(numpy_support.vtk_to_numpy(cell_mesh.GetPoints().GetData()))
     RecontoOriginalError = np.mean(d)
     
+    #make sure nucleus is handled as segmented
+    if str_name == 'nucleus':
+        pilr_method = 'threshold'
+    
     
     if ('si' in locals()) and (si.max()>0):
         #create inner sphere
@@ -1601,62 +1613,117 @@ def shcoeffs_and_PILR_nonuc(
         (sphere_coeffs, grid_rec), (grid_down) = get_shcoeffs_mesh(
                 spherepoly,
                 lmax= l_order)
-    
-        
-        #provide escape for cells with no signal in the "structure channel"
-        if np.max(si) == 0:
-            #get voxelized intracellular structure image
-            img, origin = cytoparam_mod.voxelize_meshes([cell_mesh])
-        
-            #get rotated segmentented str signal alone
-            strimg = img.copy()
-            strimg[strimg>0]=255
-        
-        else:
-            #get structure mesh
-            str_mesh, _, cent = shtools_mod.get_mesh_from_image(
-                image = si,
-                translate_to_origin=False,
-                lcc = False,
-                center = np.array(centroid_mem)[0]
-                )
-            #euler rotation and scaling
-            str_mesh = shtools_mod.rotate_and_scale_mesh(str_mesh,
-                                              euler_angles,
-                                              np.array([xyres, xyres, zstep])/xyres)
-            #widest angle rotation
-            str_mesh = shtools_mod.rotate_and_scale_mesh(str_mesh,
-                                              rotations = np.array([widestangle,0,0]))
-            #adjust the structure center to the final position of the cell after rotation
-            coords = numpy_support.vtk_to_numpy(str_mesh.GetPoints().GetData())
-            coords -= np.array(centroid_mem)[1]
-            str_mesh = shtools_mod.update_mesh_points(str_mesh, coords[:, 0], coords[:, 1], coords[:, 2])
-        
-            #get voxelized intracellular structure image
-            img, origin = cytoparam_mod.voxelize_meshes([cell_mesh,str_mesh])
-            
-            #get rotated segmentented str signal alone
-            strimg = img.copy()
-            strimg[strimg<2]=0
-            strimg[strimg>0]=255
-                    
-            #scale structure mesh
-            #set transform and apply
-            meshf = savedir+'Meshes/'
-            transformation = vtk.vtkTransform()
-            transformation.Scale(xyres, xyres, xyres)
-            transformFilter = vtk.vtkTransformPolyDataFilter()
-            transformFilter.SetTransform(transformation)
-            transformFilter.SetInputData(str_mesh)
-            transformFilter.Update()
-            str_mesh = transformFilter.GetOutput()
-            #save str mesh
-            writer = vtk.vtkXMLPolyDataWriter()
-            writer.SetFileName(meshf + cell_name + '_str_mesh.vtp')
-            writer.SetInputData(str_mesh)
-            writer.Write()
-            
 
+            
+        
+        images_to_probe = []
+        if pilr_method == 'threshold':
+            #set levels strings for structure thrsholds
+            if len(si)>1:
+                levels = ['low','mid','high']
+            else:
+                levels = ['mid']
+            #for each structure threshold try to get a PILR
+            for n, s in enumerate(si):
+    
+                #provide escape for cells with no signal in the "structure channel"
+                if np.max(s) == 0:
+                    #get voxelized intracellular structure image
+                    img, origin = cytoparam_mod.voxelize_meshes([cell_mesh])
+                
+                    #get rotated segmentented str signal alone
+                    strimg = img.copy()
+                    strimg[strimg>0]=255
+                
+                else:
+                    #get structure mesh
+                    str_mesh, _, cent = shtools_mod.get_mesh_from_image(
+                        image = s,
+                        translate_to_origin=False,
+                        lcc = False,
+                        center = np.array(centroid_mem)[0]
+                        )
+                    #euler rotation and scaling
+                    str_mesh = shtools_mod.rotate_and_scale_mesh(str_mesh,
+                                                      euler_angles,
+                                                      np.array([xyres, xyres, zstep])/xyres)
+                    #widest angle rotation
+                    str_mesh = shtools_mod.rotate_and_scale_mesh(str_mesh,
+                                                      rotations = np.array([widestangle,0,0]))
+                    #adjust the structure center to the final position of the cell after rotation
+                    coords = numpy_support.vtk_to_numpy(str_mesh.GetPoints().GetData())
+                    coords -= np.array(centroid_mem)[1]
+                    str_mesh = shtools_mod.update_mesh_points(str_mesh, coords[:, 0], coords[:, 1], coords[:, 2])
+                
+                    #get voxelized intracellular structure image
+                    img, origin = cytoparam_mod.voxelize_meshes([cell_mesh,str_mesh])
+                    
+                    #get rotated segmentented str signal alone
+                    strimg = img.copy()
+                    strimg[strimg<2]=0
+                    strimg[strimg>0]=255
+                    images_to_probe.append([str_name,strimg])
+                    
+                    #scale structure mesh
+                    #set transform and apply
+                    meshf = direct + 'meshes/'
+                    transformation = vtk.vtkTransform()
+                    transformation.Scale(xyres, xyres, xyres)
+                    transformFilter = vtk.vtkTransformPolyDataFilter()
+                    transformFilter.SetTransform(transformation)
+                    transformFilter.SetInputData(str_mesh)
+                    transformFilter.Update()
+                    str_mesh = transformFilter.GetOutput()
+                    #save str mesh
+                    writer = vtk.vtkXMLPolyDataWriter()
+                    writer.SetFileName(meshf + cell_name + f'_str_mesh_{levels[n]}.vtp')
+                    writer.SetInputData(str_mesh)
+                    writer.Write()
+                    
+        elif pilr_method == 'raw':
+            ######### translate coordinates to membrane centroid
+            #open the raw data
+            rawpath = impath.split('_segmented')[0] + '_raw.tiff'
+            #read image
+            raw = TiffReader(rawpath).data
+            memseg = np.where(ci>0)
+            intensities = np.tile(raw[1][memseg],3)
+            #add some half points
+            memsegmore = []
+            for m in memseg:
+                memsegmore.append(np.concatenate((m,m-0.25,m+0.25)))
+            memcent = np.mean(memsegmore, axis = 1)
+            centcoords = [memsegmore[i]-m for i, m in enumerate(memcent)]
+            ########## rotate coordinates
+            #first rotate toward trajectory (coords are flipped from zyx to xyz)
+            rotcoords = rotationthing[0].apply(np.flip(np.array(centcoords).T, axis = 1))
+            #then do width rotation (coords are flipped back to zyx from xyz)
+            widrot = R.from_euler('xyz',np.array([widestangle,0,0]), degrees = True)
+            widrotcoords = np.flip(widrot.apply(rotcoords), axis = 1)
+            ######### move coordinates to origin as 0,0,0 (size of image plus pad 1)
+            rotimg, origin = cytoparam_mod.voxelize_meshes([cell_mesh])
+            rotseg = np.where(rotimg>0)
+            rotcent = np.mean(rotseg, axis = 1)
+            zerocoords = np.subtract(widrotcoords, -rotcent)#origin[::-1])
+            ######### turn coordinates into int
+            zerointcoords = np.round(zerocoords).astype(np.int16)
+            ######### apply scalars to new array
+            strimg = np.zeros(rotimg.shape)
+            #combine coords with intensities
+            coordint = np.hstack((zerointcoords,intensities.reshape(-1,1)))
+            for z in range(strimg.shape[-3]):
+                zcoords = coordint[np.where(coordint[:,0] == z)]
+                for y in np.unique(zcoords[:,1]):
+                    ycoords = zcoords[np.where(zcoords[:,1] == y)]
+                    for x in np.unique(ycoords[:,2]):
+                        xcoords = ycoords[np.where(ycoords[:,2] == x)]
+                        strimg[z,y,x] = np.mean(xcoords[:,-1])
+            ####### normalize the strimg
+            strimg = strimg-intensities.min()
+            strimg = strimg/strimg.max()
+            strimg[strimg<0] = 0
+            images_to_probe.append([str_name,strimg])
+    
         #########parameterize cell
         aicstif = cytoparam_mod.cellular_mapping(
             coeffs_mem = coeffs_mem,
@@ -1664,14 +1731,14 @@ def shcoeffs_and_PILR_nonuc(
             coeffs_nuc = sphere_coeffs,
             centroid_nuc = abs(origin)[0],
             nisos = nisos,
-            images_to_probe = [[str_name,strimg]],
+            images_to_probe = images_to_probe,
             )
               
         #Save PILR
-        pilrf = savedir+'PILRs/'
-        if os.path.exists(pilrf+cell_name+'_PILR.tiff'):
-            os.remove(pilrf+cell_name+'_PILR.tiff')
-        OmeTiffWriter.save(aicstif.get_image_data('CZYX', S=0, T=0), pilrf+cell_name+'_PILR.tiff', dim_order='CZYX', channel_names=aicstif.channel_names)
+        pilrf = direct+'PILRs/'
+        if os.path.exists(pilrf+cell_name+'_PILR.ome.tiff'):
+            os.remove(pilrf+cell_name+'_PILR.ome.tiff')
+        OmeTiffWriter.save(aicstif.get_image_data('CZYX', S=0, T=0), pilrf+cell_name+'_PILR.ome.tiff', dim_order='CZYX', channel_names=aicstif.channel_names)
         
         
     #now that PILR has been made,
@@ -1689,7 +1756,7 @@ def shcoeffs_and_PILR_nonuc(
     
     
     # remove file if it already exists
-    meshf = savedir+'Meshes/'
+    meshf = direct + 'meshes/'
     #save cell mesh
     writer = vtk.vtkXMLPolyDataWriter()
     writer.SetFileName(meshf + cell_name + '_cell_mesh.vtp')
@@ -1705,6 +1772,9 @@ def shcoeffs_and_PILR_nonuc(
     
     #get cell major, minor, and mini axes using the segmented image
     cell_coords = numpy_support.vtk_to_numpy(cell_mesh.GetPoints().GetData())
+    ##### measure length of cell along the trajectory axis
+    trajlen = np.max(cell_coords[:,0])-np.min(cell_coords[:,0])
+    trajwid = np.max(cell_coords[:,1])-np.min(cell_coords[:,1])
     #remove duplicate coordinates
     duplicates = pd.DataFrame(cell_coords).duplicated().to_numpy()
     mask = np.ones(len(cell_coords), dtype=bool)
@@ -1726,6 +1796,8 @@ def shcoeffs_and_PILR_nonuc(
     FrontVolume = measure_volume_half(cell_mesh, 'x')
     RightVolume = measure_volume_half(cell_mesh, 'y')
     TopVolume = measure_volume_half(cell_mesh, 'z')
+    
+
     
     
     #Shape stats dict
@@ -1755,276 +1827,12 @@ def shcoeffs_and_PILR_nonuc(
                    'Cell_MiniAxis_Vec_Y': cell_evecs[1,2],
                    'Cell_MiniAxis_Vec_Z': cell_evecs[2,2],
                    'OriginaltoReconError': OriginaltoReconError,
-                   'RecontoOriginalError': RecontoOriginalError
+                   'RecontoOriginalError': RecontoOriginalError,
+                   'LengthAlongTrajectory': trajlen,
+                   'WidthAlongTrajectory:': trajwid
                     }
 
 
     return Shape_Stats, coeffs_mem, exceptions_list
 
 
-
-# def shcoeffs_and_PILR_nonuc_queue(queue,):
-
-#     """
-#         Parameters
-#         ----------
-#         impath : str
-#             Input image path. Expected to have shape CZYX. Channel order must be Membrane, Nucleus, Structure
-#         savedir : str
-#             Directory that will contain the Mesh and PILR folders
-#         xyres : float
-#             microns/pixel resolution of the image
-#         zstep : float
-#             Z step of the image
-#         normal_rotation_method : str
-#             "widest" is longest axis parallel to trajectory
-#         exceptions_list : List
-#             List to append names of images that cannot be represented well by SH
-#         str_name : str
-#             String detailing the name of the intracellular structure in the image
-#         l_order : int
-#             l order for SH transformation
-        
-#         Returns
-#         -------
-#         coeffs_dict : dict
-#             Dictionary with the spherical harmonics coefficients and the mean square
-#             error between input and its parametrization
-#         grid_rec : ndarray
-#             Parametric grid representing sh parametrization
-#         image_ : ndarray
-#             Input image after pre-processing (lcc calculation, smooth and binarization).
-#         mesh : vtkPolyData
-#             Polydata representation of image_.
-#         grid_down : ndarray
-#             Parametric grid representing input object.
-#         transform : tuple of floats
-#             (xc, yc, zc, angle) if alignment_2d is True or
-#             (xc, yc, zc) if alignment_2d is False. (xc, yc, zc) are the coordinates
-#             of the shape centroid after alignment; angle is the angle used to align
-#             the image
-
-#         Other parameters
-#         ----------------
-#         sigma : float, optional
-#             The degree of smooth to be applied to the input image, default is 0 (no
-#             smooth)
-#         compute_lcc : bool, optional
-#             Whether to compute the largest connected component before appliying the
-#             spherical harmonic parametrization, default is True. Set compute_lcc to
-#             False in case you are sure the input image contains a single connected
-#             component. It is crucial that parametrization is calculated on a single
-#             connected component object.
-#         alignment_2d : bool
-#             Wheather the image should be aligned in 2d. Default is True.
-#         make_unique : bool
-#             Set true to make sure the alignment rotation is unique. 
-#             """
-            
-#     #use dict from queue to get args
-#     args = queue.get(block=True)
-    
-#     impath = args['impath']
-#     savedir = args['savedir']
-#     xyres = args['xyres']
-#     zstep = args['zstep']
-#     str_name = args['str_name']
-#     exceptions_list = args['exceptions_list']
-#     normal_rotation_method = args['normal_rotation_method']
-#     l_order = args['l_order']
-#     nisos = args['nisos']
-#     sigma = args['sigma']
-#     align_method = args['align_method']
-            
-            
-    
-#     #get cell name from impath
-#     cell_name = impath.split('/')[-1].split('_segmented')[0]
-#     #read image
-#     im = TiffReader(impath)
-#     imd = im.data
-    
-#     #read euler angles for alignment
-#     infopath = '/'.join(impath.split('/')[:-1]) + '/' + cell_name + '_cell_info.csv'
-#     if align_method == 'trajectory':
-#         info = pd.read_csv(infopath, index_col=0)
-#         vec = np.array([info.Trajectory_X[0], info.Trajectory_Y[0], info.Trajectory_Z[0]])
-#         #align current vector with x axis and get euler angles of resulting rotation matrix https://docs.scipy.org/doc/scipy/reference/generated/scipy.spatial.transform.Rotation.html
-#         xaxis = np.array([[0,0,0],[1,0,0], [5,0,0]]).astype('float64')
-#         current_vec = np.stack(([0,0,0],vec), axis = 0)
-#         current_vec = np.concatenate((current_vec,[5*vec]), axis = 0)
-#         rotationthing = R.align_vectors(xaxis, current_vec)
-#         #below is actual rotation matrix if needed
-#         #rot_mat = rotationthing[0].as_matrix()
-#         rotthing_euler = rotationthing[0].as_euler('xyz', degrees = True)
-#         euler_angles = np.array([rotthing_euler[0], rotthing_euler[1], rotthing_euler[2]])
-    
-    
-#     #get cell mesh and coeffs
-#     (coeffs_mem, grid_rec, widestangle, exceptions_list), (image_, cell_mesh, grid, centroid_mem) = get_shcoeffs_mod(        
-#         image = imd[0,:,:,:],
-#         img_name= cell_name,
-#         lmax = l_order,
-#         xyres = xyres/xyres,
-#         zstep = zstep/xyres,
-#         Euler_Angles = euler_angles,
-#         exceptions_list = exceptions_list,
-#         sigma = sigma,
-#         normal_rotation_method = normal_rotation_method,
-#         )
-    
-    
-#     #get reconstruction errors both ways
-#     cell_recon, grid_recon = shtools_mod.get_reconstruction_from_coeffs(np.array(list(coeffs_mem.values())).reshape(2,l_order+1,l_order+1))
-#     #get average nearest distance from original mesh to reconstruction
-#     tree = KDTree(numpy_support.vtk_to_numpy(cell_mesh.GetPoints().GetData()))
-#     d, idx = tree.query(numpy_support.vtk_to_numpy(cell_recon.GetPoints().GetData()))
-#     OriginaltoReconError = np.mean(d)
-#     #get average nearest distance from reconstruction to original mesh
-#     tree = KDTree(numpy_support.vtk_to_numpy(cell_recon.GetPoints().GetData()))
-#     d, idx = tree.query(numpy_support.vtk_to_numpy(cell_mesh.GetPoints().GetData()))
-#     RecontoOriginalError = np.mean(d)
-    
-    
-    
-#     #create inner sphere
-#     sphereSource = vtk.vtkSphereSource()
-#     sphereSource.SetCenter(0.0, 0.0, 0.0)
-#     sphereSource.SetRadius(nisos[0]/2)
-#     # Make the surface smooth.
-#     sphereSource.SetPhiResolution(100)
-#     sphereSource.SetThetaResolution(100)
-#     sphereSource.Update()
-#     spherepoly = sphereSource.GetOutput()
-    
-    
-#     (sphere_coeffs, grid_rec), (grid_down) = get_shcoeffs_mesh(
-#             spherepoly,
-#             lmax= l_order)
-
-    
-#     #provide escape for cells with no signal in the "structure channel"
-#     if np.max(imd[1,:,:,:]) == 0:
-#         #get voxelized intracellular structure image
-#         img, origin = cytoparam_mod.voxelize_meshes([cell_mesh])
-    
-#         #get rotated segmentented str signal alone
-#         strimg = img.copy()
-#         strimg[strimg>0]=255
-    
-#     else:
-#         #get structure mesh
-#         str_mesh, _, cent = shtools_mod.get_mesh_from_image_and_rotate(
-#             image = imd[1,:,:,:],
-#             xyres = xyres/xyres,
-#             zstep = zstep/xyres,
-#             Euler_Angles = euler_angles,
-#             provided_normal_rotation_angle = widestangle,
-#             translate_to_origin=False,
-#             lcc = False,
-#             center = np.array(centroid_mem)
-#         )
-    
-#         #get voxelized intracellular structure image
-#         img, origin = cytoparam_mod.voxelize_meshes([cell_mesh,str_mesh])
-        
-#         #get rotated segmentented str signal alone
-#         strimg = img.copy()
-#         strimg[strimg<2]=0
-#         strimg[strimg>0]=255
-
-
-#     #########parameterize cell
-#     aicstif = cytoparam_mod.cellular_mapping(
-#         coeffs_mem = coeffs_mem,
-#         centroid_mem = abs(origin)[0],
-#         coeffs_nuc = sphere_coeffs,
-#         centroid_nuc = abs(origin)[0],
-#         nisos = nisos,
-#         images_to_probe = [[str_name,strimg]],
-#         )
-          
-#     #Save PILR
-#     pilrf = savedir+'PILRs/'
-#     if os.path.exists(pilrf+cell_name+'_PILR.tif'):
-#         os.remove(pilrf+cell_name+'_PILR.tif')
-#     OmeTiffWriter.save(aicstif.get_image_data('CZYX', S=0, T=0), pilrf+cell_name+'_PILR.tif', dim_order='CZYX', channel_names=aicstif.channel_names)
-    
-    
-    
-#     # remove file if it already exists
-#     meshf = savedir+'Meshes/'
-#     #save cell mesh
-#     writer = vtk.vtkXMLPolyDataWriter()
-#     writer.SetFileName(meshf + cell_name + '_cell_mesh.vtp')
-#     writer.SetInputData(cell_mesh)
-#     writer.Write()
-    
-    
-#     if np.max(imd[1,:,:,:]) != 0:
-#         #save str mesh
-#         writer = vtk.vtkXMLPolyDataWriter()
-#         writer.SetFileName(meshf + cell_name + '_str_mesh.vtp')
-#         writer.SetInputData(str_mesh)
-#         writer.Write()
-    
-    
-#     #scale cell and nuc meshes so that I can take some shape stats
-#     #set transform and apply to cell
-#     transformation = vtk.vtkTransform()
-#     transformation.Scale(xyres, xyres, xyres)
-#     transformFilter = vtk.vtkTransformPolyDataFilter()
-#     transformFilter.SetTransform(transformation)
-#     transformFilter.SetInputData(cell_mesh)
-#     transformFilter.Update()
-#     cell_mesh = transformFilter.GetOutput()
-    
-    
-    
-    
-#     #Get physical properties of both cell and nucleus
-#     CellMassProperties = vtk.vtkMassProperties()
-#     CellMassProperties.SetInputData(cell_mesh)
-    
-    
-#     #get cell major, minor, and mini axes
-#     cell_coords = numpy_support.vtk_to_numpy(cell_mesh.GetPoints().GetData())
-#     cov = np.cov(cell_coords.T)
-#     cell_evals, cell_evecs = np.linalg.eig(cov)
-#     cell_sort_indices = np.argsort(cell_evals)[::-1]
-#     rotationthing = R.align_vectors(np.array([[0,0,1],[0,1,0],[1,0,0]]), cell_evecs.T)
-#     cell_coords = rotationthing[0].apply(cell_coords)
-    
-    
-    
-    
-#     #Shape stats dict
-#     Shape_Stats = {'cell': cell_name,
-#                    'Euler_angles_X': euler_angles[0],
-#                    'Euler_angles_Y':euler_angles[1],
-#                    'Euler_angles_Z':euler_angles[2],
-#                    'Width_Rotation_Angle': widestangle,
-#                   'Cell_Centroid_X': centroid_mem[0],
-#                   'Cell_Centroid_Y': centroid_mem[1],
-#                   'Cell_Centroid_Z': centroid_mem[2],
-#                    'Cell_Volume': CellMassProperties.GetVolume(),
-#                    'Cell_SurfaceArea': CellMassProperties.GetSurfaceArea(),
-#                    'Cell_MajorAxis': np.max(cell_coords[:,2])-np.min(cell_coords[:,2]),
-#                    'Cell_MajorAxis_Vec_X': cell_evecs[:, cell_sort_indices[0]][0],
-#                    'Cell_MajorAxis_Vec_Y': cell_evecs[:, cell_sort_indices[0]][1],
-#                    'Cell_MajorAxis_Vec_Z': cell_evecs[:, cell_sort_indices[0]][2],
-#                    'Cell_MinorAxis': np.max(cell_coords[:,1])-np.min(cell_coords[:,1]),
-#                    'Cell_MinorAxis_Vec_X': cell_evecs[:, cell_sort_indices[1]][0],
-#                    'Cell_MinorAxis_Vec_Y': cell_evecs[:, cell_sort_indices[1]][1],
-#                    'Cell_MinorAxis_Vec_Z': cell_evecs[:, cell_sort_indices[1]][2],
-#                    'Cell_MiniAxis': np.max(cell_coords[:,0])-np.min(cell_coords[:,0]),
-#                    'Cell_MiniAxis_Vec_X': cell_evecs[:, cell_sort_indices[2]][0],
-#                    'Cell_MiniAxis_Vec_Y': cell_evecs[:, cell_sort_indices[2]][1],
-#                    'Cell_MiniAxis_Vec_Z': cell_evecs[:, cell_sort_indices[2]][2],
-#                    'OriginaltoReconError': OriginaltoReconError,
-#                    'RecontoOriginalError': RecontoOriginalError
-#                     }
-
-
-    
-#     return Shape_Stats, coeffs_mem, exceptions_list

@@ -16,7 +16,6 @@ def read_parameterized_intensity(im):
 
 #     if path.is_file():
     code = AICSImage(im)
-    intensity_names = code.channel_names
     code = code.data.squeeze()
     if code.ndim == 2:
         code = code.reshape(1, *code.shape)

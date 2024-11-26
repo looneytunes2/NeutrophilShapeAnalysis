@@ -614,7 +614,16 @@ def bootstrap_trajectories(
             shuffle(rando)
             pick = transpairsdf.loc[rando[0]]
     bsdf = pd.DataFrame(bslist, columns = firstnames)
-    
+
+    return bsdf
+
+
+
+def transition_count_wrapper(
+        bsdf, #transition dataframe from bootstrap_trajectories()
+        nbins, #bins in the CGPS
+        ct, #the cumulative time actually observed during the simulation, especially important for simulations that terminate early
+        ):
     ############## get the Boosttrapped counts of each bin position ############
     results = []
     for x in range(nbins):
@@ -632,19 +641,7 @@ def bootstrap_trajectories(
     bstrans_rate_df = pd.DataFrame(results)
     bstrans_rate_df = bstrans_rate_df.sort_values(by = ['x','y']).reset_index(drop=True)
     
-    
-    # #get current field for this bootstrap realization
-    # cfield = np.zeros((nbins, nbins, 2))
-    # for x in range(nbins):
-    #     for y in range(nbins):
-    #         current = bstrans_rate_df[(bstrans_rate_df['x'] == x+1) & (bstrans_rate_df['y'] == y+1)]
-    #         cfield[y,x,0] = (current.x_plus_rate - current.x_minus_rate)/2
-    #         cfield[y,x,1] = (current.y_plus_rate - current.y_minus_rate)/2
-            
     return bstrans_rate_df
-
-
-
 
 
 
@@ -707,8 +704,8 @@ def contour_integral(
 
 
    
-
-def get_area_enclosing_rate(transrates,
+###### get area enclosing rates using the average current field (not sure if that's correct to do)
+def get_area_enclosing_rate_avgcur(transrates,
                             center = 'center',):
     if center == 'center':
         shiftbyx = round(transrates.x.max()/2)
@@ -729,6 +726,27 @@ def get_area_enclosing_rate(transrates,
 
 
 
+######## get area enclosing rates the "real" way with individual transitions
+def get_area_enclosing_rate(cell,
+                               nbins, #number of bins in the CGPS
+                               xyscaling = list, # list of the PC factors by which to scale the x and y coordinates of the CGPS in [x,y] format
+                               center = 'center',):
+    #get values to shift coordinates to the origin of the current
+    if type(center) == list:
+        shiftbyx = center[0]
+        shiftbyy = center[1]
+    elif center == 'center':
+        shiftbyx = round(nbins/2)
+        shiftbyy = round(nbins/2)
+    #calculate aer per transition
+    aerlist = []
+    for i, row in cell.iterrows():
+        aerlist.append(
+                        xyscaling[0] * xyscaling[1] * (((row.from_y-shiftbyy)*(row.to_x-shiftbyx)) - 
+                               ((row.from_x-shiftbyx)*(row.to_y-shiftbyy))) / (2*row.time_elapsed)
+                        )
+    cell['aer'] = aerlist
+    return cell
 
 
 
