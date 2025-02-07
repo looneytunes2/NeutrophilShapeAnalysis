@@ -108,20 +108,18 @@ def animate_linear_cycle_PCs(
 ############### get animated representation of USING AVERAGE SHCOEFFS around average 1D cycle #############
 
 def animate_linear_cycle_shcoeffs(
-        df, #pandas dataframe with the CGPS angular coordinates
-        coeff_df, #pandas dataframe with the shcoeffs
+        coeffframe, #pandas dataframe with the CGPS angular coordinates and shcoeffs
         savedir,
+        treatment, #string name to give folder with frames
         whichpcs = list, #list of which PCs are represented by x and y in format [x,y] 
         binrange = int, #how big are the radial bins in degrees
         lmax: int=10,
+        smooth: bool=True, #whether or not to smoothen the shcoeff values along the cycle
         ):
 
     
-    coeffframe = df.merge(coeff_df[[x for x in coeff_df.columns.to_list() if 'shco' in x]+['cell']],
-                                  left_on = 'cell', right_on = 'cell')
-    
     #make the directory to save this combined image
-    specificdir = savedir +f'/PC{whichpcs[0]}-PC{whichpcs[1]}_Cycle_AllSHCoeff_Visualization/'
+    specificdir = savedir +f'/PC{whichpcs[0]}-PC{whichpcs[1]}_Cycle_AllSHCoeff_Visualization/{treatment}/'
     if not os.path.exists(specificdir):
         os.makedirs(specificdir)
     
@@ -129,20 +127,23 @@ def animate_linear_cycle_shcoeffs(
     allinterpvals = []
     for s in [x for x in coeffframe if 'shco' in x]:
         ra = coeffframe[[f'PC{whichpcs[0]}_PC{whichpcs[1]}_Continuous_Angular_Bins',s]].groupby(f'PC{whichpcs[0]}_PC{whichpcs[1]}_Continuous_Angular_Bins').mean().reset_index()
-        pre = ra.values[-5:]
-        pre[:,0] -= 360
-        post = ra.values[:5]
-        post[:,0] += 360
-        newra = np.vstack((pre, ra.values, post))
-        f = scipy.interpolate.interp1d(newra[:,0], scipy.ndimage.gaussian_filter1d(newra[:,1],1))
-        interpvals = f(np.arange(0,360,binrange))
-        allinterpvals.append(interpvals)
+        if smooth:
+            pre = ra.values[-5:]
+            pre[:,0] -= 360
+            post = ra.values[:5]
+            post[:,0] += 360
+            newra = np.vstack((pre, ra.values, post))
+            f = scipy.interpolate.interp1d(newra[:,0], scipy.ndimage.gaussian_filter1d(newra[:,1],1))
+            interpvals = f(np.arange(0,360,binrange))
+            allinterpvals.append(interpvals)
+        else:
+            allinterpvals.append(ra[s].values)
     
     for i, a in enumerate(np.array(allinterpvals).T):
         mesh, _ = get_even_reconstruction_from_coeffs(np.reshape(a, (2,lmax+1,lmax+1)), lmax)
         save_mesh(mesh, specificdir + f'frame_{int(i)}_mesh.vtp')
     
-
+    coeffframe.to_csv(specificdir+'linear_cycle_data.csv')
 
 
 
@@ -173,18 +174,18 @@ def get_linear_cycle_PILRs(
 
     #make the directory to save this combined image
     if recontype == 'SH':
-        specificdir = savedir +f'/PC{whichpcs[0]}-PC{whichpcs[1]}_Cycle_AllSHCoeff_Visualization/'
+        specificdir = Path(savedir,f'PC{whichpcs[0]}-PC{whichpcs[1]}_Cycle_AllSHCoeff_Visualization')
     elif recontype == 'PC':
-        specificdir = savedir +f'/PC{whichpcs[0]}_PC{whichpcs[1]}_Cycle_AllPC_Visualization/'
-    pilragg_fl = specificdir + 'avgPILRs/'
-    if not os.path.exists(pilragg_fl):
-        os.makedirs(pilragg_fl)
+        specificdir = Path(savedir,f'PC{whichpcs[0]}_PC{whichpcs[1]}_Cycle_AllPC_Visualization')
     #get the list of PILRs that actually exist
     allpilrfiles = os.listdir(pilr_fl)
     
     #make sure the dataframe is sorted by angular bins
     df = df.sort_values(f'PC{whichpcs[0]}_PC{whichpcs[1]}_Continuous_Angular_Bins').reset_index()
     for t, treat in df.groupby('Treatment'):
+        pilragg_fl = Path(specificdir, t, 'avgPILRs')
+        if not os.path.exists(pilragg_fl):
+            os.makedirs(pilragg_fl)
         for s, struct in treat.groupby('structure'):
             for b, temp in struct.groupby(f'PC{whichpcs[0]}_PC{whichpcs[1]}_Continuous_Angular_Bins'):
                 framenum = list(df[f'PC{whichpcs[0]}_PC{whichpcs[1]}_Continuous_Angular_Bins'].unique()).index(b)
@@ -203,11 +204,11 @@ def get_linear_cycle_PILRs(
                 pagg_norm_avg = np.mean(pagg_norm, axis = 0)
                 dims = [['X', 'Y', 'Z', 'C', 'T'][d] for d in range(pagg_avg.ndim)]
                 dims = ''.join(dims[::-1])
-                OmeTiffWriter.save(pagg_avg, pilragg_fl+f'frame_{b}_{t}_{s}_repsagg.tif', dim_order=dims)
-                OmeTiffWriter.save(pagg_norm_avg, pilragg_fl+f'frame_{b}_{t}_{s}_repsagg_norm.tif', dim_order=dims)
+                OmeTiffWriter.save(pagg_avg, pilragg_fl.joinpath(f'frame_{b}_{t}_{s}_repsagg.tif'), dim_order=dims)
+                OmeTiffWriter.save(pagg_norm_avg, pilragg_fl.joinpath(f'frame_{b}_{t}_{s}_repsagg_norm.tif'), dim_order=dims)
         
         
-                mesh_outer = PILRagg.read_vtk_polydata(specificdir+f'frame_{framenum}_mesh.vtp')
+                mesh_outer = PILRagg.read_vtk_polydata(Path(specificdir,t,f'frame_{framenum}_mesh.vtp'))
                 domain, origin = cytoparam.voxelize_meshes([mesh_outer, spherepoly])
                 coords_param, _ = cytoparam.parameterize_image_coordinates(
                     seg_mem=(domain>0).astype(np.uint8),
@@ -221,14 +222,14 @@ def get_linear_cycle_PILRs(
                             param_img_coords=coords_param,
                             representation=pagg_avg)
                 morphed = np.stack([domain, morphed])
-                OmeTiffWriter.save(morphed, pilragg_fl+f'frame_{b}_{t}_{s}_aggmorph.tif', dim_order='CZYX')
+                OmeTiffWriter.save(morphed, pilragg_fl.joinpath(f'frame_{b}_{t}_{s}_aggmorph.tif'), dim_order='CZYX')
                 print(f'Finished frame_{b}_{t}_{s}')
     
 
 def combine_linear_PILRs(savedir,
                          structure,
                          whichpcs,
-                         projtype:str = 'sum',
+                         projtype:list = ['sum'],
                          ):
     #get linear cycle folder
     avgPILRs = savedir + f'/PC{whichpcs[0]}-PC{whichpcs[1]}_Cycle_AllSHCoeff_Visualization/avgPILRs/'
@@ -260,11 +261,16 @@ def combine_linear_PILRs(savedir,
                   pad_y:int(pad_y + ii.shape[-2]),
                   pad_x:int(pad_x + ii.shape[-1]),
                   ] = ii
-    if projtype == 'sum':
-        projim = np.sum(fullimage, axis = 2)
-        OmeTiffWriter.save(projim, savedir + structure + '_sum_PILR.ome.tiff', dim_order='TCYX')
-    elif projtype == 'max':
-        projim = np.max(fullimage, axis = 2)
-        OmeTiffWriter.save(projim, savedir + structure + '_max_PILR.ome.tiff', dim_order='TCYX')
-        
+    if 'sum' in projtype:
+        sumprojim = np.sum(fullimage, axis = 2)
+        OmeTiffWriter.save(sumprojim, savedir + structure + '_sum_PILR.ome.tiff', dim_order='TCYX')
+    if 'max' in projtype:
+        maxprojim = np.max(fullimage, axis = 2)
+        OmeTiffWriter.save(maxprojim, savedir + structure + '_max_PILR.ome.tiff', dim_order='TCYX')
+    if 'mean' in projtype:
+        maxprojim = np.mean(fullimage, axis = 2)
+        OmeTiffWriter.save(maxprojim, savedir + structure + '_mean_PILR.ome.tiff', dim_order='TCYX')
+    if 'slice' in projtype:
+        sliced = fullimage[:,:,round(fullimage.shape[-3]/2),:,:]
+        OmeTiffWriter.save(sliced, savedir + structure + '_midslice_PILR.ome.tiff', dim_order='TCYX')   
         

@@ -251,7 +251,7 @@ def getbb(im):
     im_props = skimage.measure.regionprops(im_labeled)
     tempdf = pd.DataFrame([])
     for count, prop in enumerate(im_props):
-        z,y,x = prop.centroid
+        z,y,x = prop.centroid*4
         thebox = np.array(prop.bbox)*4
         area = prop.area * 64
         td = {'cell':count, 'z_min':thebox[0], 'y_min':thebox[1], 
@@ -270,6 +270,71 @@ def getbb(im):
                'z':np.nan, 'y':np.nan, 'x': np.nan, 'z_range': np.nan, 'area':np.nan}
 
 
+def quarter_scale(im):
+    return skimage.transform.rescale(im,0.25, preserve_range=True)
+
+def getbb_movie(
+        im, #image in TZYX
+        ):
+    ### start by segmenting the large image to get all of the "primary" cells' bounding boxes for further cropping
+    with multiprocessing.Pool(processes=60) as pool: 
+        rescaled = pool.map(quarter_scale, [i for i in im])
+    ### get the shape of the rescaled to use later to leave out objects
+    shape = np.array(rescaled).shape    
+    #loop through time points to get bounding boxes
+    cropdf = pd.DataFrame()
+    for it, f in enumerate(rescaled):
+        #mask the top pixels with signal
+        if (f>100).any():
+            mare = ma.masked_array(f, mask = f>np.percentile(f[f>100], 97))
+            seg = MO_ma(mare, global_thresh_method='tri', object_minArea=200, local_adjust = 0.92)
+            im_labeled, n_labels = skimage.measure.label(
+                                      seg, background=0, return_num=True,  )
+        
+            im_props = skimage.measure.regionprops(im_labeled)
+            tempdf = pd.DataFrame([])
+            for count, prop in enumerate(im_props):
+                z,y,x = np.array(prop.centroid)*4
+                thebox = np.array(prop.bbox)*4
+                area = prop.area * 64
+                td = {'cell':count, 'z_min':thebox[0], 'y_min':thebox[1], 
+                        'x_min':thebox[2],'z_max':thebox[3], 'y_max':thebox[4], 'x_max':thebox[5],
+                       'z':z, 'y':y, 'x': x, 'z_range': seg.shape[-3], 'area':area}
+                #ensure only things that aren't on the edge are chosen
+                #and are big enough
+                if (td['z_min']>0) and (td['y_min']>0) and (td['x_min']>0) and (td['z_max']/4<shape[-3]) and (td['y_max']/4<shape[-2]) and (td['x_max']/4<shape[-1]) and (area>50000):
+                    tempdf = tempdf.append(td, ignore_index=True)
+    
+    
+            if len(tempdf)>0:
+                #if there's only one option pick that
+                if len(tempdf)==1:
+                    cropdf = cropdf.append(tempdf, ignore_index=True)
+                #if first frame get the closest object to the center
+                elif (it==0):
+                    dists = []
+                    for p, row in tempdf.iterrows():
+                        dists.append(distance.pdist([np.array(shape)[-3:][::-1]/2,
+                                        row[['x','y','z']].values]))
+                    cropdf = cropdf.append(tempdf.iloc[np.argmin(dists)], ignore_index=True)
+                #if it's any other frame get the closest object to the last pick
+                else:
+                    dists = []
+                    for p, row in tempdf.iterrows():
+                        dists.append(distance.pdist([cropdf[['x','y','z']].iloc[-1].values,
+                                        row[['x','y','z']].values]))
+                    cropdf = cropdf.append(tempdf.iloc[np.argmin(dists)], ignore_index=True)
+            #if there's no options fill the gap with nan
+            else:
+                cropdf = cropdf.append({'cell':np.nan, 'z_min':np.nan, 'y_min':np.nan, 
+                        'x_min':np.nan,'z_max':np.nan, 'y_max':np.nan, 'x_max':np.nan,
+                       'z':np.nan, 'y':np.nan, 'x': np.nan, 'z_range': np.nan, 'area':np.nan}, ignore_index=True)
+        else:
+            cropdf = cropdf.append({'cell':np.nan, 'z_min':np.nan, 'y_min':np.nan, 
+                    'x_min':np.nan,'z_max':np.nan, 'y_max':np.nan, 'x_max':np.nan,
+                   'z':np.nan, 'y':np.nan, 'x': np.nan, 'z_range': np.nan, 'area':np.nan}, ignore_index=True)
+    return cropdf
+
 
 def LLSseg(savedir:str,
            image_name:str,
@@ -286,9 +351,9 @@ def LLSseg(savedir:str,
            hilo: bool = False, #whether or not to do multiple different thresholds on the signal data
            ):
     
-    newcrop = getbb(im[1,:,:,:])
+    # newcrop = getbb(im[1,:,:,:])
     #combine crop dictionaries
-    cropdict.update(newcrop)
+    # cropdict.update(newcrop)
     #actually crop the image
     #get the right cropping boundaries
     xmincrop = int(max(0, cropdict['x_min']-xy_buffer))
@@ -430,6 +495,12 @@ def LLSseg(savedir:str,
                 'Structure_'+str_keylist[3]: str_feat[str_keylist[3]],
                 'Structure_'+str_keylist[4]: str_feat[str_keylist[4]],
                 'Structure_'+str_keylist[5]: str_feat[str_keylist[5]],
+                'xmincrop':xmincrop,
+                'xmaxcrop':xmaxcrop,
+                'ymincrop':ymincrop,
+                'ymaxcrop':ymaxcrop,
+                'zmincrop':zmincrop,
+                'zmaxcrop':zmaxcrop
                 }
 
         return data

@@ -17,7 +17,7 @@ from fiji.plugin.trackmate.tracking.sparselap import SparseLAPTrackerFactory
 from fiji.plugin.trackmate.gui.displaysettings import DisplaySettingsIO
 from fiji.plugin.trackmate.visualization.hyperstack import HyperStackDisplayer
 
-direct = 'D:/Aaron/Data/Galvanotaxis_Confocal_40x_30C/Tracking_Images/'
+direct = 'E:/Aaron/CK666_37C/Tracking_Images/'
 
 #need windowless bioformats opening
 

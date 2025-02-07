@@ -4,8 +4,10 @@ Created on Thu Oct 20 21:02:14 2022
 
 @author: Aaron
 """
+from pathlib import Path
 import numpy as np
 from aicsimageio import AICSImage
+import tifffile
 from aicsimageio.writers.ome_tiff_writer import OmeTiffWriter
 import vtk
 
@@ -32,12 +34,6 @@ def normalize_representations(reps):
     return reps_norm
 
 
-def read_vtk_polydata(path: str):
-    reader = vtk.vtkXMLPolyDataReader()
-    reader.SetFileName(path)
-    reader.Update()
-    return reader.GetOutput()
-
 
 def write_ome_tif(path, img, channel_names=None, image_name=None):
     # path = Path(path)
@@ -46,3 +42,11 @@ def write_ome_tif(path, img, channel_names=None, image_name=None):
     name = path.stem if image_name is None else image_name
     OmeTiffWriter.save(img, path, dim_order=dims, image_name=name, channel_names=channel_names)
     return
+
+def pilr_correlation(
+        corrpair, #iterable len 2, [0] is "cell1" and [1] is the cell to correlate it with
+        ):
+    cell1 = tifffile.imread(corrpair[0])
+    cell2 = tifffile.imread(corrpair[1])
+    cor = np.corrcoef(cell1.flatten(), cell2.flatten())
+    return [Path(corrpair[0]).stem.split('_PILR')[0], Path(corrpair[1]).stem.split('_PILR')[0], cor[0,1]]

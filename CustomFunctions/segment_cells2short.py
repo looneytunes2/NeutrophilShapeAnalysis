@@ -1094,9 +1094,7 @@ def segment_cells_rotafter_memonly(
     savedir,
     xyres,
     zstep,
-    xmincrop, 
-    ymincrop, 
-    zmincrop,
+    croparr, 
 ):
 
     """
@@ -1168,12 +1166,18 @@ def segment_cells_rotafter_memonly(
                     'cell': cell_name,
                     'structure': 'none',
                     'frame': temp_df.frame,
-                    'x':(cent[2]+xmincrop)*xyres, 
-                    'y':(cent[1]+ymincrop)*xyres, 
-                    'z':(cent[0]+zmincrop)*zstep,
+                    'x':(cent[2]+croparr[0])*xyres, 
+                    'y':(cent[1]+croparr[2])*xyres, 
+                    'z':(cent[0]+croparr[4])*zstep,
                     'cropx (pixels)':cent[2], 
                     'cropy (pixels)':cent[1], 
                     'cropz (pixels)':cent[0],
+                    'xmincrop': croparr[0],
+                    'ymincrop': croparr[2],
+                    'zmincrop': croparr[4],
+                    'xmaxcrop': croparr[1],
+                    'ymaxcrop': croparr[3],
+                    'zmaxcrop': croparr[5],
                     'cell': cell_name,
                    'Cell_'+mem_keylist[0]: mem_feat[mem_keylist[0]],
                    'Cell_'+mem_keylist[1]: mem_feat[mem_keylist[1]],
@@ -1196,20 +1200,16 @@ def seg_confocal_40x_memonly_fromslices(
         savedir,
         xyres,
         zstep,
-        xmincrop, 
-        ymincrop, 
-        zmincrop,
-        xmaxcrop, 
-        ymaxcrop, 
-        zmaxcrop,):
+        croparr, ### array with xmincrop, xmaxcrop, ymincrop, ymaxcrop, zmincrop, zmaxcrop
+        ):
     
     #open the full zstack at this movie frame
-    frameim = MM_slicetostack_reader(direct, int(row.frame), imshape, range(zmincrop,zmaxcrop))
+    frameim = MM_slicetostack_reader(direct, int(row.frame), imshape, range(croparr[4],croparr[5]))
     #crop frame to the cell
     raw_img = frameim[
                     :,
-                    ymincrop:ymaxcrop,
-                    xmincrop:xmaxcrop]
+                    croparr[2]:croparr[3],
+                    croparr[0]:croparr[1]]
 
 
     #segment
@@ -1220,9 +1220,7 @@ def seg_confocal_40x_memonly_fromslices(
         savedir,
         xyres,
         zstep,
-        xmincrop, 
-        ymincrop, 
-        zmincrop,
+        croparr,
         )
     
     return data

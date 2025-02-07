@@ -32,12 +32,17 @@ from aicsimageio.writers.ome_tiff_writer import OmeTiffWriter
 from aicsimageio.readers.tiff_reader import TiffReader
 
 
+def read_vtk_polydata(path: str):
+    reader = vtk.vtkXMLPolyDataReader()
+    reader.SetFileName(path)
+    reader.Update()
+    return reader.GetOutput()
 
 def find_normal_width_peaks(
-        impath: str,
-        csvdir: str,
-        xyres: float,
-        zstep: float,
+        impath,
+        csvdir,
+        xyres,
+        zstep,
         sigma: float = 0,
         align_method: str = 'None',
         ):
@@ -48,8 +53,7 @@ def find_normal_width_peaks(
     #read image
     im = TiffReader(impath)
     
-    #read euler angles for alignment
-    infopath = csvdir + cell_name + '_cell_info.csv'
+
     #if align_method is a numpy array, use that as the vector to align to
     if type(align_method) == np.ndarray:
         vec = align_method.copy()
@@ -67,7 +71,12 @@ def find_normal_width_peaks(
         rotthing_euler = rotationthing[0].as_euler('xyz', degrees = True)
         Euler_Angles = np.array([rotthing_euler[0], rotthing_euler[1], rotthing_euler[2]])
     elif align_method == 'trajectory':
-        info = pd.read_csv(infopath, index_col=0)
+        #if the csvdir is a string read the csv file, if it's a dict turn it into a DataFrame
+        if type(csvdir)==str:
+            infopath = csvdir + cell_name + '_cell_info.csv'
+            info = pd.read_csv(infopath, index_col=0)
+        elif type(csvdir)==dict:
+            info = pd.DataFrame(csvdir, index=[0])
         vec = np.array([info.Trajectory_X[0], info.Trajectory_Y[0], info.Trajectory_Z[0]])
         #align current vector with x axis and get euler angles of resulting rotation matrix https://docs.scipy.org/doc/scipy/reference/generated/scipy.spatial.transform.Rotation.html
         xaxis = np.array([[1,0,0],[0,1,0], [0,0,1]]).astype('float64')
@@ -1680,6 +1689,21 @@ def shcoeffs_and_PILR_nonuc(
                     writer.SetInputData(str_mesh)
                     writer.Write()
                     
+            #########parameterize cell
+            aicstif = cytoparam_mod.cellular_mapping(
+                coeffs_mem = coeffs_mem,
+                centroid_mem = abs(origin)[0],
+                coeffs_nuc = sphere_coeffs,
+                centroid_nuc = abs(origin)[0],
+                nisos = nisos,
+                images_to_probe = images_to_probe,
+                )
+            #Save PILR
+            pilrf = direct+'PILRs/'
+            if os.path.exists(pilrf+cell_name+'_PILR.ome.tiff'):
+                os.remove(pilrf+cell_name+'_PILR.ome.tiff')
+            OmeTiffWriter.save(aicstif.get_image_data('CZYX', S=0, T=0), pilrf+cell_name+'_PILR.ome.tiff', dim_order='CZYX', channel_names=aicstif.channel_names)
+            
         elif pilr_method == 'raw':
             ######### translate coordinates to membrane centroid
             #open the raw data
@@ -1724,22 +1748,22 @@ def shcoeffs_and_PILR_nonuc(
             strimg[strimg<0] = 0
             images_to_probe.append([str_name,strimg])
     
-        #########parameterize cell
-        aicstif = cytoparam_mod.cellular_mapping(
-            coeffs_mem = coeffs_mem,
-            centroid_mem = abs(origin)[0],
-            coeffs_nuc = sphere_coeffs,
-            centroid_nuc = abs(origin)[0],
-            nisos = nisos,
-            images_to_probe = images_to_probe,
-            )
-              
-        #Save PILR
-        pilrf = direct+'PILRs/'
-        if os.path.exists(pilrf+cell_name+'_PILR.ome.tiff'):
-            os.remove(pilrf+cell_name+'_PILR.ome.tiff')
-        OmeTiffWriter.save(aicstif.get_image_data('CZYX', S=0, T=0), pilrf+cell_name+'_PILR.ome.tiff', dim_order='CZYX', channel_names=aicstif.channel_names)
-        
+            #########parameterize cell
+            aicstif = cytoparam_mod.cellular_mapping(
+                coeffs_mem = coeffs_mem,
+                centroid_mem = abs(origin)[0],
+                coeffs_nuc = sphere_coeffs,
+                centroid_nuc = abs(origin)[0],
+                nisos = nisos,
+                images_to_probe = images_to_probe,
+                )
+                  
+            #Save PILR
+            pilrf = direct+'PILRs/'
+            if os.path.exists(pilrf+cell_name+'_PILR.ome.tiff'):
+                os.remove(pilrf+cell_name+'_PILR.ome.tiff')
+            OmeTiffWriter.save(aicstif.get_image_data('CZYX', S=0, T=0), pilrf+cell_name+'_PILR.ome.tiff', dim_order='CZYX', channel_names=aicstif.channel_names)
+            
         
     #now that PILR has been made,
     #scale cell and nuc meshes so that I can take some shape stats
@@ -1829,7 +1853,7 @@ def shcoeffs_and_PILR_nonuc(
                    'OriginaltoReconError': OriginaltoReconError,
                    'RecontoOriginalError': RecontoOriginalError,
                    'LengthAlongTrajectory': trajlen,
-                   'WidthAlongTrajectory:': trajwid
+                   'WidthAlongTrajectory': trajwid
                     }
 
 
