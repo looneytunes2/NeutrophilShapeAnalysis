@@ -12,6 +12,7 @@ from aicscytoparam import cytoparam
 from CustomFunctions.PCvisualization import animate_PCs
 from CustomFunctions.shtools_mod import get_even_reconstruction_from_coeffs
 from CustomFunctions.PCvisualization import save_mesh
+from CustomFunctions.shparam_mod import read_vtk_polydata
 from CustomFunctions import PILRagg
 import multiprocessing
 import pickle as pk
@@ -20,12 +21,16 @@ import math
 import scipy
 import vtk
 import re
+import shutil
+
+
 
 def collect_results(result):
     """Uses apply_async's callback to setup up a separate Queue for each process.
     This will allow us to collect the results from different threads."""
     results.append(result)
 
+#### CLOCKWISE angle in 360 degrees
 def angle360(x,y):
     return abs(math.degrees(np.arctan2(y,x))) if y < 0 else abs(math.degrees(np.arctan2(y,x))-360)
 
@@ -35,24 +40,39 @@ def linearize_cycle_continuous(
         centers, #dataframe with center values of the CGPS bins for the PCs
         origin = list, #list of the coordinates in the CGPS in format [x,y]
         whichpcs = list, #list of which PCs are represented by x and y in format [x,y] 
-        binrange = int, #how big are the radial bins in degrees
-        direction = str, #which direction is the flux 'clockwise' or 'counterclockwise'
+        zerostart = str, #start with zero degrees on the 'right' or 'left'
+        direction = str, #string either 'clockwise' or 'counterclockwise'
         ):
     
     ### get centered PC bins first
     x = df[f'PC{whichpcs[0]}'].values-centers[f'PC{whichpcs[0]}'].iloc[origin[0]-1]
     y = df[f'PC{whichpcs[1]}'].values-centers[f'PC{whichpcs[1]}'].iloc[origin[1]-1]
     ### calculate angular coord and radius
-    df[f'PC{whichpcs[0]}_PC{whichpcs[1]}_Continuous_Angular_Coord'] = [angle360(x1, y1) for x1, y1 in zip(x, y)]
-    df[f'PC{whichpcs[0]}_PC{whichpcs[1]}_Continuous_Radial_Coord'] = np.sqrt((x**2) + (y**2))
+    df.loc[:,f'PC{whichpcs[0]}_PC{whichpcs[1]}_Continuous_Radial_Coord'] = np.sqrt((x**2) + (y**2))
+    angco = np.array([angle360(x1, y1) for x1, y1 in zip(x, y)])
+    if zerostart == 'left':
+        angco -= 180
+        angco[angco<0] = angco[angco<0]+360
+    if direction == 'counterclockwise':
+        angco = -(angco-360)
+    df.loc[:,f'PC{whichpcs[0]}_PC{whichpcs[1]}_Continuous_Angular_Coord'] = angco
+    return df
+
+def bin_angular_coord(
+        df, #dataframe with the cgps angular coord in format 'PC{whichpcs[0]}_PC{whichpcs[1]}_Continuous_Angular_Coord'
+        whichpcs = list, #list of which PCs are represented by x and y in format [x,y] 
+        binrange = int, #how big are the radial bins in degrees
+        ):
+    
+    bin_centers = np.arange(0, 360, binrange)
+    bin_edges = np.unique([(round(b-binrange/2,4), round(b+binrange/2,4)) for b in bin_centers])
     ### "bin" the Angular coord
-    if direction == 'clockwise':
-        df[f'PC{whichpcs[0]}_PC{whichpcs[1]}_Continuous_Angular_Bins'] = np.digitize(df[f'PC{whichpcs[0]}_PC{whichpcs[1]}_Continuous_Angular_Coord'].to_numpy(),
-                               np.arange(0,360+binrange,binrange))
-    elif direction == 'counterclockwise':
-        df[f'PC{whichpcs[0]}_PC{whichpcs[1]}_Continuous_Angular_Bins'] = np.digitize(df[f'PC{whichpcs[0]}_PC{whichpcs[1]}_Continuous_Angular_Coord'].to_numpy(),
-                               np.arange(0,360+binrange,binrange)[::-1])
-    df[f'PC{whichpcs[0]}_PC{whichpcs[1]}_Continuous_Angular_Bins'] = (df[f'PC{whichpcs[0]}_PC{whichpcs[1]}_Continuous_Angular_Bins'] * binrange) - binrange
+    binz = np.digitize(df[f'PC{whichpcs[0]}_PC{whichpcs[1]}_Continuous_Angular_Coord'].to_numpy(),
+                           bin_edges, right = False)
+    #wrap the things that went over the top bin back around since this is a circle...
+    binz[binz == binz.max()] = binz.min()
+
+    df.loc[:,f'PC{whichpcs[0]}_PC{whichpcs[1]}_Continuous_Angular_Bins'] = (binz * binrange) - binrange
     
     return df
     
@@ -71,7 +91,9 @@ def animate_linear_cycle_PCs(
     specificdir = savedir +f'/PC{whichpcs[0]}_PC{whichpcs[1]}_Cycle_AllPC_Visualization/'
     if not os.path.exists(specificdir):
         os.makedirs(specificdir)
-    
+    else:
+        shutil.rmtree(specificdir)
+        os.makedirs(specificdir)
     #get the average of each PC
     avgpcs = df[[x for x in df.columns.to_list() if 'PC' in x and 'bin' not in x and '_' not in x]].mean().to_numpy()
     #open the actual pca file used to analyze this dataset
@@ -83,7 +105,7 @@ def animate_linear_cycle_PCs(
     #use 1D gaussian smoothening to get average PC curves over the 1D cycle
     allinterpvals = []
     for w in whichpcs:
-        ra = df[[f'PC{whichpcs[0]}_PC{whichpcs[1]}_Continuous_Angular_Bins',f'PC{w}']].groupby(f'PC{whichpcs[0]}_PC{whichpcs[1]}_Continuous_Angular_Bins').mean().reset_index()
+        ra = df[[f'PC{whichpcs[0]}_PC{whichpcs[1]}_Continuous_Angular_Bins',f'{w}']].groupby(f'PC{whichpcs[0]}_PC{whichpcs[1]}_Continuous_Angular_Bins').mean().reset_index()
         pre = ra.values[-5:]
         pre[:,0] -=360
         post = ra.values[:5]
@@ -122,7 +144,10 @@ def animate_linear_cycle_shcoeffs(
     specificdir = savedir +f'/PC{whichpcs[0]}-PC{whichpcs[1]}_Cycle_AllSHCoeff_Visualization/{treatment}/'
     if not os.path.exists(specificdir):
         os.makedirs(specificdir)
-    
+    else:
+        shutil.rmtree(specificdir)
+        os.makedirs(specificdir)
+        
     #use 1D gaussian smoothening to get average PC curves over the 1D cycle
     allinterpvals = []
     for s in [x for x in coeffframe if 'shco' in x]:
@@ -143,7 +168,9 @@ def animate_linear_cycle_shcoeffs(
         mesh, _ = get_even_reconstruction_from_coeffs(np.reshape(a, (2,lmax+1,lmax+1)), lmax)
         save_mesh(mesh, specificdir + f'frame_{int(i)}_mesh.vtp')
     
-    coeffframe.to_csv(specificdir+'linear_cycle_data.csv')
+    #get just the linearized cgps data
+    angularframe = coeffframe[[x for x in coeffframe.columns.to_list() if f'PC{whichpcs[0]}_PC{whichpcs[1]}_Continuous' in x]+['cell']].copy()
+    angularframe.to_csv(specificdir+'linear_cycle_data.csv')
 
 
 
@@ -208,7 +235,7 @@ def get_linear_cycle_PILRs(
                 OmeTiffWriter.save(pagg_norm_avg, pilragg_fl.joinpath(f'frame_{b}_{t}_{s}_repsagg_norm.tif'), dim_order=dims)
         
         
-                mesh_outer = PILRagg.read_vtk_polydata(Path(specificdir,t,f'frame_{framenum}_mesh.vtp'))
+                mesh_outer = read_vtk_polydata(Path(specificdir,t,f'frame_{framenum}_mesh.vtp'))
                 domain, origin = cytoparam.voxelize_meshes([mesh_outer, spherepoly])
                 coords_param, _ = cytoparam.parameterize_image_coordinates(
                     seg_mem=(domain>0).astype(np.uint8),
@@ -227,12 +254,13 @@ def get_linear_cycle_PILRs(
     
 
 def combine_linear_PILRs(savedir,
+                         treatment,
                          structure,
                          whichpcs,
                          projtype:list = ['sum'],
                          ):
     #get linear cycle folder
-    avgPILRs = savedir + f'/PC{whichpcs[0]}-PC{whichpcs[1]}_Cycle_AllSHCoeff_Visualization/avgPILRs/'
+    avgPILRs = savedir + f'/PC{whichpcs[0]}-PC{whichpcs[1]}_Cycle_AllSHCoeff_Visualization/{treatment}/avgPILRs/'
     #get all structure images
     structlist = [x for x in os.listdir(avgPILRs) if structure in x and 'aggmorph' in x]
     #sort the structlist by frame

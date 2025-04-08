@@ -59,14 +59,14 @@ for p in meshfl:
 lower = 0.125
 upper = 0.925
 prange = np.arange(lower,upper,(upper-lower)/len(perspectives))
-for i, p in enumerate(perspectives):
+for i, per in enumerate(perspectives):
     text_source = Text()
-    text_source.Text = p  # Set the text content
+    text_source.Text = per  # Set the text content
     # Create a text representation
     text_display = GetRepresentation(text_source)
     # Set the position in 3D space
     text_display.WindowLocation = 'Any Location'
-    text_display.Position = [0.01,prange[i]]
+    text_display.Position = [0.01,prange[-(i+1)]]
     text_display.FontSize = 99
 
 #change background to white
@@ -78,7 +78,7 @@ LoadPalette(paletteName='WhiteBackground')
 view.CameraViewUp = [0, 1, 0]
 view.CameraFocalPoint = [0, 0, 0]
 # view.CameraViewAngle = 45
-view.CameraPosition = [0,0,-1000]
+view.CameraPosition = [0,0,1000]
 view.ViewSize = [4000, 6000]  
 view.OrientationAxesVisibility = 0
    

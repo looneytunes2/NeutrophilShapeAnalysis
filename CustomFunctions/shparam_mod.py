@@ -13,18 +13,12 @@ import pyshtools
 import numpy as np
 import pandas as pd
 from vtk.util import numpy_support
-from vtkmodules.vtkFiltersCore import (
-    vtkCleanPolyData,
-    vtkTriangleFilter
-)
-from vtkmodules.vtkFiltersGeneral import vtkBooleanOperationPolyDataFilter
-from vtkmodules.vtkFiltersSources import vtkCubeSource
 from skimage import transform as sktrans
 from scipy import signal
 from scipy import interpolate as spinterp
 from scipy.spatial import KDTree
 from scipy.spatial.transform import Rotation as R
-
+import math
 
 from . import shtools_mod, cytoparam_mod
 
@@ -37,6 +31,31 @@ def read_vtk_polydata(path: str):
     reader.SetFileName(path)
     reader.Update()
     return reader.GetOutput()
+
+#surface area as a ratio of surface area of the a similar volume sphere
+def get_sphericity(
+        surf, #object surface area
+        vol, #object volume
+        ):
+    r = ((3*vol)/(4*math.pi)) ** (1/3)
+    SA = 4*math.pi*r
+    return SA/surf
+
+
+### angle between two vectors in degrees
+def angle3D(a1, b1, c1, a2, b2, c2):
+    d = ( a1 * a2 + b1 * b2 + c1 * c2 )
+    e1 = math.sqrt( a1 * a1 + b1 * b1 + c1 * c1)
+    e2 = math.sqrt( a2 * a2 + b2 * b2 + c2 * c2)
+    d = d / (e1 * e2)
+    if d>1:
+        d = 1
+    elif d<-1:
+        d = -1
+    A = math.degrees(math.acos(d))
+    return A
+
+
 
 def find_normal_width_peaks(
         impath,
@@ -720,7 +739,8 @@ def get_shcoeffs_mod(
 
 def get_shcoeffs_mesh(
         mesh,
-        lmax: str):
+        lmax,):
+    
     coords = numpy_support.vtk_to_numpy(mesh.GetPoints().GetData())
     x = coords[:, 0]
     y = coords[:, 1]
@@ -768,6 +788,36 @@ def get_shcoeffs_mesh(
 
     return (coeffs_dict, grid_rec), (grid_down)
 
+#function to scale mesh and get 
+def read_mesh_rescale_shcoeffs(
+        cell, #file to rescale and get shcoeffs from
+        xyres, #scale for xy
+        zstep, #scale for z
+        lmax,
+        ):
+    
+    #get the "cell name" from the path
+    cell_name = os.path.basename(cell).split('_cell_mesh')[0]
+    
+    #open polydata
+    mesh = read_vtk_polydata(cell)
+    
+    #scale mesh
+    transformation = vtk.vtkTransform()
+    transformation.Scale(xyres, xyres, zstep)
+    transformFilter = vtk.vtkTransformPolyDataFilter()
+    transformFilter.SetTransform(transformation)
+    transformFilter.SetInputData(mesh)
+    transformFilter.Update()
+    mesh = transformFilter.GetOutput()
+
+    #get shcoeffs
+    (coeffs_dict, grid_rec), (grid_down) = get_shcoeffs_mesh(mesh, lmax)
+    
+    #add cellname to shcoeffs
+    coeffs_dict['cell'] = cell_name
+    
+    return coeffs_dict
 
 def get_shcoeffs_shiftres(
     img_name: str,
@@ -1456,7 +1506,7 @@ def shcoeffs_and_PILR(
 
 def shcoeffs_and_PILR_nonuc(
         impath: str,
-        direct: str,
+        savedir: str,
         xyres: float,
         zstep: float,
         str_name: str,
@@ -1526,14 +1576,12 @@ def shcoeffs_and_PILR_nonuc(
             """
     
     #get cell name from impath
-    impath = direct + 'processed_images/' + impath
-    print(impath)
     cell_name = impath.split('/')[-1].split('_segmented')[0]
     #read image
     im = TiffReader(impath)
     
     #read euler angles for alignment
-    infopath = direct + 'processed_data/' + cell_name + '_cell_info.csv'
+    infopath = savedir + 'processed_data/' + cell_name + '_cell_info.csv'
     #if align_method is a numpy array, use that as the vector to align to
     if type(align_method) == np.ndarray:
         vec = align_method.copy()
@@ -1606,6 +1654,9 @@ def shcoeffs_and_PILR_nonuc(
     if str_name == 'nucleus':
         pilr_method = 'threshold'
     
+    #create an empty array for the structure centroid, which will be replaced
+    #if there actually is one to record
+    struct_centroid = np.array([np.nan,np.nan,np.nan])
     
     if ('si' in locals()) and (si.max()>0):
         #create inner sphere
@@ -1675,7 +1726,7 @@ def shcoeffs_and_PILR_nonuc(
                     
                     #scale structure mesh
                     #set transform and apply
-                    meshf = direct + 'meshes/'
+                    meshf = savedir + 'meshes/'
                     transformation = vtk.vtkTransform()
                     transformation.Scale(xyres, xyres, xyres)
                     transformFilter = vtk.vtkTransformPolyDataFilter()
@@ -1699,10 +1750,15 @@ def shcoeffs_and_PILR_nonuc(
                 images_to_probe = images_to_probe,
                 )
             #Save PILR
-            pilrf = direct+'PILRs/'
+            pilrf = savedir+'PILRs/'
             if os.path.exists(pilrf+cell_name+'_PILR.ome.tiff'):
                 os.remove(pilrf+cell_name+'_PILR.ome.tiff')
             OmeTiffWriter.save(aicstif.get_image_data('CZYX', S=0, T=0), pilrf+cell_name+'_PILR.ome.tiff', dim_order='CZYX', channel_names=aicstif.channel_names)
+            
+            # since threshold is used for discrete structures, get the centroid
+            # of that structure in an aligned cell
+            struct_coords = numpy_support.vtk_to_numpy(str_mesh.GetPoints().GetData())
+            struct_centroid = struct_coords.mean(axis=0, keepdims=True)[0]
             
         elif pilr_method == 'raw':
             ######### translate coordinates to membrane centroid
@@ -1741,7 +1797,9 @@ def shcoeffs_and_PILR_nonuc(
                     ycoords = zcoords[np.where(zcoords[:,1] == y)]
                     for x in np.unique(ycoords[:,2]):
                         xcoords = ycoords[np.where(ycoords[:,2] == x)]
-                        strimg[z,y,x] = np.mean(xcoords[:,-1])
+                        #fill in the new value if it fits in a real position
+                        if all((z,y,x)<=np.array(strimg.shape[-3:])-1):
+                            strimg[z,y,x] = np.mean(xcoords[:,-1])
             ####### normalize the strimg
             strimg = strimg-intensities.min()
             strimg = strimg/strimg.max()
@@ -1759,11 +1817,13 @@ def shcoeffs_and_PILR_nonuc(
                 )
                   
             #Save PILR
-            pilrf = direct+'PILRs/'
+            pilrf = savedir+'PILRs/'
             if os.path.exists(pilrf+cell_name+'_PILR.ome.tiff'):
                 os.remove(pilrf+cell_name+'_PILR.ome.tiff')
             OmeTiffWriter.save(aicstif.get_image_data('CZYX', S=0, T=0), pilrf+cell_name+'_PILR.ome.tiff', dim_order='CZYX', channel_names=aicstif.channel_names)
             
+    
+
         
     #now that PILR has been made,
     #scale cell and nuc meshes so that I can take some shape stats
@@ -1780,7 +1840,7 @@ def shcoeffs_and_PILR_nonuc(
     
     
     # remove file if it already exists
-    meshf = direct + 'meshes/'
+    meshf = savedir + 'meshes/'
     #save cell mesh
     writer = vtk.vtkXMLPolyDataWriter()
     writer.SetFileName(meshf + cell_name + '_cell_mesh.vtp')
@@ -1791,14 +1851,24 @@ def shcoeffs_and_PILR_nonuc(
     #Get physical properties of cell
     CellMassProperties = vtk.vtkMassProperties()
     CellMassProperties.SetInputData(cell_mesh)
-    
+    Cell_Volume = CellMassProperties.GetVolume()
+    Cell_SurfaceArea = CellMassProperties.GetSurfaceArea()
+    Cell_Sphericity = get_sphericity(Cell_SurfaceArea, Cell_Volume)
+    #measure the volume of the cell only within the positive x, y, and z domains
+    FrontVolume = measure_volume_half(cell_mesh, 'x')
+    RightVolume = measure_volume_half(cell_mesh, 'y')
+    TopVolume = measure_volume_half(cell_mesh, 'z')
     
     
     #get cell major, minor, and mini axes using the segmented image
     cell_coords = numpy_support.vtk_to_numpy(cell_mesh.GetPoints().GetData())
+    trajlenfront = np.max(cell_coords[:,0])
+    trajlenrear = np.min(cell_coords[:,0])
+    trajwidleft = np.max(cell_coords[:,1])
+    trajwidright = np.min(cell_coords[:,1])
     ##### measure length of cell along the trajectory axis
-    trajlen = np.max(cell_coords[:,0])-np.min(cell_coords[:,0])
-    trajwid = np.max(cell_coords[:,1])-np.min(cell_coords[:,1])
+    trajlen = trajlenfront-trajlenrear
+    trajwid = trajwidleft-trajwidright
     #remove duplicate coordinates
     duplicates = pd.DataFrame(cell_coords).duplicated().to_numpy()
     mask = np.ones(len(cell_coords), dtype=bool)
@@ -1814,49 +1884,74 @@ def shcoeffs_and_PILR_nonuc(
     #rotate the cell coordinates to align the major axis with the x, the minor axis to the y and the "mini" axis to the z
     rotationthing = R.align_vectors(np.array([[1,0,0],[0,1,0]]), cell_evecs.T[:2,:])
     cell_coords = rotationthing[0].apply(cell_coords)
+    #get lengths of the cell's absolute axes
+    Cell_MajorAxis = np.max(cell_coords[:,0])-np.min(cell_coords[:,0])
+    Cell_MinorAxis = np.max(cell_coords[:,1])-np.min(cell_coords[:,1])
+    Cell_MiniAxis = np.max(cell_coords[:,2])-np.min(cell_coords[:,2])
     
     
-    #measure the volume of the cell in the x domain
-    FrontVolume = measure_volume_half(cell_mesh, 'x')
-    RightVolume = measure_volume_half(cell_mesh, 'y')
-    TopVolume = measure_volume_half(cell_mesh, 'z')
-    
+    ######### Get angles of long axes relative to the axis of trajectory #############
+    arr = cell_evecs[:,0].T
+    if arr[0] < 0:
+        arr = arr*-1
+    #get angle between the vector and the planes
+    UpDownAngle = angle3D(arr[0], arr[1], arr[2], arr[0], arr[1], 0)
+    LeftRightAngle = angle3D(arr[0], arr[1], arr[2], arr[0], 0, arr[2])
+    Cell_TotalAngle = angle3D(arr[0], arr[1], arr[2], 1, 0, 0)
+    #make sure the directionality is correct
+    Cell_UpDownAngle = UpDownAngle if arr[2]>0 else -1*UpDownAngle
+    Cell_LeftRightAngle = LeftRightAngle if arr[1]>0 else -1*LeftRightAngle
 
-    
-    
+
     #Shape stats dict
     Shape_Stats = {'cell': cell_name,
                    'Euler_angles_X': euler_angles[0],
                    'Euler_angles_Y':euler_angles[1],
                    'Euler_angles_Z':euler_angles[2],
-                   'Width_Rotation_Angle': widestangle,
-                  'Cell_Centroid_X': centroid_mem[0][0],
+                   'Width_Rotation_Angle': widestangle, #angle to rotate around the axis of trajectory
+                  'Cell_Centroid_X': centroid_mem[0][0], #cell centroid in pixels from the segmented image
                   'Cell_Centroid_Y': centroid_mem[0][1],
                   'Cell_Centroid_Z': centroid_mem[0][2],
-                   'Cell_Volume': CellMassProperties.GetVolume(),
+                   'Cell_Volume': Cell_Volume,
                     'Cell_Volume_Front': FrontVolume,
                     'Cell_Volume_Right': RightVolume,
                     'Cell_Volume_Top': TopVolume,
-                   'Cell_SurfaceArea': CellMassProperties.GetSurfaceArea(),
-                   'Cell_MajorAxis': np.max(cell_coords[:,0])-np.min(cell_coords[:,0]),
-                   'Cell_MajorAxis_Vec_X': cell_evecs[0,0],
+                    'Volume_Front_Ratio': FrontVolume/Cell_Volume,
+                    'Volume_Right_Ratio': RightVolume/Cell_Volume,
+                    'Volume_Top_Ratio': TopVolume/Cell_Volume,
+                   'Cell_SurfaceArea': Cell_SurfaceArea,
+                   'Cell_Sphericity': Cell_Sphericity,
+                   'Cell_MajorAxis': Cell_MajorAxis,
+                   'Cell_MajorAxis_Vec_X': cell_evecs[0,0], #vector of the cell shape's absolute longest axis
                    'Cell_MajorAxis_Vec_Y': cell_evecs[1,0],
                    'Cell_MajorAxis_Vec_Z': cell_evecs[2,0],
-                   'Cell_MinorAxis': np.max(cell_coords[:,1])-np.min(cell_coords[:,1]),
-                   'Cell_MinorAxis_Vec_X': cell_evecs[0,1],
+                   'Cell_MinorAxis': Cell_MinorAxis,
+                   'Cell_MinorAxis_Vec_X': cell_evecs[0,1], #vector of the cell shape's second longest axis
                    'Cell_MinorAxis_Vec_Y': cell_evecs[1,1],
                    'Cell_MinorAxis_Vec_Z': cell_evecs[2,1],
-                   'Cell_MiniAxis': np.max(cell_coords[:,2])-np.min(cell_coords[:,2]),
-                   'Cell_MiniAxis_Vec_X': cell_evecs[0,2],
+                   'Cell_MiniAxis': Cell_MiniAxis,
+                   'Cell_MiniAxis_Vec_X': cell_evecs[0,2], #vector of the cell shape's third longest axis
                    'Cell_MiniAxis_Vec_Y': cell_evecs[1,2],
                    'Cell_MiniAxis_Vec_Z': cell_evecs[2,2],
+                   'Cell_Aspect_Ratio': Cell_MajorAxis/Cell_MinorAxis, 
+                   'Cell_TotalAngle': Cell_TotalAngle, # angle between the cell's trajectory and it's longest axis
+                   'Cell_UpDownAngle': Cell_UpDownAngle, # angle between the cell's trajectory and it's longest axis in X-Z
+                   'Cell_LeftRightAngle': Cell_LeftRightAngle, # angle between the cell's trajectory and it's longest axis in X-Y
                    'OriginaltoReconError': OriginaltoReconError,
                    'RecontoOriginalError': RecontoOriginalError,
                    'LengthAlongTrajectory': trajlen,
-                   'WidthAlongTrajectory': trajwid
+                   'LengthAlongTrajectoryFront':trajlenfront,
+                   'LengthAlongTrajectoryRear':trajlenrear,
+                   'WidthAlongTrajectory': trajwid,
+                   'WidthAlongTrajectoryLeft': trajwidleft,
+                   'WidthAlongTrajectoryRight': trajwidright,
+                   'Structure_Centroid_X':struct_centroid[0],
+                   'Structure_Centroid_Y':struct_centroid[1],
+                   'Structure_Centroid_Z':struct_centroid[2]
                     }
 
-
-    return Shape_Stats, coeffs_mem, exceptions_list
+    #add the shcoeffs to the dict I just built
+    Shape_Stats.update(coeffs_mem)
+    return Shape_Stats, exceptions_list
 
 

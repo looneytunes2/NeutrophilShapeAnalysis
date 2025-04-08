@@ -455,22 +455,29 @@ def shcoeff_recon_mesh_timelapse_realspace(
         ):
     #get some directories
     df = pd.read_csv(basedir + 'Data_and_Figs/Shape_Metrics.csv')
-    df['CellID'] = [re.split(r'(-\d+-Subset)',x)[0]+ '_'+ re.findall(r'Subset-(\d+)', x)[0] for x in df.cell.to_list()]
+    if 'Subset' in df.cell.iloc[0]:
+        df['CellID'] = [re.split(r'(-\d+-Subset)',x)[0]+ '_'+ re.findall(r'Subset-(\d+)', x)[0] for x in df.cell.to_list()]
+    else:
+        df['CellID'] = [x.split('_frame')[0] for x in df.cell.to_list()]
     cell = df[df.CellID == cellname]
-    specificdir = savedir+cellname+'/shrecon_meshes/'
+    specificdir = savedir+'/shrecon_meshes/'
     if not os.path.exists(specificdir):
         os.makedirs(specificdir)
 
 
     # Sort the list based on extracted numbers
-    cellsorted = cell.sort_values(by="cell", key=lambda col: col.map(extract_lls_sort_key)).reset_index(drop=True)
-    
+    if 'Subset' in df.cell.iloc[0]:
+        cellsorted = cell.sort_values(by="cell", key=lambda col: col.map(extract_lls_sort_key)).reset_index(drop=True)
+    else:
+        cell['frame'] = [int(x.split('frame_')[-1]) for x in cell.cell.to_list()]
+        cellsorted = cell.sort_values('frame').reset_index(drop=True)
+        
     poz = []
     for i, row in cellsorted.iterrows():
         c = row.cell
         coeffs = row[[x for x in cell.columns.to_list() if 'shco' in x]].values
         mesh, _ = shtools_mod.get_even_reconstruction_from_coeffs(np.reshape(coeffs, (2,lmax+1,lmax+1)), lmax)
-        save_mesh(mesh, specificdir + f'frame_{int(i)}_mesh.vtp')
+        save_mesh(mesh, specificdir + f'frame_{int(row.frame)}_mesh.vtp')
         poz.append(pd.read_csv(basedir+'processed_data/'+c+'_cell_info.csv', index_col = 0))
     #add position info
     pozdf = pd.concat(poz)

@@ -9,10 +9,24 @@ from skimage import morphology as skmorpho
 from sklearn import decomposition as skdecomp
 from scipy import interpolate as sciinterp
 from scipy import stats as scistats
+from vtkmodules.vtkFiltersCore import (
+    vtkCleanPolyData,
+    vtkTriangleFilter
+)
 
 EPS = 1e-12
 
 
+# clean up a messy mesh 
+def clean_polydata(mesh: vtk.vtkPolyData,):
+    tri1 = vtkTriangleFilter()
+    tri1.SetInputData(mesh)
+    clean1 = vtkCleanPolyData()
+    clean1.SetInputConnection(tri1.GetOutputPort())
+    clean1.Update()
+    output = clean1.GetOutput()
+    return output
+    
 
 
 def rotate_and_scale_mesh(
@@ -203,6 +217,7 @@ def get_mesh_from_image(
         coords -= centroid
         mesh = update_mesh_points(mesh, coords[:, 0], coords[:, 1], coords[:, 2])
 
+    
     return mesh, img_output, tuple(centroid.squeeze())
 
 
@@ -681,13 +696,15 @@ def save_polydata(mesh: vtk.vtkPolyData, filename: str):
     # Output file format
     output_type = filename.split(".")[-1]
 
-    if output_type not in ["vtk", "ply"]:
+    if output_type not in ["vtk", "ply", "vtp"]:
         raise ValueError(
             f"Output format {output_type} not supported. Please use vtk or ply."
         )
 
     if output_type == "vtk":
         writer = vtk.vtkPolyDataWriter()
+    elif output_type == 'vtp':
+        writer = vtk.vtkXMLPolyDataWriter()
     else:
         writer = vtk.vtkPLYWriter()
     writer.SetInputData(mesh)
@@ -695,17 +712,4 @@ def save_polydata(mesh: vtk.vtkPolyData, filename: str):
     writer.Write()
 
 
-def save_vtp(mesh: vtk.vtkPolyData, filename: str):
-
-    """Saves a mesh as a vtkPolyData file.
-
-    Parameters
-    ----------
-    mesh : vtkPolyData
-        Input mesh
-    filename : str
-        File path where the mesh will be saved
-    """
-    writer.SetInputData(mesh)
-    writer.SetFileName(filename)
-    writer.Write()
+    

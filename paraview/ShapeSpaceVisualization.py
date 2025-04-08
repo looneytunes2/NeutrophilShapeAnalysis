@@ -40,7 +40,7 @@ for p in meshfl:
     PC = re.findall('(?<=PC)\d*', p)[0]
     reader = XMLPolyDataReader(FileName=meshdir + p)
     obj = GetRepresentation(reader)
-    obj.Opacity = 0.7
+    # obj.Opacity = 0.7
     binn = p.split('_')[-2]
     obj.Position = [xarr[1,np.where(xarr==float(binn))[1][0]],0,zpos[int(PC)-1]]
 
@@ -57,7 +57,7 @@ if not view:
     
 view.CameraViewUp = [0, 0, 1]
 view.CameraFocalPoint = [0, 0, 0]
-view.CameraViewAngle = 45
+# view.CameraViewAngle = 45
 view.CameraPosition = [0,-600,0]
 view.ViewSize = [4000, 6000]  
 view.OrientationAxesVisibility = 0

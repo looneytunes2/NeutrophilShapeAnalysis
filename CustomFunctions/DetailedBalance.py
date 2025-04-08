@@ -10,7 +10,7 @@ from scipy.spatial import distance
 import pandas as pd
 import numpy as np
 from random import shuffle
-from CustomFunctions import PCvisualization
+from CustomFunctions import PCvisualization, utils
 import os
 import re
 import multiprocessing
@@ -18,6 +18,9 @@ import itertools
 from itertools import groupby
 from operator import itemgetter
 import math
+
+
+
 
 
 def signed_angle(u,v):
@@ -79,29 +82,34 @@ def contour_coords(
 
 def pair_transitions(
         time_interval, # time interval between frames in seconds
-        cellname, #name of cell
-        frames, #list of frames
-        traj, #numpy array with coordinates of cell at each timepoint
+        df, # pandas dataframe with cell, CellID, frame, and binned PCs
+        whichpcs, #which pc #s are in the cgps 
         ):
     
     trans = [] #list to append transitions
     ct = 0 #cumulative time count
-    for i in range(len(traj)-1):
-        ct = ct + time_interval
-        trans.append([frames[i], traj[i][0], traj[i][1], traj[i+1][0], traj[i+1][1], time_interval, ct])
-        
+    for i, row in df.reset_index(drop=True).iterrows():
+        if i < len(df)-1:
+            ct = ct + time_interval
+            nextrow = df.iloc[i+1]
+            trans.append([row.frame, row[f'PC{whichpcs[0]}bins'], row[f'PC{whichpcs[1]}bins'],
+                          nextrow[f'PC{whichpcs[0]}bins'], nextrow[f'PC{whichpcs[1]}bins'], time_interval, ct])
+            
         
     #combine the data
     alltrans = pd.DataFrame(trans, columns=['frame', 'from_x', 'from_y', 'to_x', 'to_y', 'time_elapsed','cumulative_time'])
-    #add cell name
-    alltrans['CellID'] = [cellname]*len(alltrans)
+    #add cell identification
+    alltrans['CellID'] = df.CellID.to_list()[:-1]
+    # 'cell' will reference the cell/frame at the end of the transition
+    alltrans['cell'] = df.cell.to_list()[1:]
     
     #also get transition pairs for boostrapping
     pairs = [trans[i]+trans[i+1] for i in range(len(trans[:-1]))] 
     transpairs = pd.DataFrame(pairs, columns=['frame', 'from_x', 'from_y', 'to_x', 'to_y', 'time_elapsed','cumulative_time', \
                                               'frame_two', 'from_x_two', 'from_y_two', 'to_x_two', 'to_y_two', 'time_elapsed_two','cumulative_time_two'])
     #add cell name
-    transpairs['CellID'] = [cellname]*len(transpairs)
+    transpairs['CellID'] = df.CellID.to_list()[2:]
+    transpairs['cell'] = df.cell.to_list()[2:]
 
     
     return [x.to_dict() for i, x in alltrans.iterrows()], [x.to_dict() for i, x in transpairs.iterrows()]
@@ -836,26 +844,18 @@ def get_raw_cgps_trajectories(
         results = []
         pool = multiprocessing.Pool(processes=60)
         for i, cells in Mig.groupby('CellID'):
-            cells = cells.sort_values('frame').reset_index(drop = True)
-            runs = list()
-            #######https://stackoverflow.com/questions/2361945/detecting-consecutive-integers-in-a-list
-            for k, g in groupby(enumerate(cells['frame']), lambda ix: ix[0] - ix[1]):
-                currentrun = list(map(itemgetter(1), g))
-                list.append(runs, currentrun)
-
+            cells, runs = utils.get_consecutive_timepoints(cells, 'time', time_interval)
             for r in runs:
-                r = np.array(r, dtype=int)
                 #skip runs less than 2 frames long
                 if len(r)<2:
                     pass
                 else:
-                    cell = cells.iloc[[cells[cells.frame==y].index[0] for y in r]]
+                    cell = cells.iloc[r]
 
                     result = pool.apply_async(pair_transitions, args = (
                         time_interval,
-                        cell.CellID.iloc[0],
-                        cell.frame.to_list(),
-                        cell[[f'{whichpcs[0]}bins',f'{whichpcs[1]}bins']].to_numpy(),
+                        cell,
+                        whichpcs,
                         ))
                     results.append(result)
         pool.close()
@@ -872,8 +872,8 @@ def get_raw_cgps_trajectories(
         
     rawtrans = pd.concat([mi[0] for mi in migresults])
     rawpairs = pd.concat([mi[1] for mi in migresults])
-    rawtrans.to_csv(savedir+f'{whichpcs[0]}-{whichpcs[1]}_transitions_separated.csv')
-    rawpairs.to_csv(savedir+f'{whichpcs[0]}-{whichpcs[1]}_transition_pairs_separated.csv')
+    rawtrans.to_csv(savedir+f'PC{whichpcs[0]}-PC{whichpcs[1]}_transitions_separated.csv')
+    rawpairs.to_csv(savedir+f'PC{whichpcs[0]}-PC{whichpcs[1]}_transition_pairs_separated.csv')
     print('Aggregated transitions')
     
     return rawtrans, rawpairs
@@ -890,26 +890,18 @@ def get_interpolated_cgps_trajectories(
         results = []
         pool = multiprocessing.Pool(processes=60)
         for i, cells in Mig.groupby('CellID'):
-            cells = cells.sort_values('frame').reset_index(drop = True)
-            runs = list()
-            #######https://stackoverflow.com/questions/2361945/detecting-consecutive-integers-in-a-list
-            for k, g in groupby(enumerate(cells['frame']), lambda ix: ix[0] - ix[1]):
-                currentrun = list(map(itemgetter(1), g))
-                list.append(runs, currentrun)
-
+            cells, runs = utils.get_consecutive_timepoints(cells, 'time', time_interval)
             for r in runs:
-                r = np.array(r, dtype=int)
                 #skip runs less than 2 frames long
                 if len(r)<2:
                     pass
                 else:
-                    cell = cells.iloc[[cells[cells.frame==y].index[0] for y in r]]
-
+                    cell = cells.iloc[r]
                     result = pool.apply_async(interpolate_2dtrajectory, args = (
                         time_interval,
                         cell.CellID.iloc[0],
                         cell.frame.to_list(),
-                        cell[[f'{whichpcs[0]}bins',f'{whichpcs[1]}bins']].to_numpy(),
+                        cell[[f'PC{whichpcs[0]}bins',f'PC{whichpcs[1]}bins']].to_numpy(),
                         ))
                     results.append(result)
         pool.close()
@@ -927,8 +919,8 @@ def get_interpolated_cgps_trajectories(
 
     transdf_sep = pd.concat([mi[0] for mi in migresults])
     transpairsdf_sep = pd.concat([mi[1] for mi in migresults])
-    transdf_sep.to_csv(savedir+f'interpolated_{whichpcs[0]}-{whichpcs[1]}_transitions_separated.csv')
-    transpairsdf_sep.to_csv(savedir+f'interpolated_{whichpcs[0]}-{whichpcs[1]}_transition_pairs_separated.csv')
+    transdf_sep.to_csv(savedir+f'interpolated_PC{whichpcs[0]}-PC{whichpcs[1]}_transitions_separated.csv')
+    transpairsdf_sep.to_csv(savedir+f'interpolated_PC{whichpcs[0]}-PC{whichpcs[1]}_transition_pairs_separated.csv')
     print('Finished interpolating trajectories')
     
     return transdf_sep, transpairsdf_sep
@@ -969,7 +961,7 @@ def aggregate_transition_counts(
         trresults.append(trans_rate_df_sep)
 
     trans_rate_df_sep = pd.concat(trresults)
-    trans_rate_df_sep.to_csv(savedir+f'{whichpcs[0]}-{whichpcs[1]}_binned_transition_rates_separated.csv')
+    trans_rate_df_sep.to_csv(savedir+f'PC{whichpcs[0]}-PC{whichpcs[1]}_binned_transition_rates_separated.csv')
     print('Finished finding transition rates')
     
     return trans_rate_df_sep
@@ -1092,13 +1084,13 @@ def get_bootstrapped_cgps_trajectories(
 
     ####### pull everything together and save
     bstrans = pd.concat(bstrans)
-    bstrans.to_csv(savedir+f'{whichpcs[0]}-{whichpcs[1]}_bootstrapped_transitions.csv')
+    bstrans.to_csv(savedir+f'PC{whichpcs[0]}-PC{whichpcs[1]}_bootstrapped_transitions.csv')
     bsint = pd.concat(bsint)
-    bsint.to_csv(savedir+f'{whichpcs[0]}-{whichpcs[1]}_bootstrapped_interpolated_transitions.csv')
+    bsint.to_csv(savedir+f'PC{whichpcs[0]}-PC{whichpcs[1]}_bootstrapped_interpolated_transitions.csv')
     bspairs = pd.concat(bspairs)
-    bspairs.to_csv(savedir+f'{whichpcs[0]}-{whichpcs[1]}_bootstrapped_interpolated_transition_pairs.csv')
+    bspairs.to_csv(savedir+f'PC{whichpcs[0]}-PC{whichpcs[1]}_bootstrapped_interpolated_transition_pairs.csv')
     bsframe_sep_full = pd.concat(bsframe_sep_full)
-    bsframe_sep_full.to_csv(savedir+f'{whichpcs[0]}-{whichpcs[1]}_bootstrapped_transition_rates.csv')
+    bsframe_sep_full.to_csv(savedir+f'PC{whichpcs[0]}-PC{whichpcs[1]}_bootstrapped_transition_rates.csv')
     print('Finished bootstrapping')
     
     return bstrans, bsint, bspairs, bsframe_sep_full
@@ -1132,7 +1124,7 @@ def get_avg_current_error(
                               'Treatment':m})
 
     bsfield_sep = pd.DataFrame(bsfield)
-    bsfield_sep.to_csv(savedir+f'{whichpcs[0]}-{whichpcs[1]}_bootstrapped_transitions_average_currents.csv')
+    bsfield_sep.to_csv(savedir+f'PC{whichpcs[0]}-PC{whichpcs[1]}_bootstrapped_transitions_average_currents.csv')
     
     return bsfield_sep
 
@@ -1159,12 +1151,13 @@ def get_aer_cf(
             for x in range(start,stop+1):
                 b = m[m.iter==x]
                 b = b.sort_values('cumulative_time').reset_index(drop = True)
-                results.append(get_area_enclosing_rate, args = (
+                result = pool.apply_async(get_area_enclosing_rate, args = (
                     b,
                     nbins,
                     xyscaling,
                     center,
                     ))
+                results.append(result)
             pool.close()
             pool.join()
             #get results
@@ -1180,7 +1173,7 @@ def get_aer_cf(
         allaers.append(migboot)
 
     allaers = pd.concat(allaers).reset_index(drop=True)
-    allaers.to_csv(savedir+f'{whichpcs[0]}-{whichpcs[1]}_Area_Enclosing_Rates.csv')
+    allaers.to_csv(savedir+f'PC{whichpcs[0]}-PC{whichpcs[1]}_Area_Enclosing_Rates.csv')
 
 
 
@@ -1199,20 +1192,13 @@ def filter_dataframe(df,
     allcellsabv = []
     df = df.sort_values(by='frame').reset_index(drop=True)
     for i, cells in df.groupby('CellID'):
-        cells = cells.reset_index(drop = True)
-        ############ actually filter the runs ################
-        runs = list()
-        #######https://stackoverflow.com/questions/2361945/detecting-consecutive-integers-in-a-list
-        for k, g in groupby(enumerate(cells['frame']), lambda ix: ix[0] - ix[1]):
-            currentrun = list(map(itemgetter(1), g))
-            list.append(runs, currentrun)
+        cells, runs = utils.get_consecutive_timepoints(cells, 'frame', 1)
         for r in runs:
-            r = np.array(r, dtype=int)
             #skip runs less than 3 frames long
             if len(r)<2:
                 pass
             else:
-                cell = cells.iloc[[cells[cells.frame==y].index[0] for y in r]]
+                cell = cells.iloc[r]
                 N=20
                 #shrink the convolution window if the track isn't long enough
                 if len(cell)<N:

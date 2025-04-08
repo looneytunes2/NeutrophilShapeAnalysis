@@ -1166,12 +1166,9 @@ def segment_cells_rotafter_memonly(
                     'cell': cell_name,
                     'structure': 'none',
                     'frame': temp_df.frame,
-                    'x':(cent[2]+croparr[0])*xyres, 
-                    'y':(cent[1]+croparr[2])*xyres, 
-                    'z':(cent[0]+croparr[4])*zstep,
-                    'cropx (pixels)':cent[2], 
-                    'cropy (pixels)':cent[1], 
-                    'cropz (pixels)':cent[0],
+                    'x':(cent[2]+croparr[0])*xyres, #centroid within the big image in microns
+                    'y':(cent[1]+croparr[2])*xyres, #centroid within the big image in microns
+                    'z':(cent[0]+croparr[4])*zstep,#centroid within the big image in microns
                     'xmincrop': croparr[0],
                     'ymincrop': croparr[2],
                     'zmincrop': croparr[4],

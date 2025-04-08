@@ -22,7 +22,8 @@ from CustomFunctions.persistance_activity import get_pa, DA_3D
 from CustomFunctions import shparam_mod, metadata_funcs, segment_LLS
 from CustomFunctions.track_functions import segment_caax_tracks_confocal_40x_fromsingle
 from CustomFunctions.file_management import multicsv
-
+from CustomFunctions.PILRagg import read_pilr_regions
+from CustomFunctions.utils import get_consecutive_timepoints
 
 def collect_results(result):
     """Uses apply_async's callback to setup up a separate Queue for each process.
@@ -78,15 +79,17 @@ def segment_whole_images(
             # use multiprocessing to perform segmentation and x,y,z determination
             pool = multiprocessing.Pool(processes=60)
             for t in range(fullimshape[0]):
-                pool.apply_async(segment_caax_tracks_confocal_40x_fromsingle, args=(imdir,
-                                                                                    fullimshape[-3:],
-                                                                                    xyres,
-                                                                                    zstep,
-                                                                                    t, ), 
-                                 callback=collect_results)
+                result = pool.apply_async(segment_caax_tracks_confocal_40x_fromsingle, args=(
+                    imdir,
+                    fullimshape[-3:],
+                    xyres,
+                    zstep,
+                    t, ))
+                results.append(result)
+                
             pool.close()
             pool.join()
-
+            results = [r.get() for r in results]
     
             #organize the semented frames into a segmented stack
             segmented_img = np.zeros((fullimshape[0],
@@ -303,13 +306,15 @@ def segment_and_crop(
 
 ########## GET TRAJECTORIES FROM POSITION INFO 
 def get_smooth_trajectories(
-        mindir,
-        time_interval,
+        mindir, #where to find the segmented images and position information
+        savedir, #where to save the trajectories
+        time_interval, #time interval between frames of movies
+        smooth_factor, # "s" parameter in the interpolate.splprep function
         ):
     
     #define directory stuff
     datadir = mindir + 'Data_and_Figs/'
-    csvdir = mindir + 'processed_data/'
+    csvdir = savedir + 'processed_data/'
     posdir = mindir + 'position_info/'
     if not os.path.exists(datadir):
         os.makedirs(datadir)
@@ -329,23 +334,12 @@ def get_smooth_trajectories(
     
     for i, df in cellinfo.groupby('CellID'):
     
-        #first get dataframe in time order
-        df = df.sort_values(by = 'time').reset_index(drop=True)
-    
-        #make sure there are no gaps due to failed segmentations
-        if any(abs(df.time.diff())>time_interval):
-            diff = df.time.diff()
-            difflist = [0]
-            difflist.extend(diff[diff>time_interval].index.to_list())
-            runs = []
-            for x in range(len(difflist)-1):
-                runs.append(list(range(difflist[x], difflist[x+1])))
-        else:
-            runs = [df.index.to_list()]
-    
+        #first get dataframe in time order and consecution timepoints
+        df, runs = get_consecutive_timepoints(df[~df.x.isna()], 'time', time_interval)
+        
         #save the df in case it gets broken up later    
         brokendf = df.copy()
-    
+        
         for r in runs:
             if len(r)>2:
                 df = brokendf.iloc[r].reset_index(drop=True)
@@ -354,8 +348,8 @@ def get_smooth_trajectories(
                     kay = len(df)-1
                 else:
                     kay = 5
-
-    
+        
+        
                 #do speed and trajectory stuff
                 pos = df[['x','y','z']]
                 if bool(pos[pos.duplicated()].index.tolist()):
@@ -363,12 +357,14 @@ def get_smooth_trajectories(
                     # if there is duplicate positions
                     dups = pos[pos.duplicated()].index.tolist()
                     pos_drop = pos.drop(dups, axis = 0)
+                    #if dropping the duplicates leads to less that three positions,
+                    #just continue with the duplicates but don't smoothen
                     if pos_drop.shape[0]<3:
-                        traj = np.zeros([1,len(pos),3])
+                        traj = pos.to_numpy().copy()
                         trajsmo = pos.to_numpy().copy()
                     else:
                         #get trajectories without the duplicates
-                        tck, u = interpolate.splprep(pos_drop.to_numpy().T, k=kay, s=5)
+                        tck, u = interpolate.splprep(pos_drop.to_numpy().T, k=kay, s=smooth_factor)
                         yderv = interpolate.splev(u,tck,der=1)
                         traj = np.vstack(yderv).T
                         #get smoothened trajectory
@@ -378,18 +374,18 @@ def get_smooth_trajectories(
                         for d, dd in enumerate(dups):
                             traj = np.insert(traj, dd, traj[dd-1,:], axis=0)
                             trajsmo = np.insert(trajsmo, dd, trajsmo[dd-1,:], axis=0)
-    
+        
                 else:
                     ######### FIND CELL TRAJECTORY AND EULER ANGLES ################
                     #no duplicate positions
                     #interpolate and get tangent at midpoint
-                    tck, b = interpolate.splprep(pos.to_numpy().T, k=kay, s=120)
+                    tck, b = interpolate.splprep(pos.to_numpy().T, k=kay, s=smooth_factor)
                     yderv = interpolate.splev(b,tck,der=1)
                     traj = np.vstack(yderv).T
                     #get smoothened trajectory
                     ysmo = interpolate.splev(b,tck,der=0)
                     trajsmo = np.vstack(ysmo).T
-    
+        
                 ###add smoothened trajectory positions 
                 #change x y z names in the dataframe
                 df.rename(columns={"x": "x_raw", "y": "y_raw", "z": "z_raw"}, inplace = True)
@@ -397,19 +393,16 @@ def get_smooth_trajectories(
                 df['x'] = trajsmo[:,0]
                 df['y'] = trajsmo[:,1]
                 df['z'] = trajsmo[:,2]
-    
+        
                 ############## Bayesian persistence and activity #################
                 persistence, activity, speed = get_pa(df, time_interval)
                 df['persistence'] = np.concatenate([np.array([np.nan]*2), persistence])
                 df['activity'] = np.concatenate([np.array([np.nan]*2), activity])
                 df['speed'] = np.concatenate([np.array([np.nan]), speed])
-                df['avg_persistence'] = np.array([persistence.mean()]*(len(persistence)+2))
-                df['avg_activity'] = np.array([activity.mean()]*(len(activity)+2))
-                df['avg_speed'] = np.array([speed.mean()]*(len(speed)+1))
-    
+        
                 #add directional autocorrelations
                 df['directional_autocorrelation'] = DA_3D(df[['x','y','z']].to_numpy())
-    
+            
                 #get the trajectory and the previous trajectory for each frame and 
                 #save as an individual dataframe for each cell and frame
                 for v, row in df.iterrows():
@@ -435,7 +428,7 @@ def get_smooth_trajectories(
                         else:
                             row['Turn_Angle'] = angle_distance(traj[v-1,0], traj[v-1,1], traj[v-1,2], traj[v,0], traj[v,1], traj[v,2])
                         pd.DataFrame(row.to_dict(),index=[0]).to_csv(csvdir + row.cell + '_cell_info.csv')
-    
+            
         print(f'Finished tracking cell {i}')
     
 
@@ -444,23 +437,24 @@ def get_smooth_trajectories(
 
 ############ FIND WIDTH ROTATIONS THAT DEPEND ON PREVIOUS FRAMES TO LIMIT ROTATION FLIPPING ################
 def get_normal_rotations(
-        mindir, 
-        xyres,
-        zstep,
-        align_method = 'trajectory',
-        sigma = 0,
+        mindir, #where to find the segmented images and position information
+        savedir, #where to save the normal rotations
+        xyres, # xy resolution of images
+        zstep, # z resolution in same units as xyres
+        align_method = 'trajectory', #how to align the cells based on shparam_mod.find_normal_width_peaks function 
+        sigma = 0, # sigma to smoothen meshes before finding the normal rotation
         ):
     
     
     imdir = mindir + 'processed_images/'
-    datadir = mindir + 'Data_and_Figs/'
-    csvdir = mindir + 'processed_data/'
+    datadir = savedir + 'Data_and_Figs/'
+    csvdir = savedir + 'processed_data/'
     if not os.path.exists(datadir):
         os.makedirs(datadir)
 
     ### get the list of unique cells that we have trajectory info for
     imlist = []
-    for o in os.listdir(csvdir):
+    for o in os.listdir(imdir):
         cellid = o.split('_frame')[0]
         if cellid not in imlist:
             imlist.append(cellid)
@@ -498,18 +492,13 @@ def get_normal_rotations(
         tempframe = pd.DataFrame(results, columns = ['cell','Width_Peaks'])
         tempframe['frame'] = [float(re.findall('(?<=frame_)\d*', x[0])[0]) for x in results]
         
-        runs = list()
-        #######https://stackoverflow.com/questions/2361945/detecting-consecutive-integers-in-a-list
-        for k, g in groupby(enumerate(tempframe['frame']), lambda ix: ix[0] - ix[1]):
-            currentrun = list(map(itemgetter(1), g))
-            list.append(runs, currentrun)
-    
+        tempframe, runs = get_consecutive_timepoints(tempframe, 'frame', 1)    
         
         #find the minima in each frame that are closest to the minimum chosen in the last frame
         #aka the one that results in the least amount of consecutive rotation
         fullminlist = []
         for xx in runs:
-            runframe = tempframe[tempframe.frame.isin(xx)]
+            runframe = tempframe.iloc[xx]
             wplist = runframe.Width_Peaks.to_list()
             seeds = []
             allallmins = []
@@ -536,13 +525,14 @@ def get_normal_rotations(
     
     #save the shape metrics dataframe
     bigdf = pd.concat(allresults)
-    bigdf.to_csv(datadir + 'Closest_Width_Peaks.csv')
+    bigdf.to_csv(datadir + f'Closest_Width_Peaks_{mindir.split("/")[-2]}.csv')
 
 
 
 
 def seg_to_mesh(
         mindir, #base directory with all of the different data folders and files
+        savedir, #where to save the meshes etc.
         xyres, #xy resolution
         zstep, # z resolution
         align_method = 'trajectory', #how to align the cells
@@ -554,20 +544,20 @@ def seg_to_mesh(
         ):
 
     #make dirs if it doesn't exist
-    datadir = mindir + 'Data_and_Figs/'
-    csvdir = mindir + 'processed_data/'
+    datadir = savedir + 'Data_and_Figs/'
+    csvdir = savedir + 'processed_data/'
     imdir = mindir + 'processed_images/'
     #make dirs if it doesn't exist
-    meshf = mindir+'Meshes/'  
+    meshf = savedir+'Meshes/'  
     if not os.path.exists(meshf):
         os.makedirs(meshf)
-    pilrf = mindir+'PILRs/'
+    pilrf = savedir+'PILRs/'
     if not os.path.exists(pilrf):
         os.makedirs(pilrf)
 
     
     if norm_rot == 'provided':
-        widthpeaks = pd.read_csv(datadir + 'Closest_Width_Peaks.csv', index_col = 0)
+        widthpeaks = pd.read_csv(datadir + f'Closest_Width_Peaks_{mindir.split("/")[-2]}.csv', index_col = 0)
         
     #get all segmented images that were analyzed
     datalist = [x.split('_cell_info.csv')[0] for x in os.listdir(csvdir)]
@@ -603,8 +593,8 @@ def seg_to_mesh(
                     
             #put in the pool
             result = pool.apply_async(shparam_mod.shcoeffs_and_PILR_nonuc, args = (
-                i,
-                mindir,
+                imdir+i,
+                savedir,
                 xyres,
                 zstep,
                 str_name,
@@ -629,27 +619,23 @@ def seg_to_mesh(
             stop = len(imlist)
     
     errorlist = []
-    bigdf = pd.DataFrame()
-    
+    bigdf = []
     for r in allresults:
         
-    
+        #extend list with all of the shape stats
         Shape_Stats = pd.DataFrame([r[0].values()],
                                       columns = list(r[0].keys()))
-        cell_coeffs = pd.DataFrame([r[1].values()],
-                                   columns = list(r[1].keys()))
-    
-        bigdf = bigdf.append(pd.concat([Shape_Stats,cell_coeffs], axis=1))
-    
-        errorlist.extend(r[2])
+        bigdf.append(Shape_Stats)
+        #extend list with cells that had warnings when getting shcoeffs
+        errorlist.extend(r[1])
     
     
     #save the shape metrics dataframe
-    bigdf = bigdf.set_index('cell')
-    bigdf.to_csv(datadir + 'Shape_Metrics.csv')
-    
+    bigdf = pd.concat(bigdf).reset_index(drop=True)
+    bigdf.to_csv(datadir + f'Shape_Metrics_{mindir.split("/")[-2]}.csv')
+
     #save list of cells that don't have centroid in shape
-    pd.Series(errorlist).to_csv(datadir + 'ListToExclude.csv')
+    pd.Series(errorlist).to_csv(datadir + f'ListToExclude_{mindir.split("/")[-2]}.csv')
 
 
 
@@ -657,18 +643,26 @@ def seg_to_mesh(
 
 ################ SEGMENT AND TRACK CELLS FROM MANUALLY CROPPED LLS MOVIES #############
 def segment_and_crop_LLS_manual(
-        cellstr,#the name of the unique cell being cropped and segmented across multiple videos
-        savedir, #direcetory to save images
-        posdir, #directory to save position data
-        croppeddir, #directory where all of the cropped LLS images live
+        mindir, #base directory with save folder and info folder
+        raw_dir, #directory where all of the cropped LLS images live
+        cellstr,#the name of the unique cell being cropped and segmented across multiple videos\
         decon = True, #are these images deconvolved?
         orig_size = False, #should we save the images at their original size?
         xy_buffer = 25, #crop buffer in x-y
         z_buffer = 25, #crrop buffer in z
         hilo = True, #whether or not to do multiple thresholds for segmenting secondary signals
         ):
+    
+    savedir = mindir + 'processed_images/'
+    posdir = mindir + 'position_info/'
+    #make the savedir if it doesn't exist
+    if not os.path.exists(savedir):
+        os.makedirs(savedir)
+    if not os.path.exists(posdir):
+        os.makedirs(posdir)
+    
     #get all of the images from a particular cell I was following
-    curimlist = [x for x in os.listdir(croppeddir) if cellstr in x]
+    curimlist = [x for x in os.listdir(raw_dir) if cellstr in x]
     #find the total number of cells I cropped while following the cell of interest
     cellnums = list(set([re.findall(r'Subset-(\d+)',x)[0] for x in curimlist]))
     cellnums.sort()
@@ -680,7 +674,7 @@ def segment_and_crop_LLS_manual(
         #sort the current cell to be in chronological order
         curcell.sort(key=lambda x: float(re.findall(r'(\d+)-Subset', x)[0]))
         for n, c in enumerate(curcell):
-            celldir = croppeddir + c
+            celldir = raw_dir + c
             #open the image
             czi = CziReader(celldir)
             imdata = czi.data
@@ -775,9 +769,27 @@ def segment_and_crop_LLS_manual(
                 dflist.append(df)
             else:
                 print(image_name + ' did not have enough segmented frames in movie')
-        #combine all of the subset dataframes and save
-        fulldf = pd.concat(dflist).reset_index(drop=True)
-        fulldf['CellID'] = [cellstr+f'_{s}']*len(fulldf)
-        fulldf.to_csv(posdir + cellstr + f'_{s}_cellpos.csv')
+        if len(dflist)>0:
+            #combine all of the subset dataframes and save
+            fulldf = pd.concat(dflist).reset_index(drop=True)
+            fulldf['CellID'] = [cellstr+f'_{s}']*len(fulldf)
+            fulldf.to_csv(posdir + cellstr + f'_{s}_cellpos.csv')
+        else:
+            print('No images were recovered of cell '+ re.split('-\d*-Subset', curcell[0])[0] + '-' + s)
 
-
+def get_pilr_regions(
+        mindir,
+        ):
+    
+    #make dirs if it doesn't exist
+    datadir = mindir + 'Data_and_Figs/'
+    pilrf = mindir+'PILRs/'
+    
+    #get a list of all of the PILR images
+    pilrlist = [pilrf+x for x in os.listdir(pilrf) if '_PILR' in x]
+    with multiprocessing.Pool(processes=60) as pool:
+        results = pool.map(read_pilr_regions, pilrlist)
+    
+    pilrframe = pd.DataFrame(results).reset_index(drop = True)
+    pilrframe.to_csv(datadir + 'PILR_regions.csv')
+    

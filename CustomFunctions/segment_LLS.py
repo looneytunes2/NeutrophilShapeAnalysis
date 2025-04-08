@@ -29,6 +29,54 @@ from CustomFunctions.persistance_activity import get_pa, DA_3D
 from CustomFunctions.mp_funcs import quickcaaxseg
 from CustomFunctions.MO_Threshold import MO_ma
 
+
+
+def detect_skewed_image_bounds(
+        im, #image in question
+        ):
+    
+    first = im[1]
+    last = im[-1]
+    zmax = im.shape[-3]
+    ymax = im.shape[-2]
+    
+    #get the min x points of the first plane in the first and last slices
+    lowerstart = np.where(first>0)[-1].min()
+    upperstart = np.where(last>0)[-1].min()
+    
+    first_plane_points = np.array([[lowerstart, 0, 1],
+                                   [lowerstart, ymax, 1],
+                                   [upperstart, 0, zmax]])
+    fvec1 = first_plane_points[1] - first_plane_points[0]  # Vector from point 1 to point 2
+    fvec2 = first_plane_points[2] - first_plane_points[0]  # Vector from point 1 to point 3
+    
+    # Compute the normal vector using the cross product
+    start_normal = np.cross(fvec1, fvec2)
+    # Normalize the normal vector
+    start_normal = start_normal / np.linalg.norm(start_normal)
+    start_point = first_plane_points[0]
+    
+    #get the max x points of the second plane in the first and last slices
+    lowerend = np.where(first>0)[-1].max()
+    upperend = np.where(last>0)[-1].max()
+    
+    second_plane_points = np.array([[lowerend, 0, 1],
+                                   [lowerend, ymax, 1],
+                                   [upperend, 0, zmax]])
+    svec1 = second_plane_points[1] - second_plane_points[0]  # Vector from point 1 to point 2
+    svec2 = second_plane_points[2] - second_plane_points[0]  # Vector from point 1 to point 3
+    
+    # Compute the normal vector using the cross product
+    end_normal = np.cross(svec1, svec2)
+    # Normalize the normal vector
+    end_normal = end_normal / np.linalg.norm(end_normal)
+    end_point = second_plane_points[0]
+    
+    return start_normal, start_point, end_normal, end_point
+
+
+
+
 # Function to find Angle
 def angle_distance(a1, b1, c1, a2, b2, c2):
     a1,b1,c1 = [a1,b1,c1]/np.linalg.norm([a1,b1,c1])
@@ -40,11 +88,6 @@ def angle_distance(a1, b1, c1, a2, b2, c2):
     A = math.degrees(math.acos(d))
     return A
 
-def collect_results(result):
-    """Uses apply_async's callback to setup up a separate Queue for each process.
-    This will allow us to collect the results from different threads."""
-    results.append(result)
-    
 
 
 def get_intensity_features(img, seg):
@@ -112,8 +155,36 @@ def segment_caax_decon(im):
             area = prop.area
             tempdata = {'cell':count, 'area':area}
             tempdf = tempdf.append(tempdata, ignore_index=True)
-        minArea = int(tempdf.area.max()-2)
-        # create segmentation mask               
+        ### sort by area
+        tempdf = tempdf.sort_values('area').reset_index(drop=True)
+
+        #check to see if there's a large non-subject cell object
+        if tempdf.iloc[-2].area>20000:
+            ### get the masked array that hides the big object
+            othermask = ma.masked_array(smooth, mask = im_labeled == tempdf.iloc[-2].cell+1)
+            #filter the bright pixels in the masked image
+            permask = othermask>np.percentile(othermask[im>100].compressed(), 96)
+            #add those two masks together and then threshold off of that
+            moremask = np.logical_or(othermask.mask, permask)
+            bigma = ma.masked_array(smooth, mask = moremask)
+            thresh_img = MO_ma(bigma, global_thresh_method='tri', object_minArea=50000, local_adjust = 0.92)
+            ves = vessel.filament_2d_wrapper(bigma, [[1.5,0.23]])
+            both = np.logical_or(ves, thresh_img)
+            #re calculate the areas to remove things correctly
+            im_labeled, n_labels = skimage.measure.label(
+                                      both, background=0, return_num=True)
+            im_props = skimage.measure.regionprops(im_labeled)
+            tempdf = pd.DataFrame([])
+            for count, prop in enumerate(im_props):
+                area = prop.area
+                tempdata = {'cell':count, 'area':area}
+                tempdf = tempdf.append(tempdata, ignore_index=True)
+            ### sort by area
+            tempdf = tempdf.sort_values('area')
+                
+        # create segmentation mask  
+        #get the area to 
+        minArea = int(tempdf.iloc[-1].area-2) 
         both = remove_small_objects(im_labeled, min_size=minArea, connectivity=1, in_place=False)
     #fill holes in segmentation twice
     hole_max = 5000
@@ -280,9 +351,15 @@ def getbb_movie(
     with multiprocessing.Pool(processes=60) as pool: 
         rescaled = pool.map(quarter_scale, [i for i in im])
     ### get the shape of the rescaled to use later to leave out objects
-    shape = np.array(rescaled).shape    
+    shape = im.shape    
+    ### get the skew planes for this image
+    start_normal, start_point, end_normal, end_point = detect_skewed_image_bounds(im[0])
     #loop through time points to get bounding boxes
     cropdf = pd.DataFrame()
+    #dictionary with nan to append in cases of blanks
+    nandict = {'cell':np.nan, 'z_min':np.nan, 'y_min':np.nan, 
+            'x_min':np.nan,'z_max':np.nan, 'y_max':np.nan, 'x_max':np.nan,
+           'z':np.nan, 'y':np.nan, 'x': np.nan, 'z_range': np.nan, 'area':np.nan}
     for it, f in enumerate(rescaled):
         #mask the top pixels with signal
         if (f>100).any():
@@ -297,12 +374,21 @@ def getbb_movie(
                 z,y,x = np.array(prop.centroid)*4
                 thebox = np.array(prop.bbox)*4
                 area = prop.area * 64
+                ### get the xyz coordinates of the object
+                coords  =  np.flip(np.stack(np.where(im_labeled  ==  (count+1))).T, axis  =  1)*4
+                ### get the distance of this object to the skewed edges
+                min_dist_start = np.min(np.abs(np.dot(coords - start_point, start_normal)))
+                min_dist_end  =  np.min(np.abs(np.dot(coords - end_point, end_normal)))
+    
+                # z,y,x = (thebox[3]+thebox[0])/2,(thebox[4]+thebox[1])/2, (thebox[5]+thebox[2])/2
+                area = prop.area * 64
+                intensity = np.mean(f[im_labeled==int(count+1)])
                 td = {'cell':count, 'z_min':thebox[0], 'y_min':thebox[1], 
                         'x_min':thebox[2],'z_max':thebox[3], 'y_max':thebox[4], 'x_max':thebox[5],
-                       'z':z, 'y':y, 'x': x, 'z_range': seg.shape[-3], 'area':area}
+                       'z':z, 'y':y, 'x': x, 'z_range': shape[-3], 'area':area, 'intensity':intensity}
                 #ensure only things that aren't on the edge are chosen
                 #and are big enough
-                if (td['z_min']>0) and (td['y_min']>0) and (td['x_min']>0) and (td['z_max']/4<shape[-3]) and (td['y_max']/4<shape[-2]) and (td['x_max']/4<shape[-1]) and (area>50000):
+                if (td['z_min']>0) and (td['y_min']>0) and (min_dist_start>2) and (td['z_max']<shape[-3]) and (td['y_max']<shape[-2]) and (min_dist_end>2) and (area>50000):
                     tempdf = tempdf.append(td, ignore_index=True)
     
     
@@ -314,25 +400,22 @@ def getbb_movie(
                 elif (it==0):
                     dists = []
                     for p, row in tempdf.iterrows():
-                        dists.append(distance.pdist([np.array(shape)[-3:][::-1]/2,
-                                        row[['x','y','z']].values]))
+                        dists.append(distance.pdist([np.array(shape)[-3:]/2,
+                                        row[['z','y','x']].values]))
                     cropdf = cropdf.append(tempdf.iloc[np.argmin(dists)], ignore_index=True)
                 #if it's any other frame get the closest object to the last pick
                 else:
                     dists = []
                     for p, row in tempdf.iterrows():
-                        dists.append(distance.pdist([cropdf[['x','y','z']].iloc[-1].values,
+                        dists.append(distance.pdist([cropdf[['x','y','z']].dropna().iloc[-1].values,
                                         row[['x','y','z']].values]))
                     cropdf = cropdf.append(tempdf.iloc[np.argmin(dists)], ignore_index=True)
             #if there's no options fill the gap with nan
             else:
-                cropdf = cropdf.append({'cell':np.nan, 'z_min':np.nan, 'y_min':np.nan, 
-                        'x_min':np.nan,'z_max':np.nan, 'y_max':np.nan, 'x_max':np.nan,
-                       'z':np.nan, 'y':np.nan, 'x': np.nan, 'z_range': np.nan, 'area':np.nan}, ignore_index=True)
+                cropdf = cropdf.append(nandict, ignore_index=True)
         else:
-            cropdf = cropdf.append({'cell':np.nan, 'z_min':np.nan, 'y_min':np.nan, 
-                    'x_min':np.nan,'z_max':np.nan, 'y_max':np.nan, 'x_max':np.nan,
-                   'z':np.nan, 'y':np.nan, 'x': np.nan, 'z_range': np.nan, 'area':np.nan}, ignore_index=True)
+            cropdf = cropdf.append(nandict, ignore_index=True)
+            
     return cropdf
 
 
