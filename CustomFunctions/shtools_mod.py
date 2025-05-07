@@ -37,12 +37,16 @@ def rotate_and_scale_mesh(
     #rotate and scale mesh
     #worked from https://kitware.github.io/vtk-examples/site/Python/PolyData/AlignTwoPolyDatas/
     transformation = vtk.vtkTransform()
-    #input rotations
-    transformation.RotateWXYZ(rotations[2], 0, 0, 1)
-    transformation.RotateWXYZ(rotations[1], 0, 1, 0)
-    transformation.RotateWXYZ(rotations[0], 1, 0, 0)
-    #input scaling
-    transformation.Scale(scale[0], scale[1], scale[2])
+    #rotate if you need to rotate
+    if any(rotations!=0):
+        #input rotations
+        transformation.RotateWXYZ(rotations[2], 0, 0, 1)
+        transformation.RotateWXYZ(rotations[1], 0, 1, 0)
+        transformation.RotateWXYZ(rotations[0], 1, 0, 0)
+    #scale if you need to scale
+    if any(scale!=1):
+        #input scaling
+        transformation.Scale(scale[0], scale[1], scale[2])
     #apply transformations
     transformFilter = vtk.vtkTransformPolyDataFilter()
     transformFilter.SetTransform(transformation)

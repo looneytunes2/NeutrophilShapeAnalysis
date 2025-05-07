@@ -14,43 +14,50 @@ from scipy.spatial.transform import Rotation as R
 
 
 realspace = True
-scope = 'confocal'
+scope = 'lls'
 #get some directories
-basedir = 'E:/Aaron/CK666_Confocal_40x_37C_smooth/'
+basedir = 'E:/Aaron/Combined_37C_Confocal_PCA_s5_LLS_Apply/'
 meshdir = basedir+'Meshes/'
 infodir = basedir+'processed_data/'
-widthpeaks = pd.read_csv(basedir+'Data_and_Figs/Closest_Width_Peaks.csv', index_col = 0)
-cellname = '20231116_488EGFP-CAAX_3mA_37C_1_cell_25'
+widthpeaks = pd.read_csv(basedir+'Data_and_Figs/Closest_Width_Peaks_random_lls.csv', index_col = 0)
+cellname = '20240527_488_EGFP-CAAX_640_SPY650-DNA_cell2_01'
 savedir = basedir+'singlecells/'+cellname
 if not os.path.exists(savedir):
     os.makedirs(savedir)
 
-    
-# Function to extract sorting keys
-def extract_lls_sort_key(filename):
-    subset_match = re.search(r'(\d+)-Subset', filename)
-    frame_match = re.search(r'frame_(\d+)', filename)
 
-    subset_num = int(subset_match.group(1)) if subset_match else 0
-    frame_num = int(frame_match.group(1)) if frame_match else 0
+def filename_match_llscellid(
+        cellid, #CellID of cell in question
+        lst, #list of file names
+        ):
+    movie = '_'.join(cellid.split('_')[:-1])
+    cellinmovie = cellid.split('_')[-1]
+    filematches = []
+    for l in lst:
+        if movie in l:
+            if re.search(r'\d+', l.split('Subset-')[-1])[0] == cellinmovie:
+                filematches.append(l)
+    return filematches
 
-    return (subset_num, frame_num)
+
+def format_seconds(seconds):
+    minutes = int(seconds // 60)
+    secs = int(seconds % 60)
+    return f"{minutes:02}:{secs:02}"
 
 if realspace:
-    if scope == 'LLS':
+    if scope == 'lls':
         #get some directories
         df = []
-        for x in os.listdir(infodir):
-            if cellname in x:
-                df.append(pd.read_csv(infodir+x, index_col = 0))
+        lsslist = filename_match_llscellid(cellname, os.listdir(infodir))
+        for x in lsslist:
+            df.append(pd.read_csv(infodir+x, index_col = 0))
         # Sort the dataframe based on extracted numbers
-        df = pd.concat(df).reset_index(drop=True)
-        #sort the list by the frame number
-        df = df.sort_values('cell',key=lambda x: extract_lls_sort_key(x)).reset_index(drop=True)
+        df = pd.concat(df).sort_values('time').reset_index(drop=True)
         
         #get displacements and then cumulative position
         df['movie'] = [d.split('-Subset')[0] for d in df.cell.to_list()]
-        df['frame'] = [int(d.split('frame_')[-1]) for d in df.cell.to_list()]
+
         cum_pos = np.zeros((len(df),3))
         ind = 0
         for m, mov in df.groupby('movie'):
@@ -81,15 +88,50 @@ if realspace:
         tempc[jumpind,:] = np.zeros((len(jumpind),3))
         cum_pos = np.cumsum(tempc, axis = 0) 
 
-        
+
+
+############ create all of the view stuff and scale it      
+view = GetActiveView()
+if not view:
+    # When using the ParaView UI, the View will be present, not otherwise.
+    view = CreateRenderView()
+    
+view.CameraViewUp = [0, -1, 0]
+# view.CameraViewAngle = 180
+avgpos = np.mean(cum_pos,axis = 0)
+view.CameraPosition = [avgpos[0],avgpos[1],avgpos[2]-(avgpos[0]*avgpos[1]*3)]
+view.CameraFocalPoint = avgpos
+
+view.ViewSize = [500, 500]  
+view.OrientationAxesVisibility = 1
+view.UseColorPaletteForBackground = 0
+view.Background = [84/255, 94/255, 135/255]
+
+
         
 # get animation scene and make it at least the number of frames that I have meshes
 animationScene1 = GetAnimationScene()
 animationScene1.NumberOfFrames = len(df)
+# animationScene1.GoToFirst()
+
+
+# #### create the time text object to animate
+# dummy = Wavelet()
+# annotation = PythonAnnotation(Input=dummy)
+# annotationDisplay = Show(annotation, view)
+# annotationDisplay.FontSize = 24
+# annotationDisplay.WindowLocation = 'Upper Left Corner'
+# annotation.Expression = format_seconds(0)
+
+# #### add the real time in minutes and seconds
+# txtrack = GetAnimationTrack("Expression", index=0, proxy=annotation)
+# # txtrack.AnimatedElement = 'Expression'
+# textkf = []
 
 time = 0
 interval = 1/len(df)
 for i, row in df.iterrows():
+    
     meshfl = meshdir+row.cell+'_cell_mesh.vtp'
     if realspace:
         wideroll = widthpeaks[widthpeaks.cell == row.cell]
@@ -141,8 +183,20 @@ for i, row in df.iterrows():
     # get animation track
     rephelpvistrackcell = GetAnimationTrack('Visibility', proxy=rephelp)
     
+    ##make text source and track
+    txtsource = Text()
+    txtsource.Text = format_seconds(row.time)
+    txtobj = GetRepresentation(txtsource)
+    # get animation representation helper for 'a00vtp'
+    rephelptext = GetRepresentationAnimationHelper(txtsource)
+    # get animation track
+    textvistrack = GetAnimationTrack('Visibility', proxy=rephelptext)
+    
+    
+    
     #make key frames
     keyframes = []
+    keytextframes = []
     #make inivisible at first, unless it's the first frame
     if time != 0:
         # make mesh visible at the appropriate time
@@ -152,6 +206,11 @@ for i, row in df.iterrows():
         keyFrame0.Interpolation = 'Boolean'
         keyframes.append(keyFrame0)
         
+        kft0 = CompositeKeyFrame()
+        kft0.KeyTime = 0.0
+        kft0.KeyValues = [0.0]
+        kft0.Interpolation = 'Boolean'
+        keytextframes.append(kft0)
         
     # make mesh visible at the appropriate time
     keyFrame1 = CompositeKeyFrame()
@@ -159,6 +218,12 @@ for i, row in df.iterrows():
     keyFrame1.KeyValues = [1.0]
     keyFrame1.Interpolation = 'Boolean'
     keyframes.append(keyFrame1)
+    
+    kft1 = CompositeKeyFrame()
+    kft1.KeyTime = time
+    kft1.KeyValues = [1.0]
+    kft1.Interpolation = 'Boolean'
+    keytextframes.append(kft1)
     
     # make the mesh invisible at the appropriate time except for the last frame
     if i != len(meshfl)-1:
@@ -168,30 +233,32 @@ for i, row in df.iterrows():
         keyFrame2.Interpolation = 'Boolean'
         keyframes.append(keyFrame2)
         
+        kft2 = CompositeKeyFrame()
+        kft2.KeyTime = time + interval
+        kft2.KeyValues = [0.0]
+        kft2.Interpolation = 'Boolean'
+        keytextframes.append(kft2)
+        
     # initialize the animation track
     rephelpvistrackcell.KeyFrames = keyframes
 
+    textvistrack.KeyFrames = keytextframes
     
+
+
+    # print(format_seconds(row.time))
+    # annotation.Expression = format_seconds(row.time)
+    # animationScene1.GoToNext()
+    # #change the time annotation
+    # kf = CompositeKeyFrame()
+    # kf.KeyTime = time
+    # kf.KeyValues = [format_seconds(row.time)]
+    # textkf.append(kf)
+
     time = time + interval
     
 
-
-view = GetActiveView()
-if not view:
-    # When using the ParaView UI, the View will be present, not otherwise.
-    view = CreateRenderView()
-    
-view.CameraViewUp = [0, -1, 0]
-# view.CameraViewAngle = 180
-avgpos = np.mean(cum_pos,axis = 0)
-view.CameraPosition = [avgpos[0],avgpos[1],avgpos[2]-400]
-view.CameraFocalPoint = avgpos
-
-
-view.ViewSize = [500, 500]  
-view.OrientationAxesVisibility = 1
-view.UseColorPaletteForBackground = 0
-view.Background = [84/255, 94/255, 135/255]
+# txtrack.KeyFrames = textkf
 
 # save animation
 SaveAnimation(savedir+'/mesh_animation.mp4', view, ImageResolution=[1000, 1000], FrameRate=10)#, ImageResolution=[788, 364])

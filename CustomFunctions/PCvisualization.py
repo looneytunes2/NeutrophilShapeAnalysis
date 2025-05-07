@@ -454,7 +454,10 @@ def shcoeff_recon_mesh_timelapse_realspace(
         lmax = 10,
         ):
     #get some directories
-    df = pd.read_csv(basedir + 'Data_and_Figs/Shape_Metrics.csv')
+    dflist = []
+    for d in [x for x in os.listdir(basedir + 'Data_and_Figs/') if 'Shape_Metrics' in x]:
+        dflist.append(pd.read_csv(basedir + f'Data_and_Figs/{d}', index_col = 0))
+    df = pd.concat(dflist)
     if 'Subset' in df.cell.iloc[0]:
         df['CellID'] = [re.split(r'(-\d+-Subset)',x)[0]+ '_'+ re.findall(r'Subset-(\d+)', x)[0] for x in df.cell.to_list()]
     else:

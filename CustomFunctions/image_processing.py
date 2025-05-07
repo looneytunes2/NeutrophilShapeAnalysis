@@ -11,8 +11,6 @@ import pandas as pd
 import math
 import re
 import multiprocessing
-from itertools import groupby
-from operator import itemgetter
 from aicsimageio.writers.ome_tiff_writer import OmeTiffWriter
 from aicsimageio.readers.czi_reader import CziReader
 from scipy.spatial import KDTree, distance
@@ -25,10 +23,7 @@ from CustomFunctions.file_management import multicsv
 from CustomFunctions.PILRagg import read_pilr_regions
 from CustomFunctions.utils import get_consecutive_timepoints
 
-def collect_results(result):
-    """Uses apply_async's callback to setup up a separate Queue for each process.
-    This will allow us to collect the results from different threads."""
-    results.append(result)
+
 
 # Function to find Angle
 def angle_distance(a1, b1, c1, a2, b2, c2):
@@ -366,8 +361,9 @@ def get_smooth_trajectories(
                         #get trajectories without the duplicates
                         tck, u = interpolate.splprep(pos_drop.to_numpy().T, k=kay, s=smooth_factor)
                         yderv = interpolate.splev(u,tck,der=1)
-                        traj = np.vstack(yderv).T
                         #get smoothened trajectory
+                        traj = np.vstack(yderv).T
+                        #get smoothened position
                         ysmo = interpolate.splev(u,tck,der=0)
                         trajsmo = np.vstack(ysmo).T
                         #re-insert duplicate row that was dropped

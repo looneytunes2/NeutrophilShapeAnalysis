@@ -17,6 +17,7 @@ from operator import itemgetter
 from aicsimageio.readers.czi_reader import CziReader
 from aicsimageio.writers import OmeTiffWriter
 import skimage.measure
+import skimage.segmentation
 from skimage.morphology import remove_small_objects
 from aicssegmentation.core.MO_threshold import MO
 from aicssegmentation.core.utils import hole_filling
@@ -374,8 +375,10 @@ def getbb_movie(
                 z,y,x = np.array(prop.centroid)*4
                 thebox = np.array(prop.bbox)*4
                 area = prop.area * 64
-                ### get the xyz coordinates of the object
-                coords  =  np.flip(np.stack(np.where(im_labeled  ==  (count+1))).T, axis  =  1)*4
+                ### get the surface coords in xyz order
+                boundaries = skimage.segmentation.find_boundaries(im_labeled  ==  (count+1), mode='outer')
+                coords = np.flip(np.argwhere(boundaries), axis = 1)
+                # coords  =  np.flip(np.stack(np.where(im_labeled  ==  (count+1))).T, axis  =  1)*4
                 ### get the distance of this object to the skewed edges
                 min_dist_start = np.min(np.abs(np.dot(coords - start_point, start_normal)))
                 min_dist_end  =  np.min(np.abs(np.dot(coords - end_point, end_normal)))
@@ -388,7 +391,7 @@ def getbb_movie(
                        'z':z, 'y':y, 'x': x, 'z_range': shape[-3], 'area':area, 'intensity':intensity}
                 #ensure only things that aren't on the edge are chosen
                 #and are big enough
-                if (td['z_min']>0) and (td['y_min']>0) and (min_dist_start>2) and (td['z_max']<shape[-3]) and (td['y_max']<shape[-2]) and (min_dist_end>2) and (area>50000):
+                if (td['z_min']>0) and (td['y_min']>0) and (min_dist_start>1) and (td['z_max']<shape[-3]) and (td['y_max']<shape[-2]) and (min_dist_end>1) and (area>50000):
                     tempdf = tempdf.append(td, ignore_index=True)
     
     

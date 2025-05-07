@@ -92,7 +92,8 @@ def pair_transitions(
         if i < len(df)-1:
             ct = ct + time_interval
             nextrow = df.iloc[i+1]
-            trans.append([row.frame, row[f'PC{whichpcs[0]}bins'], row[f'PC{whichpcs[1]}bins'],
+            #frame will reference the timepoint at the end of the transition
+            trans.append([nextrow.frame, row[f'PC{whichpcs[0]}bins'], row[f'PC{whichpcs[1]}bins'],
                           nextrow[f'PC{whichpcs[0]}bins'], nextrow[f'PC{whichpcs[1]}bins'], time_interval, ct])
             
         

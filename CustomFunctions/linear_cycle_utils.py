@@ -25,11 +25,6 @@ import shutil
 
 
 
-def collect_results(result):
-    """Uses apply_async's callback to setup up a separate Queue for each process.
-    This will allow us to collect the results from different threads."""
-    results.append(result)
-
 #### CLOCKWISE angle in 360 degrees
 def angle360(x,y):
     return abs(math.degrees(np.arctan2(y,x))) if y < 0 else abs(math.degrees(np.arctan2(y,x))-360)

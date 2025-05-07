@@ -7,13 +7,6 @@ Created on Wed Feb 23 18:28:52 2022
 
     
 
-
-# # some_file.py
-# import sys
-# # insert at 1, 0 is the script path (or '' in REPL)
-# import_path = 'C:/Users/Aaron/Documents/PythonScripts/CustomFunctions'
-# sys.path.insert(1, import_path)
-
 # import ExpandImage
 import math
 import os

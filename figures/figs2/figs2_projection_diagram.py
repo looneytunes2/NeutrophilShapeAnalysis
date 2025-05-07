@@ -1,0 +1,215 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Tue Apr  1 11:12:09 2025
+
+@author: Aaron
+"""
+
+from vtk.util import numpy_support as vtknp
+import numpy as np
+import vtk
+import math
+import operator
+from functools import reduce
+import matplotlib.pyplot as plt
+import matplotlib.patches as patches
+from vtkmodules.vtkFiltersCore import (
+    vtkCleanPolyData,
+    vtkTriangleFilter
+)
+
+
+meshdir = 'E:/Aaron/Combined_37C_Confocal_PCA_smooth/Data_and_Figs/PC_Meshes/'
+
+
+reader = vtk.vtkXMLPolyDataReader()
+reader.SetFileName(meshdir + 'Cell_PC7_5_Cell.vtp')
+reader.Update()
+mesh = reader.GetOutput()
+
+tri1 = vtkTriangleFilter()
+tri1.SetInputData(mesh)
+clean1 = vtkCleanPolyData()
+clean1.SetInputConnection(tri1.GetOutputPort())
+clean1.Update()
+mesh = clean1.GetOutput()
+
+
+
+
+def find_plane_mesh_intersection(mesh, proj, use_vtk_for_intersection=True):
+
+    # Find axis orthogonal to the projection of interest
+    axis = [a for a in [0, 1, 2] if a not in proj][0]
+
+    # Get all mesh points
+    points = vtknp.vtk_to_numpy(mesh.GetPoints().GetData())
+
+    if not np.abs(points[:, axis]).sum():
+        raise Exception("Only zeros found in the plane axis.")
+
+    if use_vtk_for_intersection:
+
+        mid = np.mean(points[:, axis])
+        '''Set the plane a little off center to avoid undefined intersections.
+        Without this the code hangs when the mesh has any edge aligned with the
+        projection plane. Also add a little of noisy to the coordinates to
+        help with the same problem.'''
+        mid += 0.75
+        offset = 0.1 * np.ptp(points, axis=0).max()
+
+        # Create a vtkPlaneSource
+        plane = vtk.vtkPlaneSource()
+        plane.SetXResolution(4)
+        plane.SetYResolution(4)
+        if axis == 0:
+            plane.SetOrigin(
+                mid, points[:, 1].min() - offset, points[:, 2].min() - offset
+            )
+            plane.SetPoint1(
+                mid, points[:, 1].min() - offset, points[:, 2].max() + offset
+            )
+            plane.SetPoint2(
+                mid, points[:, 1].max() + offset, points[:, 2].min() - offset
+            )
+        if axis == 1:
+            plane.SetOrigin(
+                points[:, 0].min() - offset, mid, points[:, 2].min() - offset
+            )
+            plane.SetPoint1(
+                points[:, 0].min() - offset, mid, points[:, 2].max() + offset
+            )
+            plane.SetPoint2(
+                points[:, 0].max() + offset, mid, points[:, 2].min() - offset
+            )
+        if axis == 2:
+            plane.SetOrigin(
+                points[:, 0].min() - offset, points[:, 1].min() - offset, mid
+            )
+            plane.SetPoint1(
+                points[:, 0].min() - offset, points[:, 1].max() + offset, mid
+            )
+            plane.SetPoint2(
+                points[:, 0].max() + offset, points[:, 1].min() - offset, mid
+            )
+        plane.Update()
+        plane = plane.GetOutput()
+
+        # Trangulate the plane
+        triangulate = vtk.vtkTriangleFilter()
+        triangulate.SetInputData(plane)
+        triangulate.Update()
+        plane = triangulate.GetOutput()
+
+        # Calculate intersection
+        intersection = vtk.vtkIntersectionPolyDataFilter()
+        intersection.SetInputData(0, mesh)
+        intersection.SetInputData(1, plane)
+        intersection.Update()
+        intersection = intersection.GetOutput()
+
+        # Get coordinates of intersecting points
+        points = vtknp.vtk_to_numpy(intersection.GetPoints().GetData())
+        coords = points[:, proj]
+
+    else:
+        
+        valids = np.where((points[:,axis] > -2.5)&(points[:,axis] < 2.5))
+        coords = points[valids[0]][:,proj]
+
+    # Sorting points clockwise
+    # This has been discussed here:
+    # https://stackoverflow.com/questions/51074984/sorting-according-to-clockwise-point-coordinates/51075469
+    # but seems not to be very efficient. Better version is proposed here:
+    # https://stackoverflow.com/questions/57566806/how-to-arrange-the-huge-list-of-2d-coordinates-in-a-clokwise-direction-in-python
+    center = tuple(
+        map(
+            operator.truediv,
+            reduce(lambda x, y: map(operator.add, x, y), coords),
+            [len(coords)] * 2,
+        )
+    )
+    coords = sorted(
+        coords,
+        key=lambda coord: (
+            -135
+            - math.degrees(
+                math.atan2(*tuple(map(operator.sub, coord, center))[::-1])
+            )
+        )
+        % 360,
+    )
+
+    # Store sorted coordinates
+    # points[:, proj] = coords
+    return np.array(coords)
+
+
+
+
+
+
+
+
+coords = find_plane_mesh_intersection(mesh, [0,2], use_vtk_for_intersection=True)
+#center coords on zero
+coords = coords - np.mean(coords,axis = 0)
+#shift the coords up so I can project onto the xaxis
+coords[:,1] = coords[:,1]+15
+
+
+
+# Create a figure and axis
+fig, ax = plt.subplots()
+
+# Create a Polygon patch
+polygon = patches.Polygon(coords, closed=True, edgecolor='0.4', facecolor='lightblue', linewidth=2)
+
+# Add the polygon to the plot
+ax.add_patch(polygon)
+
+
+#add the "x" axis points
+point_colors = plt.cm.Dark2.colors[:3]
+proj_points = np.array([[0,0],
+                        [np.max(coords,axis=0)[0],0],
+                        [np.min(coords,axis=0)[0],0]])
+ax.scatter(proj_points[:,0], proj_points[:,1],s = 150, color = point_colors, edgecolors = 'black', zorder=2)
+
+#arrow properties
+arrowdict = dict(facecolor='black', arrowstyle="simple, head_length=1.25, head_width=1.25", linewidth=1.5)
+#centroid arrow
+ax.annotate("", xy=(0, 0),xytext =(0,np.mean(coords,axis=0)[1]),
+            arrowprops=arrowdict)
+#rear arrow
+ax.annotate("", xy=(coords[np.argmin(coords[:,0])][0], 0),xytext =(coords[np.argmin(coords[:,0])][0],coords[np.argmin(coords[:,0])][1]),
+            arrowprops=arrowdict)
+#front arrow
+ax.annotate("", xy=(coords[np.argmax(coords[:,0])][0], 0),xytext =(coords[np.argmax(coords[:,0])][0],coords[np.argmax(coords[:,0])][1]),
+            arrowprops=arrowdict)
+
+# Set limits and aspect ratio
+ax.set_xlim(-30, 30)
+ax.set_ylim(-5, 35)
+ax.set_aspect('equal')  # Ensures equal scaling
+
+###add the axes and axis text
+#xaxis
+ax.plot([-28,30],[0,0], color = [0.4,0.4,0.4],zorder=1)
+#zaxis
+ax.plot([-28,-28],[0,35], color = [0.4,0.4,0.4],zorder=1)
+#xaxis text
+ax.text(-28, -2, 'x-axis',
+        va='center', ha='left', fontsize=16)
+#zaxis text
+ax.text(-29.5, 0, 'z-axis', rotation='vertical',
+        va='bottom', ha='center', fontsize=16)
+
+#turn off the axis splines
+ax.set_axis_off()
+
+# Show the plot
+plt.tight_layout()
+
+#save
+plt.savefig(__file__.split('.')[0] + '.png', dpi = 500, bbox_inches='tight')
