@@ -230,17 +230,17 @@ def DA_3D(
     if lag < 1 or lag >= len(pos):
         raise ValueError("Lag must be a positive integer less than the length of the coordinates")
 
-    traj = np.zeros((len(pos)-lag,3))
-    traj[:,0] = pos[lag:,0] - pos[:-lag,0]
-    traj[:,1] = pos[lag:,1] - pos[:-lag,1]
-    traj[:,2] = pos[lag:,2] - pos[:-lag,2]
+    traj = np.zeros(pos.shape)
+    traj[1:,0] = pos[1:,0] - pos[:-1,0]
+    traj[1:,1] = pos[1:,1] - pos[:-1,1]
+    traj[1:,2] = pos[1:,2] - pos[:-1,2]
     # Normalize vectors to get unit direction vectors
     unitvecs = traj/np.linalg.norm(traj, axis = 1)[:, np.newaxis]
     # Calculate dot products of consecutive unit vectors with the given lag
     dot_products = np.sum(unitvecs[:-lag] * unitvecs[lag:], axis=1)
     # Create an array with NaN values and insert the dot products in the correct positions
     DA = np.full(len(pos), np.nan)
-    DA[lag+1:] = dot_products
+    DA[lag:] = dot_products
     
     return DA
 

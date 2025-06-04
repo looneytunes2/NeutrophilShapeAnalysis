@@ -212,17 +212,6 @@ def interpolate_2dtrajectory(
     alltrans['time_elapsed'] = alltrans['time_elapsed']*t_int
     alltrans['cumulative_time'] = alltrans['cumulative_time']*t_int
     
-    #also get transition pairs for boostrapping
-    pairs = [trans[i]+trans[i+1] for i in range(len(trans[:-1]))] 
-    transpairs = pd.DataFrame(pairs, columns=['frame', 'from_x', 'from_y', 'to_x', 'to_y', 'time_elapsed','cumulative_time', \
-                                              'frame_two', 'from_x_two', 'from_y_two', 'to_x_two', 'to_y_two', 'time_elapsed_two','cumulative_time_two'])
-    #add cell name
-    transpairs['CellID'] = [cellname]*len(transpairs)
-    transpairs['time_elapsed'] = transpairs['time_elapsed']*t_int
-    transpairs['cumulative_time'] = transpairs['cumulative_time']*t_int
-    transpairs['time_elapsed_two'] = transpairs['time_elapsed_two']*t_int
-    transpairs['cumulative_time_two'] = transpairs['cumulative_time_two']*t_int
-    
     #double check for bad 
     # any((abs(alltrans.from_x-alltrans.to_x) + abs(alltrans.from_y-alltrans.to_y))!=1)
     return [x.to_dict() for i, x in alltrans.iterrows()], [x.to_dict() for i, x in transpairs.iterrows()]
@@ -685,6 +674,117 @@ def bootstrap_trajectories(
     return bsdf
 
 
+def new_bootstrap(
+        imap_args
+        ):
+        
+    #unpack args
+    # combodf: multi-indexed dataframe with tansition_combination and trandition_index names
+    # ttot: int total time for the simulation
+    # ntrans: int number of consecutive transitions to sample
+    # avoiddead: bool whether or not to avoid dead ends in the trajectory
+    combodf,ttot,ntrans,avoiddead = imap_args
+    
+    #get just the first transition of each combination
+    firsttrans = combodf.xs(0,level='transition_index')
+    
+    #start time at 0
+    ct = 0
+    #create an empty dataframe with the correct columns and indexing
+    allbs = pd.DataFrame(columns=combodf.columns)
+    allbs.index = pd.MultiIndex.from_arrays([[],[]], names = ['transition_combination','transition_index'])
+    #find the first random position
+    rando = combodf.index.levels[0].to_list()
+    shuffle(rando)
+    pick = combodf.loc[combodf.index.get_level_values('transition_combination') == rando[0]]
+    allbs = pd.concat((allbs, pick))
+    while ct<ttot:
+        #find the next postition after the second transition
+        cur = allbs.iloc[-1][['to_x','to_y']].values
+        #get all the transitions at the new position
+        allat = firsttrans[(firsttrans.from_x == cur[0]) & (firsttrans.from_y == cur[1])]
+        
+        #if the next transition doesn't have any future transitions, don't go there and pick a new one
+        if allat.empty:
+            if avoiddead:
+                #drop the "dead" transition
+                allbs.drop(allbs.index[-ntrans:], inplace=True)
+                #check is this happened at the beginning of the simulation and it needs to be started again 
+                #from another position, otherwise trim the last transition and continue
+                if len(allbs)==0:
+                    ct = 0
+                    allbs = pd.DataFrame(columns=combodf.columns)
+                    allbs.index = pd.MultiIndex.from_arrays([[],[]], names = ['transition_combination','transition_index'])
+                    #find the first random position
+                    rando = combodf.index.levels[0].to_list()
+                    shuffle(rando)
+                    pick = combodf.loc[combodf.index.get_level_values('transition_combination') == rando[0]]
+                    #add the random pick to the dataframe
+                    allbs = pd.concat((allbs, pick))
+                #subtract the time these transitions take
+                ct = ct - pick.time_elapsed.sum()
+                #set a timer for extreme cases of single transitions to deadends
+                loops = 0
+                while allat.empty:
+                    #find the next postition after the second transition
+                    cur = allbs.iloc[-1][['to_x','to_y']].values
+                    #get all the transitions at the new position
+                    allat = firsttrans[(firsttrans.from_x == cur[0]) & (firsttrans.from_y == cur[1])]
+                    #randomly select a transition pair
+                    rando = allat.index.to_list()
+                    shuffle(rando)
+                    pick = combodf.loc[combodf.index.get_level_values('transition_combination') == rando[0]]
+                    #add to the timer for extreme cases
+                    loops = loops + 1
+                    #if the current position only has one transition (to the empty position)
+                    #then trim it back an additional transition as well
+                    #or if this while loop has gone for 20 iterations and still not found a suitable transition
+                    #back up an additional transition
+                    if (len(allat)==1) or (loops == 20):
+                        #subtract the time these transitions take
+                        ct = ct - allbs.iloc[-ntrans:].time_elapsed.sum()
+                        #delete a further two transitions
+                        allbs.drop(allbs.index[-ntrans:], inplace=True)
+                        #check if this happened at the beginning of the simulation and it needs to be started again 
+                        #from another position, otherwise trim the last transition and continue
+                        if len(allbs)==0:
+                            ct = 0
+                            allbs = pd.DataFrame(columns=combodf.columns)
+                            allbs.index = pd.MultiIndex.from_arrays([[],[]], names = ['transition_combination','transition_index'])
+                            #find the first random position
+                            rando = combodf.index.levels[0].to_list()
+                            shuffle(rando)
+                            pick = combodf.loc[combodf.index.get_level_values('transition_combination') == rando[0]]
+                            #add the random pick to the dataframe
+                            allbs = pd.concat((allbs, pick))
+                        #find the next postition after the second transition
+                        cur = allbs.iloc[-1][['to_x','to_y']].values
+                        #get all the transitions at the new position
+                        allat = firsttrans[(firsttrans.from_x == cur[0]) & (firsttrans.from_y == cur[1])]
+                        #randomly select a transition pair
+                        rando = allat.index.to_list()
+                        shuffle(rando)
+                        pick = combodf.loc[combodf.index.get_level_values('transition_combination') == rando[0]]
+                #append the pair of transitions to a list
+                allbs = pd.concat((allbs, pick))
+                #add the time these transitions take
+                ct = ct + pick.time_elapsed.sum()
+            else:
+                break
+        else:
+            #randomly select a transition pair
+            rando = allat.index.to_list()
+            shuffle(rando)
+            pick = combodf.loc[combodf.index.get_level_values('transition_combination') == rando[0]]
+            #append the pair of transitions to a list
+            allbs = pd.concat((allbs, pick))
+            #add the time these transitions take
+            ct = ct + pick.time_elapsed.sum()
+    
+    #make cumulative time actually cumulative time
+    allbs.loc[:,'cumulative_time'] = allbs['time_elapsed'].cumsum()
+
+    return allbs.reset_index(drop=True).to_dict('records')
 
 def transition_count_wrapper(
         bsdf, #transition dataframe from bootstrap_trajectories()

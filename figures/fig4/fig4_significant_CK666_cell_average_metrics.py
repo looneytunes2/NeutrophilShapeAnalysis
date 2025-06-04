@@ -12,7 +12,6 @@ import scipy.stats as ss
 from statsmodels.stats.multitest import multipletests
 import matplotlib.pyplot as plt
 import seaborn as sns
-import math
 from CustomFunctions import utils
 
 #get directories and open separated datasets
@@ -70,10 +69,11 @@ for c in includelist:
 #correct for multiple comparisons
 parr = np.array(plist)[:,1].astype('float')
 reject, pvcorr = multipletests(parr, method = 'fdr_bh')[:2]
-siglist = list(np.array(plist)[reject,0])
+allsiglist = list(np.array(plist)[reject,0])
 
+siglist = ['speed','Turn_Angle']
 
-ylabels = ['Instantaneous Speed (µm/sec)']
+ylabels = ['Instantaneous Speed (µm/sec)','Turn Angle (°)']
 
 ############### CELL AVERAGES OF SIGNIFICANT METRICS #################################
 # colorlist = ['#3799de','#ffee33']
@@ -85,10 +85,9 @@ scale = len(siglist)
 linewid= 2
 
 fig, axes = plt.subplots(1,scale,figsize=(scale*4*0.7,4))
-axes = [axes]#axes.flatten()
 for i, sig in enumerate(siglist):
     ax = axes[i]
-    sns.swarmplot(x = 'Treatment', y = sig, data = ModeFrame, size = 3.5, alpha = 0.6, ax = ax)
+    sns.swarmplot(x = 'Treatment', y = sig, data = ModeFrame, size = 2.5, alpha = 0.6, ax = ax)
     sns.boxplot(x = 'Treatment', y = sig, data = ModeFrame,
                 boxprops={
                     'fill': False,
@@ -108,6 +107,9 @@ for i, sig in enumerate(siglist):
                     'color': 'black'
                     },
                 showfliers=False, ax = ax)
+    
+    #set ylim min to zero
+    ax.set_ylim(0, ax.get_ylim()[1])
     #tick stuff
     ax.set_ylabel(ylabels[i], fontsize = 16)#, labelpad=-0.5)
     ax.set_xlabel('')
@@ -116,12 +118,7 @@ for i, sig in enumerate(siglist):
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
     
-    
-    # # axli[i].set_ylabel(''+sig, fontsize=20)
-    # axli[i].set_xlabel('', fontsize=20)
-    # axli[i].tick_params('y', labelsize=10)
-    # #modify the labels to put bleb in two lines
-    # axli[i].set_xticklabels(axli[i].get_xticklabels(), fontsize = 15)
+
     #remove legends
     ax.legend_ = None
 

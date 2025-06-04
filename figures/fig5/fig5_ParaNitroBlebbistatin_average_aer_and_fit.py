@@ -50,18 +50,18 @@ sns.set_palette(palette=colorlist)
 
 
 ##### stats for line fits
-print('t test for R squared ',
+print('t test for aer coefficients ',
       stats.stats.ttest_ind(avgdf[avgdf.Treatment == treatments[0]].aercoef.values,
                             avgdf[avgdf.Treatment == treatments[1]].aercoef.values))
 
 fig, ax = plt.subplots(1, 1, figsize=(4,5))#, sharex=True)
 linewid = 2
 # sns.swarmplot(data = avgcfdf, x='Treatment', y ='average_cf', color = 'grey', size = 3.5, alpha = 0.7, ax = ax)
-sns.violinplot(x = 'Treatment', y='aercoef', data = avgdf,
+sns.violinplot(x = 'Treatment', y='aercoef', data = avgdf_filtered,
                linewidth = linewid, inner = None, ax=ax, )
 ax.collections[0].set_edgecolor('black')
 ax.collections[1].set_edgecolor('black')
-sns.boxplot(x = 'Treatment', y='aercoef', data = avgdf, width = 0.15, color = 'white',
+sns.boxplot(x = 'Treatment', y='aercoef', data = avgdf_filtered, width = 0.15, color = 'white',
             showcaps=False, showfliers=False,
             boxprops={
                 'fill': 'white',
@@ -92,8 +92,13 @@ ax.set_xticklabels(ax.get_xticklabels(), fontsize = 10)
 #remove legends
 ax.legend_ = None
 ax.set_ylabel('Area Enclosing Rate (PC units²/sec)', fontsize=16)
+#remove parts of box
+ax.spines['top'].set_visible(False)
+ax.spines['right'].set_visible(False)
 
 plt.tight_layout()
+
+
 
 plt.savefig(__file__.split('.')[0] + '.png', dpi = 500, bbox_inches='tight')
 
@@ -109,11 +114,11 @@ print('Mann Whitney test for R squared ',
 fig, ax = plt.subplots(1, 1, figsize=(4,5))#, sharex=True)
 linewid = 2
 # sns.swarmplot(data = avgcfdf, x='Treatment', y ='average_cf', color = 'grey', size = 3.5, alpha = 0.7, ax = ax)
-sns.violinplot(x = 'Treatment', y='aerresid', data = avgdf,
+sns.violinplot(x = 'Treatment', y='aerresid', data = avgdf_filtered,
                linewidth = linewid, inner = None, ax=ax, )
 ax.collections[0].set_edgecolor('black')
 ax.collections[1].set_edgecolor('black')
-sns.boxplot(x = 'Treatment', y='aerresid', data = avgdf, width = 0.15, color = 'white',
+sns.boxplot(x = 'Treatment', y='aerresid', data = avgdf_filtered, width = 0.15, color = 'white',
             showcaps=False, showfliers=False,
             boxprops={
                 'fill': 'white',
@@ -144,7 +149,12 @@ ax.set_xticklabels(ax.get_xticklabels(), fontsize = 10)
 #remove legends
 ax.legend_ = None
 ax.set_ylabel('Area Enclosing Rate R²', fontsize=16)
+#remove parts of box
+ax.spines['top'].set_visible(False)
+ax.spines['right'].set_visible(False)
 
 plt.tight_layout()
+
+
 
 plt.savefig(__file__.split('.')[0] + '_fit.png', dpi = 500, bbox_inches='tight')

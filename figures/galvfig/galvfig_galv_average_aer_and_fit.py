@@ -10,15 +10,15 @@ import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
 from sklearn.linear_model import LinearRegression
-from CustomFunctions.shapePCAtools import filter_extremes_based_on_percentile
 import numpy as np
+from CustomFunctions.shapePCAtools import filter_extremes_based_on_percentile
 from scipy import stats
 
 whichpcs = [1,7]
-treatments = ['DMSO','CK666']
-basedir = 'E:/Aaron/Combined_37C_Confocal_PCA_s5/'
+treatments = ['Random','Galvanotaxis']
+basedir = 'E:/Aaron/Combined_37C_Confocal_PCA_s5_with_galv/'
 datadir = basedir + 'Data_and_Figs/'
-savedir = basedir + 'CK666/'
+savedir = basedir + 'galv/'
 
 df = pd.read_csv(savedir+f'PC{whichpcs[0]}-PC{whichpcs[1]}_Area_Enclosing_Rates.csv', index_col = 0)
 df['Treatment'] = pd.Categorical(df.Treatment.to_list(), categories=treatments, ordered=True)
@@ -36,22 +36,21 @@ for i, t in df.groupby(['Treatment','iter']):
 avgdf = pd.DataFrame(dflist)
 
 
-
 avgdf_filtered = filter_extremes_based_on_percentile(
     avgdf,
     ['aercoef','aerresid'],
     1)
 
+
+
 ############### CELL AVERAGES OF SIGNIFICANT METRICS #################################
 # colorlist = [list(sns.color_palette('pastel').as_hex())[i] for i in [0,3,8]]
-colorlist = ['#4085e3','#fcdd3d']
+colorlist = ['#5dbaf0','#f2bd72']
 sns.set_palette(palette=colorlist)
 
 
-
-
 ##### stats for line fits
-print('t test for aer coefficients ',
+print('t test for R squared ',
       stats.stats.ttest_ind(avgdf[avgdf.Treatment == treatments[0]].aercoef.values,
                             avgdf[avgdf.Treatment == treatments[1]].aercoef.values))
 
@@ -62,7 +61,7 @@ sns.violinplot(x = 'Treatment', y='aercoef', data = avgdf_filtered,
                linewidth = linewid, inner = None, ax=ax, )
 ax.collections[0].set_edgecolor('black')
 ax.collections[1].set_edgecolor('black')
-sns.boxplot(x = 'Treatment', y='aercoef', data = avgdf_filtered, width = 0.15, color = 'white',
+sns.boxplot(x = 'Treatment', y='aercoef', data = avgdf, width = 0.15, color = 'white',
             showcaps=False, showfliers=False,
             boxprops={
                 'fill': 'white',
@@ -84,8 +83,8 @@ sns.boxplot(x = 'Treatment', y='aercoef', data = avgdf_filtered, width = 0.15, c
                 },
             ax=ax)
 
-ax.text(0.925,0.29,'***', fontsize=12)
-# ax.set_ylim(-5,60)
+ax.text(0.925,0.0405,'***', fontsize=12)
+ax.set_ylim(0,0.042)
 ax.set_xlabel('', fontsize=20)
 ax.tick_params('y', labelsize=10)
 #modify the labels to put bleb in two lines
@@ -106,6 +105,7 @@ plt.savefig(__file__.split('.')[0] + '.png', dpi = 500, bbox_inches='tight')
 
 
 
+
 ##### stats for line fits
 print('Mann Whitney test for R squared ',
       stats.mannwhitneyu(avgdf[avgdf.Treatment == treatments[0]].aerresid.values,
@@ -118,7 +118,7 @@ sns.violinplot(x = 'Treatment', y='aerresid', data = avgdf_filtered,
                linewidth = linewid, inner = None, ax=ax, )
 ax.collections[0].set_edgecolor('black')
 ax.collections[1].set_edgecolor('black')
-sns.boxplot(x = 'Treatment', y='aerresid', data = avgdf_filtered, width = 0.15, color = 'white',
+sns.boxplot(x = 'Treatment', y='aerresid', data = avgdf, width = 0.15, color = 'white',
             showcaps=False, showfliers=False,
             boxprops={
                 'fill': 'white',
@@ -140,8 +140,8 @@ sns.boxplot(x = 'Treatment', y='aerresid', data = avgdf_filtered, width = 0.15, 
                 },
             ax=ax)
 
-ax.text(0.94,1.2,'***', fontsize=10)
-# ax.set_ylim(-5,60)
+ax.text(0.98,1.04,'*', fontsize=10)
+ax.set_ylim(0,1.05)
 ax.set_xlabel('', fontsize=20)
 ax.tick_params('y', labelsize=10)
 #modify the labels to put bleb in two lines

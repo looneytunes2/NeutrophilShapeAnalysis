@@ -6,33 +6,36 @@ Created on Thu Feb 13 21:00:29 2025
 """
 
 
+
 import pandas as pd
 import numpy as np
 from statsmodels.stats.multitest import multipletests
 import statsmodels.api as sm 
 from statsmodels.formula.api import ols 
-from CustomFunctions import linear_cycle_utils, utils
+from CustomFunctions import linear_cycle_utils, utils, DetailedBalance
 import matplotlib.pyplot as plt
 import seaborn as sns
+import os
+import multiprocessing
+
 
 #get directories and open separated datasets
 
-treatments = ['DMSO','CK666']
+treatments = ['Random','Galvanotaxis']
 time_interval = 10 #sec/frame
 
 
-basedir = 'E:/Aaron/Combined_37C_Confocal_PCA_s5/'
+#get directories and open separated datasets
+basedir = 'E:/Aaron/Combined_37C_Confocal_PCA_s5_with_galv/'
 datadir = basedir + 'Data_and_Figs/'
-savedir = basedir + 'CK666/'
+savedir = basedir + 'galv/'
 FullFrame = pd.read_csv(datadir + 'All_Data_with_CGPS_bins.csv', index_col=0)
 nbins = np.max(FullFrame[[x for x in FullFrame.columns.to_list() if 'bin' in x]].to_numpy())
 #open the centers of the binned PCs
 centers = pd.read_csv(datadir+'PC_bin_centers.csv', index_col=0)
-#limit data to the CK666 experiments
-dates = [20240610,20240617,20240620,20241205,20241209]
-TotalFrame = FullFrame[FullFrame.Date.isin(dates)].copy()
-TotalFrame.loc[:,'Treatment'] = pd.Categorical(TotalFrame.Treatment.to_list(), categories=treatments, ordered=True)
-
+#limit data to the galv experiments
+TotalFrame = FullFrame[FullFrame.Treatment.isin(treatments)]
+TotalFrame['Treatment'] = pd.Categorical(TotalFrame.Treatment.to_list(), categories=treatments, ordered=True)
 
 origin = [7, 7]
 whichpcs = [1,7]
@@ -57,6 +60,7 @@ angframe =  linear_cycle_utils.bin_angular_coord(
         )
 
 
+#### calculate protrusion and retraction speeds
 prsplist = []
 for i, cells in angframe.groupby('CellID'):
     cells, runs = utils.get_consecutive_timepoints(cells, 'time', time_interval)
@@ -75,11 +79,12 @@ allaers = pd.read_csv(savedir + f'PC{whichpcs[0]}-PC{whichpcs[1]}_raw_transition
 angframe = angframe.merge(allaers[['aer','angular_velocity','cell']],left_on='cell',right_on='cell')
 
 
+
 ########### only include columns of interest
 includelist = ['Treatment','Cell_Volume','Volume_Front_Ratio','Cell_SurfaceArea','Cell_Sphericity','Cell_Aspect_Ratio',
                'LengthAlongTrajectory','LengthAlongTrajectoryFront','LengthAlongTrajectoryRear','WidthAlongTrajectory',
-               'speed','Turn_Angle','PC1','PC2','PC3','PC4','PC5','PC6','PC7','PC8','PC9','PC10',
-               'PC1_PC7_Continuous_Angular_Bins','protrusion_speed','retraction_speed','aer']#,'directional_autocorrelation','angular_velocity']
+               'speed','directional_autocorrelation','Turn_Angle','PC1','PC2','PC3','PC4','PC5','PC6','PC7','PC8','PC9','PC10',
+               'PC1_PC7_Continuous_Angular_Bins','protrusion_speed','retraction_speed']#,'angular_velocity']
 
 
 #iterate through remaining columns and do two-way anova with treatment and cycle
@@ -90,47 +95,26 @@ for col in includelist:
         model = ols(f'{col} ~ C(Treatment) + C(PC1_PC7_Continuous_Angular_Bins) + C(Treatment):C(PC1_PC7_Continuous_Angular_Bins)', 
                     data=tempframe).fit() 
         result = sm.stats.anova_lm(model, type=2)
-        result.loc[:,'Factor'] = [col]*len(result)
+        result['Factor'] = [col]*len(result)
         reslist.append(result)
 pvdf = pd.concat(reslist)
 pvdf = pvdf[pvdf.index=='C(Treatment):C(PC1_PC7_Continuous_Angular_Bins)'].reset_index(drop=True)
 reject, pvcorr = multipletests(pvdf['PR(>F)'],method='fdr_bh')[:2]
 sigframe = pvdf.iloc[reject]
-#all significant comparisons
-allsiglist = sigframe.Factor.to_list()
-
-#just the ones that show important differencess
-siglist = ['Cell_Volume','Volume_Front_Ratio','Cell_Sphericity','Cell_Aspect_Ratio','speed']
+siglist = sigframe.Factor.to_list()
 
 
-# CoRo = math.ceil(math.sqrt(len(sigframe)))
-# fig, axes = plt.subplots(CoRo, CoRo, figsize=(3.5*CoRo,3*CoRo))#, sharex=True)
 
-fig, axes = plt.subplots(1, len(siglist), figsize=(3.75*len(siglist),3), sharex=True)
-
+fig, ax = plt.subplots(figsize=(3.5,3))#CoRo, CoRo, figsize=(3.5*CoRo,3*CoRo))#, sharex=True)
 #set color palette
-colorlist = ['#4085e3','#edcd00']
+colorlist = ['#5dbaf0','#f2bd72']
 sns.set_palette(palette=colorlist)
 
-for i, ax in enumerate(axes.flatten()):
-    if i<len(sigframe):
-        if siglist[i] in [f'PC{whichpcs[0]}_PC{whichpcs[1]}_Continuous_Angular_Bins','Treatment']:
-            ax.remove()
-            continue
-        sns.lineplot(data = angframe, x=f'PC{whichpcs[0]}_PC{whichpcs[1]}_Continuous_Angular_Bins', 
-                     y = siglist[i], hue ='Treatment', #palette = colorlist, 
-                     ax = ax)
-        ax.set_ylabel(siglist[i], fontsize = 18)
-        ax.set_xlabel('Angular Bins (°)')
-        ax.legend_ = None
-    elif i==len(sigframe):
-        #add a legend to one of the empty subplots
-        ax.axis("off")
-        handles, labels = axes[0,0].get_legend_handles_labels()
-        ax.legend(handles, labels, loc='upper center')
-        
-    else:
-        ax.remove()
+sns.lineplot(data = angframe, x=f'PC{whichpcs[0]}_PC{whichpcs[1]}_Continuous_Angular_Bins', 
+             y = siglist[0], hue ='Treatment', #palette = colorlist, 
+             ax = ax)
+ax.set_ylabel(siglist[0], fontsize = 22)
+ax.legend_ = None
 
 plt.tight_layout()
 

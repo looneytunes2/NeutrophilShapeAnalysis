@@ -1,3 +1,7 @@
+"""
+Modified from Allen Cell aicsshparam  
+"""
+
 import vtk
 import pyshtools
 import numpy as np

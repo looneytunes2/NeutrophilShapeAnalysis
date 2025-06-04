@@ -30,7 +30,7 @@ cmap = cm.get_cmap('twilight')
 discrete_colors = cmap(np.linspace(0,1,posnum))
 
 #generate the positions of the meshes along the line
-scale = 55
+scale = 20
 if posnum%2 == 0:
     xval = posnum/2*scale-scale/2
     pos = np.linspace(-xval,xval,posnum)
@@ -71,13 +71,22 @@ if not view:
     
 view.CameraViewUp = [0, -1, -1]
 view.CameraFocalPoint = [0, 0, 0]
-view.CameraPosition = [0, 0, -scale*4.2]
-view.ViewSize = [1000, 250]  
+view.CameraPosition = [0, 0, -scale*5]
+view.ViewSize = [6000, 1500]  
 view.OrientationAxesVisibility = 1
 # view.UseColorPaletteForBackground = 0
 # view.Background = [84/255, 94/255, 135/255]
 
-# save animation
-Render()
 
-WriteImage(__file__.split('.')[0]+'.png')
+
+SaveScreenshot(
+    __file__.split('.')[0]+'.png',
+    view,
+)
+
+
+
+# # save animation
+# Render()
+
+# WriteImage(__file__.split('.')[0]+'.png')

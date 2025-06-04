@@ -38,27 +38,13 @@ for i, ax in enumerate(axes):
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
     ax.spines['left'].set_visible(False)
+    ax.set_xticks([-2,-1,0,1,2])
     ax.set_yticks([])
 
-axes[-1].set_xlabel('PC Value', fontsize = 16, labelpad=-0.5)
+axes[-1].set_xlabel('PC Value', fontsize = 16)#, labelpad=-0.5)
 plt.tight_layout()
 
 plt.savefig(__file__.split('.')[0]+'.png', bbox_inches='tight', dpi=300)
 
 
 
-
-############ WITH  Y-axis
-fig, axes = plt.subplots(len(PCs), 1, figsize=(2,len(PCs)), sharey=True, sharex = True)
-for i, ax in enumerate(axes):
-    sns.kdeplot(data = pcframe, x=f'PC{i+1}', fill = True, color ='grey', ax = ax)
-    ax.set_ylabel('')
-    ax.set_xlabel('')
-    ax.spines['top'].set_visible(False)
-    ax.spines['right'].set_visible(False)
-    ax.set_yticks([0.2, 0.4])
-
-axes[-1].set_xlabel('PC Value', fontsize = 14, labelpad=-0.5)
-plt.tight_layout()
-
-plt.savefig(__file__.split('.')[0]+'_with_yaxis.png', bbox_inches='tight', dpi=300)

@@ -58,26 +58,26 @@ angframe =  linear_cycle_utils.bin_angular_coord(
         binrange,
         )
 
-### add protrusion and retraction speeds
-prsplist = []
-for i, cells in angframe.groupby('CellID'):
-    cells, runs = utils.get_consecutive_timepoints(cells, 'time', time_interval)
-    for r in runs:
-        tempcell = cells.iloc[r]
-        tempcell['protrusion_speed'] = tempcell.LengthAlongTrajectoryFront.diff()
-        tempcell['retraction_speed'] = tempcell.LengthAlongTrajectoryRear.diff()
-        prsplist.append(tempcell)
-angframe = pd.concat(prsplist).reset_index(drop=True)
+# ### add protrusion and retraction speeds
+# prsplist = []
+# for i, cells in angframe.groupby('CellID'):
+#     cells, runs = utils.get_consecutive_timepoints(cells, 'time', time_interval)
+#     for r in runs:
+#         tempcell = cells.iloc[r]
+#         tempcell.loc[:,'protrusion_speed'] = tempcell.LengthAlongTrajectoryFront.diff()
+#         tempcell.loc[:,'retraction_speed'] = tempcell.LengthAlongTrajectoryRear.diff()
+#         prsplist.append(tempcell)
+# angframe = pd.concat(prsplist).reset_index(drop=True)
 
 #change rear length along trajectory to positive values
-angframe['LengthAlongTrajectoryRear'] = abs(angframe['LengthAlongTrajectoryRear'])
+angframe.loc[:,'LengthAlongTrajectoryRear'] = abs(angframe['LengthAlongTrajectoryRear'].copy())
 
 
 metlist = ['Cell_Aspect_Ratio','LengthAlongTrajectory','LengthAlongTrajectoryFront','LengthAlongTrajectoryRear',
-           'Volume_Front_Ratio','Cell_Volume','speed', 'Turn_Angle']
+           'Volume_Front_Ratio','Cell_Volume','speed', 'directional_autocorrelation']
 
 labelz = ['Aspect Ratio','Length Along\nTrajectory (µm)','Forward Length Along\nTrajectory (µm)','Rearward Length Along\nTrajectory (µm)',
-          'Front-Back\nVolume Ratio','Cell Volume (µm$^3$)','Speed (µm/sec)','Turn Angle (°)']
+          'Front-Back\nVolume Ratio','Cell Volume (µm$^3$)','Instantaneous\nSpeed (µm/sec)','Persistence']
 
 ##### get interpolated average line to plot continuous colormap along line
 avgmets = angframe.groupby(f'PC{whichpcs[0]}_PC{whichpcs[1]}_Continuous_Angular_Bins').mean()[metlist]
@@ -119,7 +119,7 @@ for i, ax in enumerate(axes.flatten()):
     # for c in range(totalpoints):
     #     ax.plot([tr[c],tr[c]],[lx[c],ux[c]], color = discrete_colors[c,:-1], alpha = 0.05, zorder = 2)
     
-    ax.scatter(tr, x, s = 2.5, color = discrete_colors[:,:-1], edgecolor = None, zorder=2)
+    ax.scatter(tr, x, s = 4, color = discrete_colors[:,:-1], edgecolor = None, zorder=2)
 
     ax.axvline(180,color = 'black', linestyle = '--',linewidth=1, alpha = 0.3, zorder=3)
     ax.set_ylabel(metlist[i])#, fontsize = 1.75*CoRo)
@@ -127,6 +127,10 @@ for i, ax in enumerate(axes.flatten()):
     ax.set_ylabel(labelz[i], fontsize = 18)
     ax.tick_params('y',labelsize=12)
     ax.set_xlabel('')
+    
+    #remove right and top spines
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
 
 plt.tight_layout()
 

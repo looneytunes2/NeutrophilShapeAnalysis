@@ -21,7 +21,7 @@ treatments = ['Random']
 time_interval = 10 #sec/frame
 whichpcs = [1,7]
 origin = [7, 7]
-binrange = 360/7
+binrange = 360/6
 direction = 'clockwise'
 zerostart = 'left'
 

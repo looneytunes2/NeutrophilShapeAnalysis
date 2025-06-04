@@ -33,8 +33,8 @@ TotalFrame_filtered = TotalFrame[TotalFrame['CellID'].map(TotalFrame['CellID'].v
 
 
 ##### Cell Mean stats of interest COLORED BY Stdev ########
-soi = ['Cell_Volume','Cell_SurfaceArea','Cell_Aspect_Ratio','speed','Turn_Angle']
-ylabels = ['Cell Volume (µm$^3$)','Cell Surface Area (µm$^2$)', 'Cell Aspect Ratio','Instantaneous Speed (µm/s)','Turn Angle (°)']#, 'Directional Autocorrelation']
+soi = ['Cell_Volume','Cell_SurfaceArea','Cell_Aspect_Ratio','speed','directional_autocorrelation']
+ylabels = ['Cell Volume (µm$^3$)','Cell Surface Area (µm$^2$)', 'Cell Aspect Ratio','Instantaneous Speed (µm/s)','Persistence']#, 'Turn Angle (°)']
 scale = len(soi)
 linewid = 2
 
@@ -71,6 +71,8 @@ for i, ax in enumerate(axes.flatten()):
     # Turn off all spines and ticks
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
+    #set y limits
+    ax.set_ylim(0, ax.get_ylim()[1])
 
 #how many images unique cells (data points) are there
 fig.text(0.5, 1, f'n = {len(TotalFrame_filtered.CellID.unique())} cells',

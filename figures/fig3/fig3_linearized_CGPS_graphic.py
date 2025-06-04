@@ -237,25 +237,22 @@ ax.set_ylim(0,nbins)
 
 # Set bottom ticks
 ax.set_xticks(bottomticks[1,:])
-ax.set_xticklabels([str(int(x))+'°' for x in  bottomticks[0,:]], fontsize = 20)
+ax.set_xticklabels([str(int(x))+'°' for x in  bottomticks[0,:]], fontsize = 26)
 
 # Set left ticks
 ax.set_yticks(leftticks[1,:])
-ax.set_yticklabels([str(int(x))+'°' for x in  leftticks[0,:]], fontsize = 20)
+ax.set_yticklabels([str(int(x))+'°' for x in  leftticks[0,:]], fontsize = 26)
 
 # Add top axis with unique ticks
 top_ax = ax.secondary_xaxis('top')
 top_ax.set_xticks(topticks[1,:])
-top_ax.set_xticklabels([str(int(x))+'°' for x in  topticks[0,:]], fontsize = 20)
+top_ax.set_xticklabels([str(int(x))+'°' for x in  topticks[0,:]], fontsize = 26)
 
 # Add right axis with unique ticks
 right_ax = ax.secondary_yaxis('right')
 right_ax.set_yticks(rightticks[1,:])
-right_ax.set_yticklabels([str(int(x))+'°' for x in  rightticks[0,:]], fontsize = 20)
+right_ax.set_yticklabels([str(int(x))+'°' for x in  rightticks[0,:]], fontsize = 26)
 
-
-
-plt.tight_layout()
 
 
 

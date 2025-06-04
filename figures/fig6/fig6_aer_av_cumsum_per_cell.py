@@ -6,10 +6,8 @@ Created on Thu Apr  3 16:18:51 2025
 """
 
 
-import os
 import numpy as np
 import pandas as pd
-from CustomFunctions import utils, DetailedBalance
 import matplotlib
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -27,36 +25,11 @@ FullFrame = pd.read_csv(datadir + 'All_Data_with_CGPS_bins.csv', index_col = 0)
 nbins = np.max(FullFrame[[x for x in FullFrame.columns.to_list() if 'bin' in x]].to_numpy())
 #open the centers of the binned PCs
 centers = pd.read_csv(datadir+'PC_bin_centers.csv', index_col=0)
+# open aers
+allaers = pd.read_csv(savedir+f'PC{whichpcs[0]}-PC{whichpcs[1]}_raw_transition_aer_cf.csv', index_col = 0)
 
-
-##### quickly calculate aer and cf on the raw CGPS transitions
-if os.path.exists(savedir+f'PC{whichpcs[0]}-PC{whichpcs[1]}_transitions_separated.csv'):
-    raw_trans = pd.read_csv(savedir+f'PC{whichpcs[0]}-PC{whichpcs[1]}_transitions_separated.csv', index_col = 0)
-    #add a movie columns to separate dataframe on
-    raw_trans['Movie'] = [x.split('_frame')[0] for x in raw_trans.cell.to_list()]
-    ############# measure aer and cycling frequencies ###########
-    #add specific scaling
-    xyscaling = [centers[f'PC{whichpcs[0]}'].diff().mean(),centers[f'PC{whichpcs[1]}'].diff().mean()]
-    #set the origin to the actual center
-    center = [round(nbins/2)]*2
-    results = []
-    for i, cells in raw_trans.groupby('CellID'):
-        movielist = sorted(cells.Movie.unique(),key = lambda x: int(x.split('-')[-3]))
-        for m in movielist:
-            curmov = cells[cells.Movie == m]
-            curmov, runs = utils.get_consecutive_timepoints(curmov, 'frame',1)
-            for r in runs:
-                cell = curmov.iloc[r].reset_index(drop=True)
-                results.append(DetailedBalance.get_area_enclosing_rate(
-                    cell,
-                    nbins,
-                    xyscaling,
-                    center,
-                    ))
-    allaers = pd.concat(results).reset_index(drop=True)
-# allaers['cell'] = [c+f'_frame_{int(f)}' for c, f in allaers[['Movie','frame']].values]
 #merge aer and cf info
-TotalFrame = FullFrame.merge(allaers[['aer','angular_velocity','cell']],left_on='cell',right_on='cell')
+TotalFrame = pd.merge(FullFrame, allaers[['aer','angular_velocity','cell']],on='cell',how='left')
 TotalFrame = TotalFrame.sort_values(['CellID','time'])
 
 #get cumulative sums
@@ -75,10 +48,11 @@ set2 = plt.cm.Set2
 set3 = plt.cm.Set3
 cmap = matplotlib.colors.ListedColormap(list(set3.colors)+[set2.colors[-2]] + [set1.colors[-1]])
 
+sns.set_palette(cmap.colors)
 
 ### plot the stuff
 fig, ax = plt.subplots()
-sns.lineplot(x='timemin',y='aer_cumsum',data=csframe,hue='CellID', palette=cmap.colors, lw=2, ci=None, legend=None)
+sns.lineplot(x='timemin',y='aer_cumsum',data=csframe,hue='CellID', lw=2, ci=None, legend=None)
 ax.set_xlabel('Time (min)', fontsize =18)
 ax.set_ylabel('CGPS Area Enclosed', fontsize =18)
 ax.spines['top'].set_visible(False)
@@ -91,7 +65,7 @@ plt.savefig(__file__.split('.')[0] + '_aer.png', dpi = 500, bbox_inches='tight')
 
 
 fig, ax = plt.subplots()
-sns.lineplot(x='timemin',y='angular_velocity_cumsum',data=csframe,hue='CellID', palette=cmap.colors, lw=2, ci=None, legend=None)
+sns.lineplot(x='timemin',y='angular_velocity_cumsum',data=csframe,hue='CellID', lw=2, ci=None, legend=None)
 ax.set_xlabel('Time (min)', fontsize =18)
 ax.set_ylabel('Degrees Traveled', fontsize =18)
 ax.spines['top'].set_visible(False)

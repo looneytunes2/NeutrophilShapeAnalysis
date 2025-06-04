@@ -13,27 +13,28 @@ import scipy.stats as ss
 from statsmodels.stats.multitest import multipletests
 import matplotlib.pyplot as plt
 import seaborn as sns
-from CustomFunctions import utils
+from CustomFunctions import utils, shparam_mod
 
 #get directories and open separated datasets
-treatments = ['DMSO','Para-Nitro-Blebbistatin']
+treatments = ['Random','Galvanotaxis']
 time_interval = 10 #sec/frame
 
 
 #get directories and open separated datasets
-basedir = 'E:/Aaron/Combined_37C_Confocal_PCA_s5/'
+basedir = 'E:/Aaron/Combined_37C_Confocal_PCA_s5_with_galv/'
 datadir = basedir + 'Data_and_Figs/'
-savedir = basedir + 'Para-Nitro-Blebbistatin/'
+savedir = basedir + 'galv/'
 FullFrame = pd.read_csv(datadir + 'All_Data_with_CGPS_bins.csv', index_col=0)
 nbins = np.max(FullFrame[[x for x in FullFrame.columns.to_list() if 'bin' in x]].to_numpy())
 #open the centers of the binned PCs
 centers = pd.read_csv(datadir+'PC_bin_centers.csv', index_col=0)
-#limit data to the Para-Nitro-Blebbistatin experiments
-TotalFrame = FullFrame[FullFrame.Experiment == 'Drug']
-dates = [20240624,20240626,20240701,20241125,20241126,20241127]
-TotalFrame = TotalFrame[TotalFrame.Date.isin(dates)]
+#limit data to the galv experiments
+TotalFrame = FullFrame[FullFrame.Treatment.isin(treatments)]
 TotalFrame['Treatment'] = pd.Categorical(TotalFrame.Treatment.to_list(), categories=treatments, ordered=True)
 
+
+#calculate migration angle relative to electric field
+TotalFrame['relative_angle'] = [shparam_mod.angle3D(-1, 0, 0, x[0], x[1], x[2]) for i,x in TotalFrame[['Trajectory_X','Trajectory_Y','Trajectory_Z']].iterrows()]
 
 
 #### calculate protrusion and retraction speeds
@@ -42,8 +43,8 @@ for i, cells in TotalFrame.groupby('CellID'):
     cells, runs = utils.get_consecutive_timepoints(cells, 'time', time_interval)
     for r in runs:
         tempcell = cells.iloc[r].copy()
-        tempcell['protrusion_speed'] = tempcell.LengthAlongTrajectoryFront.diff()
-        tempcell['retraction_speed'] = tempcell.LengthAlongTrajectoryRear.diff()
+        tempcell.loc[:,'protrusion_speed'] = tempcell.LengthAlongTrajectoryFront.diff()
+        tempcell.loc[:,'retraction_speed'] = tempcell.LengthAlongTrajectoryRear.diff()
         prsplist.append(tempcell)
 TotalFrame = pd.concat(prsplist).reset_index(drop=True)
 ###filter the data for only cells that I have 10 or more frames of
@@ -55,7 +56,7 @@ ModeFrame = TotalFrame_filtered.groupby(['Treatment','CellID']).mean().reset_ind
 includelist = ['Treatment','Cell_Volume','Volume_Front_Ratio','Cell_SurfaceArea','Cell_Sphericity','Cell_Aspect_Ratio',
                'LengthAlongTrajectory','LengthAlongTrajectoryFront','LengthAlongTrajectoryRear','WidthAlongTrajectory',
                'speed','Turn_Angle','PC1','PC2','PC3','PC4','PC5','PC6','PC7','PC8','PC9','PC10',
-               'protrusion_speed','retraction_speed']#,'directional_autocorrelation','angular_velocity']
+               'protrusion_speed','retraction_speed','relative_angle']#,'directional_autocorrelation','angular_velocity']
 
 
 plist = []
@@ -68,10 +69,12 @@ for c in includelist:
 #correct for multiple comparisons
 parr = np.array(plist)[:,1].astype('float')
 reject, pvcorr = multipletests(parr, method = 'fdr_bh')[:2]
-siglist = list(np.array(plist)[reject,0])
+allsiglist = list(np.array(plist)[reject,0])
 
 
-ylabels = ['Instantaneous Speed (µm/sec)','Turn Angle (°)']
+siglist = ['speed','Turn_Angle','relative_angle']
+
+ylabels = ['Instantaneous Speed (µm/sec)','Turn Angle (°)','Alignment to Electric Field (°)']
 
 ############### CELL AVERAGES OF SIGNIFICANT METRICS #################################
 colorlist = ['#3799de','#d43131']
@@ -103,9 +106,9 @@ for i, sig in enumerate(siglist):
                     'color': 'black'
                     },
                 showfliers=False, ax = ax)
-    
     #set ylim min to zero
-    ax.set_ylim(0, ax.get_ylim()[1])
+    ax.set_ylim(0,ax.get_ylim()[1])
+        
     #tick stuff
     ax.set_ylabel(ylabels[i], fontsize = 16)#, labelpad=-0.5)
     ax.set_xlabel('')
@@ -115,6 +118,7 @@ for i, sig in enumerate(siglist):
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
     
+
     #remove legends
     ax.legend_ = None
 
@@ -123,16 +127,4 @@ plt.tight_layout()
 
 
 plt.savefig(__file__.split('.')[0] + '.png', dpi = 500, bbox_inches='tight')
-
-
-# #labels
-# ax.set_ylabel('Area Enclosing Rate', fontsize=24, labelpad=0)
-# ax.set_xlabel('', fontsize=20)
-# ax.tick_params('y', labelsize=14)
-# ax.set_xticklabels(ax.get_xticklabels(), fontsize = 18)
-# ax.axhline(27,xmin=0.25, xmax = 0.75,color = 'black')
-# ax.text(0.5,27,'***',fontdict= {'fontsize': 14,
-#                                'horizontalalignment':'center'})
-
-
 

@@ -81,7 +81,7 @@ for i, ax in enumerate(axes.flatten()):
     #adjust ylabel
     ax.set_ylabel(ylabels[i], fontsize=16)
     #set plot limits
-    # ax.set_ylim(0,13)
+    ax.set_ylim(0,ax.get_ylim()[1])
     #remove parts of box
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
@@ -89,7 +89,7 @@ for i, ax in enumerate(axes.flatten()):
     ax.set_xticks([])
 
 #how many images data points are there
-fig.text(0.5, 1, f'n = {len(TotalFrame.dropna()))} images',
+fig.text(0.5, 1, f'n = {len(TotalFrame)} images',
         va='center', ha='center', fontsize=14)
 
 plt.tight_layout()

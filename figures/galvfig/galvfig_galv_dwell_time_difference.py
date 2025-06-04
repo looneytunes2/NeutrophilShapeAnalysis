@@ -13,24 +13,23 @@ import seaborn as sns
 
 
 
-treatments = ['DMSO','Para-Nitro-Blebbistatin']
+treatments = ['Random','Galvanotaxis']
 time_interval = 10 #sec/frame
 whichpcs = [1,7]
 vmin = -3 #lower bound for heatmap 
 vmax = 3 #upper bound for heatmap 
 
+
 #get directories and open separated datasets
 basedir = 'E:/Aaron/Combined_37C_Confocal_PCA_s5/'
 datadir = basedir + 'Data_and_Figs/'
-savedir = basedir + 'Para-Nitro-Blebbistatin/'
+savedir = basedir + 'galv/'
 FullFrame = pd.read_csv(datadir + 'All_Data_with_CGPS_bins.csv', index_col=0)
 nbins = np.max(FullFrame[[x for x in FullFrame.columns.to_list() if 'bin' in x]].to_numpy())
 #open the centers of the binned PCs
 centers = pd.read_csv(datadir+'PC_bin_centers.csv', index_col=0)
-#limit data to the Para-Nitro-Blebbistatin experiments
-TotalFrame = FullFrame[FullFrame.Experiment == 'Drug']
-dates = [20240624,20240626,20240701,20241125,20241126,20241127]
-TotalFrame = TotalFrame[TotalFrame.Date.isin(dates)]
+#limit data to the galv experiments
+TotalFrame = FullFrame[FullFrame.Treatment.isin(treatments)]
 TotalFrame['Treatment'] = pd.Categorical(TotalFrame.Treatment.to_list(), categories=treatments, ordered=True)
 
 

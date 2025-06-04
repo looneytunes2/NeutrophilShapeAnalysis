@@ -19,14 +19,14 @@ from matplotlib.patches import Ellipse, Rectangle
 #get directories and open separated datasets
 
 
-treatments = ['Random']
+treatments = ['Galvanotaxis']
 time_interval = 10 #sec/frame
 whichpcs = [1,7]
 
 #get directories and open separated datasets
 basedir = 'E:/Aaron/Combined_37C_Confocal_PCA_s5/'
 datadir = basedir + 'Data_and_Figs/'
-savedir = basedir + 'random/'
+savedir = basedir + 'galv/'
 if not os.path.exists(savedir):
     os.makedirs(savedir)
     
@@ -42,19 +42,13 @@ centers = pd.read_csv(datadir+'PC_bin_centers.csv', index_col=0)
 ######## open all of the data
 ########### interpolate all transitions so that only individual transitions are made ###########
 transdf_sep = pd.read_csv(savedir+f'interpolated_PC{whichpcs[0]}-PC{whichpcs[1]}_transitions_separated.csv', index_col=0)
-#ensure that DMSO is the first in order
-transdf_sep['Treatment'] = pd.Categorical(transdf_sep.Treatment, categories=treatments, ordered=True)
-transdf_sep = transdf_sep.sort_values(by='Treatment')
+transdf_sep = transdf_sep[transdf_sep.Treatment == treatments[0]]
 ############## get the counts of cells leaving 
 trans_rate_df_sep = pd.read_csv(savedir+f'PC{whichpcs[0]}-PC{whichpcs[1]}_binned_transition_rates_separated.csv', index_col=0)
-#ensure that DMSO is the first in order
-trans_rate_df_sep['Treatment'] = pd.Categorical(trans_rate_df_sep.Treatment, categories=treatments, ordered=True)
-trans_rate_df_sep = trans_rate_df_sep.sort_values(by='Treatment')
+trans_rate_df_sep = trans_rate_df_sep[trans_rate_df_sep.Treatment == treatments[0]]
 ############# open average bootstrapped currents ###################
 bsfield_sep = pd.read_csv(savedir+f'PC{whichpcs[0]}-PC{whichpcs[1]}_bootstrapped_transitions_average_currents.csv', index_col=0)
-#ensure that DMSO is the first in order
-bsfield_sep['Treatment'] = pd.Categorical(bsfield_sep.Treatment, categories=treatments, ordered=True)
-bsfield_sep = bsfield_sep.sort_values(by='Treatment')
+bsfield_sep = bsfield_sep[bsfield_sep.Treatment == treatments[0]]
 
 
 ########## PC1/PC7 transition with error ellipses oriented to PCs WITHOUT PC MESH SLICES ################
@@ -134,40 +128,42 @@ for x in range(1,nbins+1):
     
 
 #         print(x, x+(xcurrent.values*scale),y,  y+(ycurrent.values*scale))
-ax.set_xlabel('PC1', fontsize = 40)
+ax.set_xlabel('PC1', fontsize = 34)
 ax.xaxis.set_label_coords(0.46,-0.05)
-ax.set_ylabel('PC7', fontsize = 40)
+ax.set_ylabel('PC7', fontsize = 34)
 ax.yaxis.set_label_coords(-0.05, 0.465)
 ax.set_xticks(np.arange(0.5,nbins+0.5))
-ax.set_xticklabels([round(x,1) for x in centers.PC1.to_list()], fontsize = 18)
+ax.set_xticklabels([round(x,1) for x in centers.PC1.to_list()], fontsize = 22)
 ax.set_yticks(np.arange(0.5,nbins+0.5))
-ax.set_yticklabels([round(x,1) for x in centers.PC7.to_list()], fontsize = 18)
+ax.set_yticklabels([round(x,1) for x in centers.PC7.to_list()], fontsize = 22)
 ax.set_xlim(0,nbins+1)
 ax.set_ylim(0,nbins+1)
 # adjust colorbar tick label size
 cbar_ax.set_yticklabels(cbar_ax.get_yticklabels(),fontsize=18)
-cbar_ax.set_ylabel('Probability', fontsize = 32, rotation = -90, labelpad = 33)
 
 #legend background
 lxp = 0.25
 lyp = 0.25
-rect = Rectangle((lxp, lyp), 1.685, 1.685, linewidth=1, edgecolor='black', facecolor='#80858a')
+rect = Rectangle((lxp, lyp), 1.645, 1.625, linewidth=1, edgecolor='black', facecolor='#80858a')
 ax.add_patch(rect)
 rect.set_zorder(4 * 5)
 #x-axis legend arrow
 ax.quiver(lxp+0.5,lyp+0.5,1*scale,0,angles = 'xy',scale_units = 'xy',scale = scale,color = "white",zorder = 4 * 5)
 #x-axis legend text
 xsc = f'{(np.diff(centers.PC1.to_list()).mean()/time_interval)*scale:.1e}'
-xsc = xsc.split('e')[0] + 'x10$^{' +  str(int(xsc.split('e')[1])) + '}$'
-ax.text(lxp+0.25,lyp+0.05,xsc+' $s^{-1}$', color = 'white', fontsize = 11, fontweight = 'bold',zorder = 4 * 5)
+xsc = xsc.split('-')[0] + str(int(xsc.split('e')[1]))
+ax.text(lxp+0.25,lyp+0.05,xsc+' $s^{-1}$', color = 'white', fontsize = 13, fontweight = 'bold',zorder = 4 * 5)
 #y-axis legend arrow
 ax.quiver(lxp+0.5,lyp+0.5,0,1*scale,angles = 'xy',scale_units = 'xy',scale = scale,color = 'white',zorder = 4 * 5)
 #y-axis legend text
 ysc = f'{(np.diff(centers.PC7.to_list()).mean()/time_interval)*scale:.1e}'
-ysc = ysc.split('e')[0] + 'x10$^{' +  str(int(ysc.split('e')[1])) + '}$'
-ax.text(lxp+0.075,lyp+0.3,ysc+' $s^{-1}$', rotation = 'vertical', color = 'white', fontsize = 11, fontweight = 'bold',zorder = 4 * 5)
+ysc = ysc.split('-')[0] + str(int(ysc.split('e')[1]))
+ax.text(lxp+0.05,lyp+0.3,ysc+' $s^{-1}$', rotation = 'vertical', color = 'white', fontsize = 13, fontweight = 'bold',zorder = 4 * 5)
 
                   
 
 plt.tight_layout()
+
+
+
 plt.savefig(__file__.split('.')[0] + '.png', bbox_inches='tight', dpi =500)

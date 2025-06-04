@@ -16,6 +16,8 @@ import seaborn as sns
 treatments = ['DMSO','CK666']
 time_interval = 10 #sec/frame
 whichpcs = [1,7]
+vmin = -3 #lower bound for heatmap 
+vmax = 3 #upper bound for heatmap 
 
 basedir = 'E:/Aaron/Combined_37C_Confocal_PCA_s5/'
 datadir = basedir + 'Data_and_Figs/'
@@ -90,8 +92,9 @@ difference = bighm-ctrlhm
 #plot heatmap with seaborn
 sns.heatmap(
     difference,
-#         vmin=2.5, vmax=9, 
-    center=0,
+    vmin=vmin,
+    vmax=vmax, 
+    # center=0,
     cmap=sns.diverging_palette(220, 20, n=200),
     square=True,
     xticklabels = True,

@@ -11,7 +11,10 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 
 
+
 #get directories and open separated datasets
+
+
 treatments = ['Random']
 
 #get directories and open separated datasets
@@ -24,34 +27,31 @@ if not os.path.exists(savedir):
 FullFrame = pd.read_csv(datadir + 'All_Data_with_CGPS_bins.csv', index_col=0)
 #restrict dataframe to only random experiments
 TotalFrame = FullFrame[FullFrame.Treatment.isin(treatments)]
+#limit the dataframe to only tracks with at least 10 frames
+TotalFrame_filtered = TotalFrame[TotalFrame['CellID'].map(TotalFrame['CellID'].value_counts()) >= 10]
 
 
-# #reconstruct the average cell from the pca to get average shape values
-# coeffdf = pd.read_csv(datadir + 'Shape_Metrics_with_Digitized_PCs.csv', index_col=0)
-# coeffdf = coeffdf[[x for x in coeffdf.columns.to_list() if 'coeff' in x]]
-# mesh, _ = shtools_mod.get_reconstruction_from_coeffs(coeffdf.mean().values.reshape(2,lmax+1,lmax+1))
-# CellMassProperties = vtk.vtkMassProperties()
-# CellMassProperties.SetInputData(mesh)
-# reconvol = CellMassProperties.GetVolume()
-# reconsa = CellMassProperties.GetSurfaceArea()
 
 ##### Cell Mean stats of interest COLORED BY Stdev ########
-soi = ['Cell_Volume','Cell_SurfaceArea','Cell_Aspect_Ratio']
-ylabels = ['Cell Volume (µm$^3$)','Cell Surface Area (µm$^2$)', 'Cell Aspect Ratio']
+soi = ['Cell_Volume','Cell_SurfaceArea','Cell_Aspect_Ratio','speed','directional_autocorrelation']
+ylabels = ['Cell Volume (µm$^3$)','Cell Surface Area (µm$^2$)', 'Cell Aspect Ratio','Instantaneous Speed (µm/s)','Persistence']#, 'Turn Angle (°)']
 scale = len(soi)
 linewid = 2
 
+
+
 fig, axes = plt.subplots(1,scale,figsize=(scale*4*0.45,4))
-
 for i, ax in enumerate(axes.flatten()):
-    stat = TotalFrame[['CellID', soi[i]]].groupby('CellID').mean()  
-
-    sns.swarmplot(y = soi[i], data = stat, color = 'grey', size = 3.5, alpha = 0.5, ax = ax)
-    sns.boxplot(y = soi[i], data = stat, color = 'white', 
+    sns.violinplot(y=TotalFrame[soi[i]], color = '0.65',
+                   linewidth = linewid, inner = None, ax=ax, )
+    ax.collections[0].set_edgecolor('black')
+    sns.boxplot(y=TotalFrame[soi[i]], width = 0.15, color = 'white', 
+                showcaps=False, showfliers=False,
                 boxprops={
-                    'fill': False,
+                    'fill': 'white',
                     'linewidth': linewid,
-                    'edgecolor': 'black'
+                    'edgecolor': 'black',
+                    'zorder': 2
                     },
                 medianprops={
                     'linewidth': linewid,
@@ -65,18 +65,30 @@ for i, ax in enumerate(axes.flatten()):
                     'linewidth': linewid,
                     'color': 'black'
                     },
-                showfliers=False, ax = ax)
-    #tick stuff
-    ax.set_ylabel(ylabels[i], fontsize = 16)#, labelpad=-0.5)
-    ax.set_xlabel('')
-    ax.set_xticks([])
-    # Turn off all spines and ticks
+                ax=ax)
+    #tick label size
+    ax.tick_params('y', labelsize=12)
+    #remove legends
+    ax.legend_ = None
+    #adjust ylabel
+    ax.set_ylabel(ylabels[i], fontsize=16)
+    #set plot limits
+    # ax.set_ylim(0,13)
+    #remove parts of box
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
-    
+    #remove x tick
+    ax.set_xticks([])
+
 #how many images data points are there
-fig.text(0.5, 1, f'n = {len(TotalFrame.speed.dropna())} intervals',
+fig.text(1.55/5, 1, f'n = {len(TotalFrame)} images',
         va='center', ha='center', fontsize=14)
+
+#how many images data points are there
+fig.text(4.1/5, 1, f'n = {len(TotalFrame.speed.dropna())} intervals',
+        va='center', ha='center', fontsize=14)
+
+
 
 plt.tight_layout()
 

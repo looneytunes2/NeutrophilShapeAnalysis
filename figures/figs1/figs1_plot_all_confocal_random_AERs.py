@@ -12,8 +12,10 @@ import os
 import matplotlib.pyplot as plt
 import seaborn as sns
 from CustomFunctions.shapePCAtools import filter_extremes_based_on_percentile
+from CustomFunctions.file_management import multicsv
 from matplotlib import cm
 from matplotlib.colors import Normalize
+from scipy import interpolate
 
 
 ####### load common directories and data
@@ -23,6 +25,9 @@ datadir = basedir + 'Data_and_Figs/'
 FullFrame = pd.read_csv(datadir + 'All_Data_with_CGPS_bins.csv', index_col=0)
 centers = pd.read_csv(datadir+'PC_bin_centers.csv', index_col=0)
 nbins = np.max(FullFrame[[x for x in FullFrame.columns.to_list() if 'bin' in x]].to_numpy())
+
+#set the max average aer for the colorbar stuff
+aermax = 0.0035
 
 
 ### restrict data to RANDOM
@@ -43,11 +48,10 @@ TotalFrame = FullFrame[FullFrame.Treatment=='Random'].copy()
 
 binlist = [i for i in TotalFrame.columns.to_list() if 'bin' in i]
 
-# Define normalization between 0 and 0.234
-norm = Normalize(vmin=0, vmax=0.02985)
-# Choose a colormap (e.g., 'viridis')
-cmap = cm.get_cmap('cool')
 
+
+# make an interpolation of black values
+f = interpolate.interp1d([0, aermax],[1,0])
 
    
 fig, axes = plt.subplots(len(binlist),len(binlist), figsize = (40,40), sharex=True, sharey=True)
@@ -61,8 +65,8 @@ for ycol, a in enumerate(binlist):
 
         if os.path.exists(savedir+ 'allCGPS/' +f'{bin1}-{bin2}_Area_Enclosing_Rates.csv'):
             aerdf = pd.read_csv(savedir+ 'allCGPS/' +f'{bin1}-{bin2}_Area_Enclosing_Rates.csv', index_col=0)
-            print(f'Opened {bin1}-{bin2} aer files')
-            
+            print(f'Opened {bin1}-{bin2} aer files',aerdf.groupby('iter').mean().aer.mean())
+
 
             #get average aer values
             avgaerdf = aerdf.groupby('iter').mean()
@@ -72,58 +76,63 @@ for ycol, a in enumerate(binlist):
                 1)
             
             #get color based on the mean of the means
-            color = cmap(norm(abs(avgaerdf.aer.mean())))
+            color = str(f(abs(avgaerdf.aer.mean())))#cmap(norm(abs(avgaerdf.aer.mean())))
+            # alph = 
             #plot the filled plot
             sns.kdeplot(data = avgaerdf, x='aer',
-                        fill = True, color = color#, cut = 0
-                        , ax = ax)
+                        fill = True, color = color, alpha = 1, # cut = 0
+                        ax = ax)
             #### make separate plot to change the line color
             sns.kdeplot(data = avgaerdf.aer.squeeze(),
-                        fill = False, color = '0.5'#, cut = 0
-                        , ax = ax)
+                        fill = False, color = '0.5', #cut = 0
+                        ax = ax)
             
             
             ax.axvline(0, ls = '--', color = 'black', alpha = 0.4)
 
-            # axis label stuff
+            # remove upper and right box lines
+            ax.spines['top'].set_visible(False)
+            ax.spines['right'].set_visible(False)
 
-            # #set limits
-            # ax.set_xlim(0,nbins+1)
-            # ax.set_ylim(0,nbins+1)
-
-
-
-
-                
+            #change tick font sizes
+            ax.tick_params(labelsize = 16)
+            #rotate and horizontally align x axis labels because they're long
+            ax.tick_params('x', rotation = 30)
+            for label in ax.get_xticklabels():
+                label.set_horizontalalignment('right')
+            
             if ind1 == 0:
-                ax.set_ylabel(bin2, fontsize = 30)
+                ax.set_ylabel(bin2, fontsize = 40)
                 if ind2 == range(len(binlist))[-1]:
-                    ax.set_xlabel('', fontsize = 30)
+                    ax.set_xlabel('')
 
             elif ind2 == range(len(binlist))[-1]:
                 
-                ax.set_xlabel('', fontsize = 30)
+                ax.set_xlabel('')
 
-                
-            # else:
-            #     # ax.set_xticks([])
-            #     ax.set_xticklabels([])
-            #     ax.set_xlabel('')
-            #     # ax.set_yticks([])
-            #     ax.set_yticklabels([])
-            #     ax.set_ylabel('')
-            #     print('something else')
-             
-            # if ind2 == range(len(binlist))[-1]:
-                
-            # else:
             
-            # ax.set_aspect('equal','box')
-             
+        #keep the upper right plot but remove plot box
+        elif (ind1==0) & (ind2==0):
+            ax.set_ylabel(bin2, fontsize = 40, labelpad = 24)
+            ax.spines['top'].set_visible(False)
+            ax.spines['bottom'].set_visible(False)
+            ax.spines['left'].set_visible(False)
+            ax.spines['right'].set_visible(False)
+
         else:
             print('remove this plot')
             ax.remove()
+            
+# remove tick stuff from the upper right plot, but maintain the sharex sharey
+axes[0,0].tick_params(left=False, bottom=False, labelleft=False, labelbottom=False)
 
+# add colorbar data
+cbar_ax = fig.add_axes([0.075, 0.3065, 0.015, 0.377]) #vertical
+cbar = fig.colorbar(cm.ScalarMappable(norm=Normalize(0, aermax), cmap='Greys'), cax=cbar_ax)
+cbar.ax.yaxis.set_tick_params(labelsize=20)
+cbar.ax.yaxis.set_ticks_position("left")
+cbar.ax.yaxis.set_label_position("left")
+cbar.set_label("Average Area Enclosing Rate (PC units²/sec)", fontsize = 30, labelpad = 7)
 
 #     plt.tight_layout() 
 # plt.subplots_adjust(wspace=0.01, hspace=0.01)

@@ -1,8 +1,6 @@
-# -*- coding: utf-8 -*-
-"""
-Created on Mon May 31 18:03:57 2021
 
-@author: Aaron
+"""
+Modified from Allen Cell aicsshparam  
 """
 
 import re

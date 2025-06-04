@@ -12,9 +12,6 @@ import multiprocessing
 import pandas as pd
 import numpy as np
 import numpy.ma as ma
-from itertools import groupby
-from operator import itemgetter
-from aicsimageio.readers.czi_reader import CziReader
 from aicsimageio.writers import OmeTiffWriter
 import skimage.measure
 import skimage.segmentation
@@ -23,11 +20,7 @@ from aicssegmentation.core.MO_threshold import MO
 from aicssegmentation.core.utils import hole_filling
 from aicssegmentation.core import vessel
 from aicssegmentation.core.pre_processing_utils import intensity_normalization, image_smoothing_gaussian_3d
-from CustomFunctions import metadata_funcs
 from scipy.spatial import distance
-from scipy import interpolate
-from CustomFunctions.persistance_activity import get_pa, DA_3D
-from CustomFunctions.mp_funcs import quickcaaxseg
 from CustomFunctions.MO_Threshold import MO_ma
 
 

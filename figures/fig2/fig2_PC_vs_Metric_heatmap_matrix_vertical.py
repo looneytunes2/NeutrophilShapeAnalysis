@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
 """
-Created on Tue Oct 15 14:38:41 2024
+Created on Sun Jun  1 16:05:31 2025
 
 @author: Aaron
 """
+
 
 ################ smaller PC vs metric plots for CICON ################
 import numpy as np
@@ -48,18 +49,19 @@ labelz = [['Cell Volume (µm$^3$)','Cell Surface Area (µm$^2$)','Front-Back Vol
 PCs = list(np.unique([re.search('PC\d*',x)[0] for x in TotalFrame.columns.to_list() if re.search('PC\d*',x) is not None]))
 PCs.sort(key=lambda x: float(x.split('PC')[1]))
 #add them together and select them in the dataframe
-metric_corr = TotalFrame[[x for xs in metrics for x in xs]+PCs].corr().drop(columns = PCs)
-PCsAndMetrics = metric_corr.loc[PCs]
+totalcorr = TotalFrame[[x for y in metrics for x in y]+PCs].corr()
+PCsAndMetrics = totalcorr.loc[:,PCs]
+PCsAndMetrics = PCsAndMetrics.drop(index=PCs)
 
-
-fig, axes = plt.subplots(1, len(metrics), figsize=(25,15), gridspec_kw={'width_ratios':[len(x) for x in metrics]})
+fig, axes = plt.subplots(len(metrics), 1, figsize=(15,25), gridspec_kw={'height_ratios':[len(x) for x in metrics]})
 for i, m in enumerate(metrics):
     ax = axes[i]
-    temp = PCsAndMetrics[m].copy()
+    temp = PCsAndMetrics.loc[m,:].copy()
     cbarbool = False if i != len(metrics)-1 else True
     sns.heatmap(
         temp, 
-        vmin=-1, vmax=1, center=0,
+        vmin=-1, 
+        vmax=1,
         cmap=sns.diverging_palette(20, 220, n=200),
         square=True,
         # xticklabels = True,
@@ -70,32 +72,33 @@ for i, m in enumerate(metrics):
         cbar_kws={'fraction':0.05, 'pad':0.01},#, 'shrink': 0.5}
         ax = ax)
     if  i == 0:
-        ax.set_yticklabels(
-            ax.get_yticklabels(),
-            rotation=0,
-            va = 'center',
-            fontsize = 30
+        ax.set_xticklabels(
+            PCs,
+            fontsize = 34
         )
+        ax.tick_params('x',top=True, labeltop=True, bottom=False, labelbottom=False ,length=6, width=3)
     else:
-        ax.set_yticks([])
-        ax.set_yticklabels([])
+        ax.set_xticks([])
+        ax.set_xticklabels([])
         
-    ax.set_xticklabels(
+    ax.set_yticklabels(
         labelz[i],
-        rotation=45,
-        horizontalalignment='right',
+        # rotation=45,
+        # horizontalalignment='right',
         fontsize = 34
     )
+    
+    
+
 
     #tick params
-    ax.tick_params('x',length=6, width=3)
-    ax.tick_params('y',length=4, width=3)
+    ax.tick_params('y',length=6, width=3)
 
-    #scooch the x axis labels by a certain amount
-    dx = 10/72.; dy = 0/72. 
-    offset = matplotlib.transforms.ScaledTranslation(dx, dy, fig.dpi_scale_trans)
-    for label in ax.xaxis.get_majorticklabels():
-        label.set_transform(label.get_transform() + offset)
+    # #scooch the x axis labels by a certain amount
+    # dx = 10/72.; dy = 0/72. 
+    # offset = matplotlib.transforms.ScaledTranslation(dx, dy, fig.dpi_scale_trans)
+    # for label in ax.xaxis.get_majorticklabels():
+    #     label.set_transform(label.get_transform() + offset)
         
     # if i == 1:
     #     pos = ax.get_position()
@@ -104,7 +107,7 @@ for i, m in enumerate(metrics):
     #     pos = ax.get_position()
     #     ax.set_position([pos.x0 - 0.3, pos.y0, pos.width, pos.height])
 
-cbar_ax = fig.add_axes([0.92, 0.192, 0.015, 0.607])  # [left, bottom, width, height]
+cbar_ax = fig.add_axes([0.85, 0.192, 0.025, 0.607])  # [left, bottom, width, height]
 
 # Add the colorbar to the new axis
 cbar = fig.colorbar(axes[-1].collections[0], cax=cbar_ax)

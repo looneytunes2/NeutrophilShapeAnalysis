@@ -10,9 +10,8 @@ import os
 import re
 import numpy as np
 
-meshdir = 'E:/Aaron/Combined_37C_Confocal_PCA_smooth/Data_and_Figs/PC_Meshes/'
-meshfl = os.listdir(meshdir)
-
+curdir = os.path.dirname(__file__)
+avg_recon = curdir + '/average_cell_mesh.vtp'
 
 # good pink color #ffaaff
 #aaaaff
@@ -28,12 +27,12 @@ LoadPalette(paletteName='WhiteBackground')
 #change camera stuff
 view.CameraViewUp = [0, -1, -1]
 view.CameraFocalPoint = [0, 0, 0]
-view.CameraPosition = [0,0,-150]
+view.CameraPosition = [0,0,-50]
 view.ViewSize = [1000, 1000]  
 
 
 #read one of the average PC shapes
-reader = XMLPolyDataReader(FileName=meshdir + 'Cell_PC1_3_Cell.vtp')
+reader = XMLPolyDataReader(FileName=avg_recon)
 obj = GetRepresentation(reader)
 # obj.Opacity = 0.7
 orientations = [['xy',[0,0,0]],['xz',[-90,0,0]],['yz',[0,90,0]]]

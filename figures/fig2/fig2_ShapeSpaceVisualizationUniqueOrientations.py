@@ -13,10 +13,10 @@ import numpy as np
 meshdir = 'E:/Aaron/Combined_37C_Confocal_PCA_s5/Data_and_Figs/PC_Meshes/'
 meshfl = os.listdir(meshdir)
 
-PCnum = 10
+PCnum = 8
 framenumber = 100
-hspacing = 17*3.5
-vspacing = 12.5*3.6
+hspacing = 13.5*1.5
+vspacing = 11*1.5
 reconnum = 5
 
 if PCnum%2 == 0:
@@ -31,7 +31,7 @@ xpos = np.linspace(-xval,xval,reconnum)
 binrange = list(range(1,reconnum+1))
 xarr = np.stack((binrange,xpos))
 
-perspectives = ['xy','xy','xz','xz','xz','yz','xy','xy','xy','xy']
+perspectives = ['xy','xy','xz','xz','yz','xz','xy','xy']#,'xy','xy']
 
 # good pink color #ffaaff
 #aaaaff
@@ -55,8 +55,8 @@ for p in meshfl:
     obj.Position = [xarr[1,np.where(xarr==float(binn))[1][0]],zpos[int(PC)-1],0]
 
 #add perspective labels to each row
-lower = 0.105
-upper = 0.945
+lower = 0.2
+upper = 0.87
 prange = np.arange(lower,upper,(upper-lower)/len(perspectives))
 for i, per in enumerate(perspectives):
     text_source = Text()
@@ -77,8 +77,8 @@ LoadPalette(paletteName='WhiteBackground')
 view.CameraViewUp = [0, -1, -1]
 view.CameraFocalPoint = [0, 0, 0]
 # view.CameraViewAngle = 45
-view.CameraPosition = [0,0,-1000]
-view.ViewSize = [4000, 6000]  
+view.CameraPosition = [0,0,-375]
+view.ViewSize = [4000, 5000]  
 view.OrientationAxesVisibility = 0
    
 Render()

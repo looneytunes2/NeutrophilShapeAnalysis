@@ -3,6 +3,32 @@
 import pandas as pd
 import numpy as np
 import re
+from scipy import interpolate
+
+
+def running_mean_withna(x, N):
+    means = []
+    for i, r in enumerate(x):
+        if np.isnan(r):
+            means.append(np.nan)
+        elif i<N:
+            #get the window to average
+            wind = x[:int(i+1)]
+            #remove nan
+            wind = wind[~np.isnan(wind)]
+            #get average
+            means.append(np.mean(wind))
+        else:
+            #get the indicies around the target value
+            first = i - N//2+N%2
+            second = first + N
+            wind = x[first:second]
+            #remove nan
+            wind = wind[~np.isnan(wind)]
+            #get average
+            means.append(np.mean(wind))
+
+    return np.array(means)
 
 
 
@@ -44,34 +70,40 @@ def project_vector(a, b):
 #### the smoothened trajectory
 def project_raw_smooth(
         df, #dataframe of a cell with raw and smoothened x,y,z positions
-        time_interval, #time between frames
+        image_interval, #time between frames
+        timespan, #integer number of image intervals to calculate velocity 
         ):
     
-    cell, runs = get_consecutive_timepoints(df, 'time', time_interval)
+    cell, runs = get_consecutive_timepoints(df, 'time', image_interval)
     #iterate through consecutive frames
-    projected_speed = []
+    speeds = []
+    velocities = []
     for r in runs:
         rundf = cell.iloc[r].copy().reset_index(drop=True)
-        #start with empty for timepoint zero in a consecutive run
-        projected_speed.append(np.nan)
-        for i in range(1, len(rundf)):
+        for i in range(len(rundf)):
             #get rows of current and previous timepoints
             cur = rundf.iloc[i]
-            prev = rundf.iloc[i-1]
-            #get smooth and raw trajectory vectors
-            smoothvec = np.array([cur.x-prev.x, cur.y-prev.y, cur.z-prev.z])
-            rawvec = np.array([cur.x_raw-prev.x_raw, cur.y_raw-prev.y_raw, cur.z_raw-prev.z_raw])
-            #project the raw vector and get the distance
-            rawproj = project_vector(rawvec, smoothvec)
-            projdist = dist_3d([0,0,0], rawproj)
-            if (smoothvec[0]>0) and (rawproj[0]<0):
-                projdist *= -1
-            elif (smoothvec[0]<0) and (rawproj[0]>0):
-                projdist *= -1
-            projected_speed.append(projdist/time_interval)
+            prev = rundf.shift(-timespan).iloc[i]
+            #add nan if there's no data for this timepoint
+            if all(prev.isna()):
+                velocities.append(np.nan)
+                speeds.append(np.nan)
+            else:
+                #get smooth and raw trajectory vectors
+                smoothvec = np.array([cur.x-prev.x, cur.y-prev.y, cur.z-prev.z])
+                rawvec = np.array([cur.x_raw-prev.x_raw, cur.y_raw-prev.y_raw, cur.z_raw-prev.z_raw])
+                #project the raw vector and get the distance
+                rawproj = project_vector(rawvec, smoothvec)
+                projdist = dist_3d([0,0,0], rawproj)
+                if (smoothvec[0]>0) and (rawproj[0]<0):
+                    projdist *= -1
+                elif (smoothvec[0]<0) and (rawproj[0]>0):
+                    projdist *= -1
+                velocities.append(projdist/(image_interval*timespan))
+                speeds.append(dist_3d([0,0,0], smoothvec)/(image_interval*timespan))
             
-            print(projdist/time_interval, cur.speed)
-    cell['raw_projected_speed'] = projected_speed
+    cell.loc[:,f'velocity_span_{timespan}'] = velocities
+    cell.loc[:,f'speed_span_{timespan}'] = speeds
     
     return cell
             
@@ -89,3 +121,45 @@ def filename_match_llscellid(
             if re.search(r'\d+', l.split('Subset-')[-1])[0] == cellinmovie:
                 filematches.append(l)
     return filematches
+
+
+
+
+def get_aer_state(
+        cell, #dataframe of the cell to be thresholded
+        time_interval, #imaging time interval
+        derivthresh = 0.0007, #derivative threshold to call increasing or decreasing aer
+        ):
+    
+    #ensure the cell is in time order
+    cell = cell.sort_values('time').reset_index(drop=True)
+    #get rid of NA in aer which will ruin cumulative sums etc.
+    cellnona = cell[~cell.aer.isna()].copy()
+    #### weight the points near gaps more
+    diffs = cellnona.time.diff().values
+    #get the indicies of jumps
+    gaps = np.where(diffs>time_interval)[0]
+    #add the indices before jumps
+    gaps = np.concatenate((gaps,gaps-1))
+    w = np.ones(diffs.shape)
+    w[gaps] = 3
+
+    # ####running mean method
+    # deriv = np.gradient(utils.running_mean_withna(cell.aer.cumsum(), 25), cell.time.values)
+    ####interpolation method
+    #interpolate for smoothening
+    tck, u = interpolate.splprep(np.array((cellnona.time.values,
+                                           cellnona.aer.cumsum().values)),
+                                 s = 1, w = w)#k=1, s=2, w = w)
+    x, y = interpolate.splev(u, tck, der=0)
+    #get the derivative of the smoothened curve
+    deriv = np.gradient(y, x)
+    #threshold with np.select
+    threshs = [deriv>=derivthresh, deriv<=-derivthresh]
+    choices = ['increasing', 'decreasing']
+    statethresh = np.select(threshs, choices, default = 'unchanging')
+    #add new values to dataframe
+    cell.loc[cellnona.index,'aer_deriv'] = deriv
+    cell.loc[cellnona.index,'aer_state'] = statethresh
+
+    return cell, tck, w

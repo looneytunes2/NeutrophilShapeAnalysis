@@ -45,31 +45,11 @@ cp.Background = [1,1,1]
 view.CameraViewUp = [0, -1, -1]
 view.CameraFocalPoint = [0, 0, 0]
 # view.CameraViewAngle = 45
-
-view.ViewSize = [1000, 1000]  
+view.CameraPosition = [0,0,-70]
+view.ViewSize = [5000, 5000]  
 view.OrientationAxesVisibility = 0
 
-######### SH RECON
-shreader = XMLPolyDataReader(FileName=[os.path.dirname(__file__) + '/' + cellname + '_cell_mesh.vtp'])
-shreader.PointArrayStatus = ['Normals']
-shobj = Show(shreader, view, 'GeometryRepresentation')
-# init the 'PiecewiseFunction' selected for 'ScaleTransferFunction'
-shobj.ScaleTransferFunction.Points = [-0.9984926581382751, 0.0, 0.5, 0.0, 0.9936378002166748, 1.0, 0.5, 0.0]
-# init the 'PiecewiseFunction' selected for 'OpacityTransferFunction'
-shobj.OpacityTransferFunction.Points = [-0.9984926581382751, 0.0, 0.5, 0.0, 0.9936378002166748, 1.0, 0.5, 0.0]
-# obj.Position = [pos[-1],0,0]
-# ColorBy(shobj, None)
 
-#zoom out quite a bit because the SH recons aren't the same scale
-view.CameraPosition = [0,0,-150]
-
-Render()
-WriteImage(__file__.split('.')[0] + '_shrecon.png')
-Hide(shreader)
-
-
-############# reset camera pos for other versions
-view.CameraPosition = [0,0,-60]
 
 
 ############# get the rotations to undo them
@@ -107,7 +87,7 @@ trajar_display.Orientation = -Euler_Angles
 trajar_display.Scale = [5,5,5]
 trajar_display.DiffuseColor = green
 trajar_display.AmbientColor = green
-trajar_display.Position = [0,11,0]
+trajar_display.Position = [0,13,0]
 
 
 
@@ -175,7 +155,7 @@ for ar in [xax,yax,zax]:
 xyzprops = {'Scale':[[5,5,5], [5,5,5], [5,5,5]],
             'Color':[red, yellow, blue],
             'Orientation': [[0,0,0], [-90,-90,0], [0,-90,90]],
-            'Position': [[-8,11,0],[-8,11,0],[-8,11,0]]}
+            'Position': [[-8,13,0],[-8,13,0],[-8,13,0]]}
 
 xax_display = Show(xax)
 xax_display.Orientation = xyzprops['Orientation'][0]
@@ -312,43 +292,22 @@ Render()
     
 WriteImage(__file__.split('.')[0] + '_fully_rotated.png')
 Hide(fullrotsource)
-# Hide(xax)
-# Hide(yax)
-# Hide(zax)
 
 
 
+######### SH RECON
+shreader = XMLPolyDataReader(FileName=[os.path.dirname(__file__) + '/' + cellname + '_cell_mesh.vtp'])
+shreader.PointArrayStatus = ['Normals']
+shobj = Show(shreader, view, 'GeometryRepresentation')
+# init the 'PiecewiseFunction' selected for 'ScaleTransferFunction'
+shobj.ScaleTransferFunction.Points = [-0.9984926581382751, 0.0, 0.5, 0.0, 0.9936378002166748, 1.0, 0.5, 0.0]
+# init the 'PiecewiseFunction' selected for 'OpacityTransferFunction'
+shobj.OpacityTransferFunction.Points = [-0.9984926581382751, 0.0, 0.5, 0.0, 0.9936378002166748, 1.0, 0.5, 0.0]
+# obj.Position = [pos[-1],0,0]
+# ColorBy(shobj, None)
 
 
+Render()
+WriteImage(__file__.split('.')[0] + '_shrecon.png')
+Hide(shreader)
 
-# # # Properties modified on renderView1.AxesGrid
-# # view.AxesGrid.Visibility = 1
-
-
-# # # Properties modified on renderView1.AxesGrid
-# # renderView1.AxesGrid.XTitle = 'fdsfd'
-# # renderView1.AxesGrid.YTitle = 'dsfsd'
-# # renderView1.AxesGrid.ZTitle = 'dsfsd'
-# # renderView1.AxesGrid.XAxisLabels = [1.0, 2.0, 3.0]
-# # renderView1.AxesGrid.YAxisLabels = [1.0, 2.0, 3.0]
-# # renderView1.AxesGrid.ZAxisLabels = [1.0, 2.0, 3.0]
-
-
-# # # get active source.
-# # a20231116_488EGFPCAAX_3mA_37C_1_cell_23_frame_96_cell_meshvtp = GetActiveSource()
-
-# # # get active view
-# # renderView1 = GetActiveViewOrCreate('RenderView')
-
-# # # get display properties
-# # a20231116_488EGFPCAAX_3mA_37C_1_cell_23_frame_96_cell_meshvtpDisplay = GetDisplayProperties(a20231116_488EGFPCAAX_3mA_37C_1_cell_23_frame_96_cell_meshvtp, view=renderView1)
-
-# # # get color transfer function/color map for 'Scalar'
-# # scalarLUT = GetColorTransferFunction('Scalar')
-
-# # # Properties modified on a20231116_488EGFPCAAX_3mA_37C_1_cell_23_frame_96_cell_meshvtpDisplay.DataAxesGrid
-# # a20231116_488EGFPCAAX_3mA_37C_1_cell_23_frame_96_cell_meshvtpDisplay.DataAxesGrid.GridAxesVisibility = 1
-
-# # # Properties modified on a20231116_488EGFPCAAX_3mA_37C_1_cell_23_frame_96_cell_meshvtpDisplay.DataAxesGrid
-# # a20231116_488EGFPCAAX_3mA_37C_1_cell_23_frame_96_cell_meshvtpDisplay.DataAxesGrid.YTitle = ''
-# # a20231116_488EGFPCAAX_3mA_37C_1_cell_23_frame_96_cell_meshvtpDisplay.DataAxesGrid.XAxisUseCustomLabels = 1

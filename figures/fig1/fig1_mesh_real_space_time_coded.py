@@ -96,8 +96,22 @@ for i, row in df.iterrows():
         source = XMLPolyDataReader(FileName=meshfl)
         obj = GetRepresentation(source)
        
-        
-       
+
+
+############# SCALE BAR
+slen = 10
+sx = 15
+sy = 7.5
+# 10um line scalebar
+line = Line(Point1=[sx, sy, 0], Point2=[sx+slen, sy, 0])
+# Apply a Tube filter to give it thickness
+tube = Tube(Input=line)
+tube.Radius = 0.25  # Adjust thickness as needed
+tube.NumberofSides = 20  # Makes it smoother
+# Show the tube in the active view
+tube_display = Show(tube)
+#change color
+tube_display.DiffuseColor = [0, 0, 0]
 
 
 #change background to white

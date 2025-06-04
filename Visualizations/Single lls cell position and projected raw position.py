@@ -19,28 +19,26 @@ from matplotlib.collections import LineCollection
 
 def running_mean_withna(x, N):
     means = []
-    if 'full':
-        for i, r in enumerate(x):
-            if np.isnan(r):
-                means.append(np.nan)
-            elif i<N:
-                #get the window to average
-                wind = x[:int(i+1)]
-                #remove nan
-                wind = wind[~np.isnan(wind)]
-                #get average
-                means.append(np.mean(wind))
-            else:
-                #get the indicies around the target value
-                first = i - N//2+N%2
-                second = first + N
-                wind = x[first:second]
-                #remove nan
-                wind = wind[~np.isnan(wind)]
-                #get average
-                means.append(np.mean(wind))
-    elif 'valid':
-        pass
+    for i, r in enumerate(x):
+        if np.isnan(r):
+            means.append(np.nan)
+        elif i<N:
+            #get the window to average
+            wind = x[:int(i+1)]
+            #remove nan
+            wind = wind[~np.isnan(wind)]
+            #get average
+            means.append(np.mean(wind))
+        else:
+            #get the indicies around the target value
+            first = i - N//2+N%2
+            second = first + N
+            wind = x[first:second]
+            #remove nan
+            wind = wind[~np.isnan(wind)]
+            #get average
+            means.append(np.mean(wind))
+
     return np.array(means)
 
 

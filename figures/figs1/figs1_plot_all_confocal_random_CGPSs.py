@@ -46,7 +46,7 @@ binlist = [i for i in TotalFrame.columns.to_list() if 'bin' in i]
 fig, axes = plt.subplots(len(binlist),len(binlist), figsize = (40,40))
 
 #single colorbar axis
-cbar_ax = fig.add_axes([.968, .4, .012, .42])
+cbar_ax = fig.add_axes([.91, .303, .012, .376])
 for xrow, a in enumerate(binlist[::-1]):
     for ycol, b in enumerate(binlist[::-1]):
         bin1 = a.split('bin')[0]
@@ -85,8 +85,6 @@ for xrow, a in enumerate(binlist[::-1]):
                 yticklabels = True,
                 ax = ax,
                 cbar=False,
-#                     cbar_ax = None if i else cbar_ax,
-        #         cbar_kws=cbar_kws
             )
 
             ######################### vector map of probability flux ################
@@ -102,8 +100,6 @@ for xrow, a in enumerate(binlist[::-1]):
                               angles = 'xy',
                               scale_units = 'xy',
                               scale = scale,
-        #                       width = 0.012,
-        #                       minlength = 0.8,
                               color = 'white')
 
 
@@ -116,28 +112,55 @@ for xrow, a in enumerate(binlist[::-1]):
 
 
             if a == binlist[0]:
-                ax.set_title(bin2, fontsize = 30)
-            if ycol == xrow-1:
-                ax.set_ylabel('', fontsize = 30)
+                ax.set_title(bin2, fontsize = 40)
+                if b!=binlist[-1]:
+                    ax.set_yticks([])
+                    ax.set_yticklabels([])
+                else:
+                    ax.tick_params(left=False, labelleft = False, right = True, labelright=True, labelsize = 16)
+                    ax.set_yticks(np.arange(0.5,nbins+0.5)[[0,(round(nbins/2)-1),-1]],
+                                 [round(centers[bin1].iloc[x],1) for x in [0,int(round(nbins/2)-1), int(nbins-1)]])
+                    ax.spines['right'].set_position(('outward', -24))
+                ax.tick_params(top=True, labeltop=True, bottom=False, labelbottom=False, labelsize = 16)
+                ax.set_xticks(np.arange(0.5,nbins+0.5)[[0,(round(nbins/2)-1),-1]],
+                             [round(centers[bin2].iloc[x],1) for x in [0,int(round(nbins/2)-1), int(nbins-1)]])
+
+                ax.spines['top'].set_position(('outward', -24))
+
+            elif b == binlist[-1]:
+                ax.set_xticks([])
+                ax.set_xticklabels([])
+                ax.tick_params(left=False, labelleft = False, right = True, labelright=True, labelsize = 16)
+                ax.set_yticks(np.arange(0.5,nbins+0.5)[[0,(round(nbins/2)-1),-1]],
+                             [round(centers[bin1].iloc[x],1) for x in [0,int(round(nbins/2)-1), int(nbins-1)]])
             
-                ax.set_xticks(np.arange(0.5,nbins+0.5),[round(x,1) for x in centers[bin1].to_list()])
-                ax.set_xticklabels(ax.get_xticklabels(), fontsize = 11)
-                ax.set_yticks(np.arange(0.5,nbins+0.5),[round(x,1) for x in centers[bin2].to_list()])
-                ax.set_yticklabels(ax.get_yticklabels(), fontsize = 11)
+                ax.spines['right'].set_position(('outward', -24))
+                
             else:
                 ax.set_xticks([])
                 ax.set_xticklabels([])
                 ax.set_yticks([])
                 ax.set_yticklabels([])
 
+        elif (bin1=='PC1') & (bin2=='PC1'):
+            ax.set_title(bin2, fontsize = 40)#, pad=24)
+            ax.spines['top'].set_visible(False)
+            ax.spines['bottom'].set_visible(False)
+            ax.spines['left'].set_visible(False)
+            ax.spines['right'].set_visible(False)
         else:
             print('remove this plot')
             ax.remove()
 
+#remove box around upper right plot
+axes[0,0].tick_params(left=False, bottom=False, labelleft=False, labelbottom=False)
 
-
-fig.colorbar(axes[0, 1].collections[0], cax=cbar_ax)
-cbar_ax.tick_params(labelsize=20)
+#colorbar stuff
+cbar = fig.colorbar(axes[0, 1].collections[0], cax=cbar_ax)
+cbar.ax.yaxis.set_tick_params(labelsize=20)
+cbar.ax.yaxis.set_ticks_position("right")
+cbar.ax.yaxis.set_label_position("right")
+cbar.set_label("Probability", fontsize = 40, labelpad = 8, rotation=90)
 #     plt.tight_layout() 
 plt.subplots_adjust(wspace=0.01, hspace=0.01)
 
