@@ -22,6 +22,7 @@ from matplotlib.patches import Ellipse, Rectangle
 treatments = ['Random']
 time_interval = 5 #sec/frame
 whichpcs = [1,7]
+ntrans = 1
 
 #get directories and open separated datasets
 basedir = 'E:/Aaron/Combined_37C_Confocal_PCA_s5_LLS_Apply/'
@@ -50,7 +51,7 @@ trans_rate_df_sep = pd.read_csv(savedir+f'PC{whichpcs[0]}-PC{whichpcs[1]}_binned
 trans_rate_df_sep['Treatment'] = pd.Categorical(trans_rate_df_sep.Treatment, categories=treatments, ordered=True)
 trans_rate_df_sep = trans_rate_df_sep.sort_values(by='Treatment')
 ############# open average bootstrapped currents ###################
-bsfield_sep = pd.read_csv(savedir+f'PC{whichpcs[0]}-PC{whichpcs[1]}_bootstrapped_transitions_average_currents.csv', index_col=0)
+bsfield_sep = pd.read_csv(savedir+f'PC{whichpcs[0]}-PC{whichpcs[1]}_bootstrapped_{ntrans}_transitions_average_currents.csv', index_col=0)
 #ensure that DMSO is the first in order
 bsfield_sep['Treatment'] = pd.Categorical(bsfield_sep.Treatment, categories=treatments, ordered=True)
 bsfield_sep = bsfield_sep.sort_values(by='Treatment')
@@ -165,4 +166,9 @@ ax.text(lxp+0.05,lyp+0.3,ysc+' $s^{-1}$', rotation = 'vertical', color = 'white'
                   
 
 plt.tight_layout()
+
+
+
+
+
 plt.savefig(__file__.split('.')[0] + '.png', bbox_inches='tight', dpi =500)

@@ -967,10 +967,12 @@ def segment_caax_tracks_confocal_40x_fromsingle(imname, shape, ip, step, frame):
 
 
 def segment_nuc_tracks_confocal_40x_fromsingle(imname, shape, ip, step, frame):
+
     #read image
     img = MM_slicetostack_reader(imname,frame,shape, range(0,shape[-3]))
     #shrink image by half
     rescaled = skimage.transform.rescale(img,0.5, preserve_range=True)
+
     ################################
     ## PARAMETERS for this step ##
     intensity_scaling_param = [1.5, 15]
@@ -989,6 +991,7 @@ def segment_nuc_tracks_confocal_40x_fromsingle(imname, shape, ip, step, frame):
     seg = remove_small_objects(seg>0, min_size=minArea, connectivity=1, in_place=False)
     seg = seg.astype(np.uint8)
     seg[seg > 0] = 255
+    
 
     #get objects
     im_labeled, n_labels = skimage.measure.label(seg, background=0, return_num=True)
@@ -1019,7 +1022,10 @@ def segment_nuc_tracks_confocal_40x_fromsingle(imname, shape, ip, step, frame):
         
     df = pd.DataFrame.from_dict(dictlist)
             
+
     return df.values.tolist(), seg, frame, rescaled.shape
+
+
 
 
 
