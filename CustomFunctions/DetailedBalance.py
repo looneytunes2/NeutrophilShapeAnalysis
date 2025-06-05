@@ -18,7 +18,7 @@ import itertools
 from itertools import groupby
 from operator import itemgetter
 import math
-
+import tqdm
 
 
 
@@ -80,7 +80,7 @@ def contour_coords(
     contourcoords.extend([contourcoords[0]])
     return contourcoords
 
-def pair_transitions(
+def raw_transitions(
         time_interval, # time interval between frames in seconds
         df, # pandas dataframe with cell, CellID, frame, and binned PCs
         whichpcs, #which pc #s are in the cgps 
@@ -104,16 +104,7 @@ def pair_transitions(
     # 'cell' will reference the cell/frame at the end of the transition
     alltrans['cell'] = df.cell.to_list()[1:]
     
-    #also get transition pairs for boostrapping
-    pairs = [trans[i]+trans[i+1] for i in range(len(trans[:-1]))] 
-    transpairs = pd.DataFrame(pairs, columns=['frame', 'from_x', 'from_y', 'to_x', 'to_y', 'time_elapsed','cumulative_time', \
-                                              'frame_two', 'from_x_two', 'from_y_two', 'to_x_two', 'to_y_two', 'time_elapsed_two','cumulative_time_two'])
-    #add cell name
-    transpairs['CellID'] = df.CellID.to_list()[2:]
-    transpairs['cell'] = df.cell.to_list()[2:]
-
-    
-    return [x.to_dict() for i, x in alltrans.iterrows()], [x.to_dict() for i, x in transpairs.iterrows()]
+    return alltrans
 
 
 
@@ -212,20 +203,9 @@ def interpolate_2dtrajectory(
     alltrans['time_elapsed'] = alltrans['time_elapsed']*t_int
     alltrans['cumulative_time'] = alltrans['cumulative_time']*t_int
     
-    #also get transition pairs for boostrapping
-    pairs = [trans[i]+trans[i+1] for i in range(len(trans[:-1]))] 
-    transpairs = pd.DataFrame(pairs, columns=['frame', 'from_x', 'from_y', 'to_x', 'to_y', 'time_elapsed','cumulative_time', \
-                                              'frame_two', 'from_x_two', 'from_y_two', 'to_x_two', 'to_y_two', 'time_elapsed_two','cumulative_time_two'])
-    #add cell name
-    transpairs['CellID'] = [cellname]*len(transpairs)
-    transpairs['time_elapsed'] = transpairs['time_elapsed']*t_int
-    transpairs['cumulative_time'] = transpairs['cumulative_time']*t_int
-    transpairs['time_elapsed_two'] = transpairs['time_elapsed_two']*t_int
-    transpairs['cumulative_time_two'] = transpairs['cumulative_time_two']*t_int
-    
     #double check for bad 
     # any((abs(alltrans.from_x-alltrans.to_x) + abs(alltrans.from_y-alltrans.to_y))!=1)
-    return [x.to_dict() for i, x in alltrans.iterrows()], [x.to_dict() for i, x in transpairs.iterrows()]
+    return alltrans.to_dict('records')
 
 
 
@@ -557,140 +537,129 @@ def get_transition_counts_3d(
 
 
 
+
 def bootstrap_trajectories(
-        transpairsdf,
-        ttot,
-        nbins,
-        avoiddead: bool = False,
+        imap_args
         ):
-    #get the names of the first and second transitions of each pair
-    firstnames = [x for x in transpairsdf.columns.to_list() if '_two' not in x]
-    secondnames = [x for x in transpairsdf.columns.to_list() if '_two' in x or 'CellID' in x]
+        
+    #unpack args
+    # combodf: multi-indexed dataframe with tansition_combination and trandition_index names
+    # ttot: int total time for the simulation
+    # ntrans: int number of consecutive transitions to sample
+    # avoiddead: bool whether or not to avoid dead ends in the trajectory
+    combodf,ttot,ntrans,avoiddead = imap_args
+    
+    #get just the first transition of each combination
+    firsttrans = combodf.xs(0,level='transition_index')
+    
+    #start time at 0
     ct = 0
-    bslist = []
+    #create an empty dataframe with the correct columns and indexing
+    allbs = pd.DataFrame(columns=combodf.columns)
+    allbs.index = pd.MultiIndex.from_arrays([[],[]], names = ['transition_combination','transition_index'])
     #find the first random position
-    rando = transpairsdf.index.to_list()
+    rando = combodf.index.levels[0].to_list()
     shuffle(rando)
-    pick = transpairsdf.loc[rando[0]]
-    bslist.append(pick[firstnames].to_list())
-    bslist.append(pick[secondnames].to_list())
+    pick = combodf.loc[combodf.index.get_level_values('transition_combination') == rando[0]]
+    allbs = pd.concat((allbs, pick))
     while ct<ttot:
         #find the next postition after the second transition
-        cur = bslist[-1][secondnames.index('to_x_two'):secondnames.index('to_y_two')+1]
+        cur = allbs.iloc[-1][['to_x','to_y']].values
         #get all the transitions at the new position
-        allat = transpairsdf[(transpairsdf.from_x == cur[0]) & (transpairsdf.from_y == cur[1])]
+        allat = firsttrans[(firsttrans.from_x == cur[0]) & (firsttrans.from_y == cur[1])]
         
         #if the next transition doesn't have any future transitions, don't go there and pick a new one
         if allat.empty:
             if avoiddead:
-                del bslist[-2:]
+                #drop the "dead" transition
+                allbs.drop(allbs.index[-ntrans:], inplace=True)
                 #check is this happened at the beginning of the simulation and it needs to be started again 
                 #from another position, otherwise trim the last transition and continue
-                if len(bslist)<1:
+                if len(allbs)==0:
                     ct = 0
-                    bslist = []
+                    allbs = pd.DataFrame(columns=combodf.columns)
+                    allbs.index = pd.MultiIndex.from_arrays([[],[]], names = ['transition_combination','transition_index'])
                     #find the first random position
-                    rando = transpairsdf.index.to_list()
+                    rando = combodf.index.levels[0].to_list()
                     shuffle(rando)
-                    pick = transpairsdf.loc[rando[0]]
-                    bslist.append(pick[firstnames].to_list())
-                    bslist.append(pick[secondnames].to_list())
+                    pick = combodf.loc[combodf.index.get_level_values('transition_combination') == rando[0]]
+                    #add the random pick to the dataframe
+                    allbs = pd.concat((allbs, pick))
                 #subtract the time these transitions take
-                ct = ct - pick.time_elapsed - pick.time_elapsed_two
+                ct = ct - pick.time_elapsed.sum()
                 #set a timer for extreme cases of single transitions to deadends
                 loops = 0
                 while allat.empty:
-                    #find the current postition after the second transition
-                    cur = bslist[-1][secondnames.index('to_x_two'):secondnames.index('to_y_two')+1]
+                    #find the next postition after the second transition
+                    cur = allbs.iloc[-1][['to_x','to_y']].values
                     #get all the transitions at the new position
-                    allat = transpairsdf[(transpairsdf.from_x == cur[0]) & (transpairsdf.from_y == cur[1])]
+                    allat = firsttrans[(firsttrans.from_x == cur[0]) & (firsttrans.from_y == cur[1])]
                     #randomly select a transition pair
                     rando = allat.index.to_list()
                     shuffle(rando)
-                    pick = transpairsdf.loc[rando[0]]
+                    pick = combodf.loc[combodf.index.get_level_values('transition_combination') == rando[0]]
                     #add to the timer for extreme cases
                     loops = loops + 1
-                    #if this while loop has gone for 20 iterations and still not found a suitable transition
-                    #back up an additional transition
-                    if loops == 20:
-                        #subtract the time these transitions take
-                        tei = transpairsdf.columns.to_list().index('time_elapsed')
-                        ct = ct - bslist[-1][tei] - bslist[-2][tei]
-                        #delete a further two transitions
-                        del bslist[-2:]
-                        #check is this happened at the beginning of the simulation and it needs to be started again 
-                        #from another position, otherwise trim the last transition and continue
-                        if len(bslist)<1:
-                            ct = 0
-                            bslist = []
-                            #find the first random position
-                            rando = transpairsdf.index.to_list()
-                            shuffle(rando)
-                            pick = transpairsdf.loc[rando[0]]
-                            bslist.append(pick[firstnames].to_list())
-                            bslist.append(pick[secondnames].to_list())
-                        #find the current postition after the second transition
-                        cur = bslist[-1][secondnames.index('to_x_two'):secondnames.index('to_y_two')+1]
-                        #get all the transitions at the new position
-                        allat = transpairsdf[(transpairsdf.from_x == cur[0]) & (transpairsdf.from_y == cur[1])]
-                        #randomly select a transition pair
-                        rando = allat.index.to_list()
-                        shuffle(rando)
-                        pick = transpairsdf.loc[rando[0]]
                     #if the current position only has one transition (to the empty position)
                     #then trim it back an additional transition as well
-                    elif len(allat)==1:
+                    #or if this while loop has gone for 20 iterations and still not found a suitable transition
+                    #back up an additional transition
+                    if (len(allat)==1) or (loops == 20):
                         #subtract the time these transitions take
-                        tei = transpairsdf.columns.to_list().index('time_elapsed')
-                        ct = ct - bslist[-1][tei] - bslist[-2][tei]
+                        ct = ct - allbs.iloc[-ntrans:].time_elapsed.sum()
                         #delete a further two transitions
-                        del bslist[-2:]
-                        #check is this happened at the beginning of the simulation and it needs to be started again 
+                        allbs.drop(allbs.index[-ntrans:], inplace=True)
+                        #check if this happened at the beginning of the simulation and it needs to be started again 
                         #from another position, otherwise trim the last transition and continue
-                        if len(bslist)<1:
+                        if len(allbs)==0:
                             ct = 0
-                            bslist = []
+                            allbs = pd.DataFrame(columns=combodf.columns)
+                            allbs.index = pd.MultiIndex.from_arrays([[],[]], names = ['transition_combination','transition_index'])
                             #find the first random position
-                            rando = transpairsdf.index.to_list()
+                            rando = combodf.index.levels[0].to_list()
                             shuffle(rando)
-                            pick = transpairsdf.loc[rando[0]]
-                            bslist.append(pick[firstnames].to_list())
-                            bslist.append(pick[secondnames].to_list())
-                        #find the current postition after the second transition
-                        cur = bslist[-1][secondnames.index('to_x_two'):secondnames.index('to_y_two')+1]
+                            pick = combodf.loc[combodf.index.get_level_values('transition_combination') == rando[0]]
+                            #add the random pick to the dataframe
+                            allbs = pd.concat((allbs, pick))
+                        #find the next postition after the second transition
+                        cur = allbs.iloc[-1][['to_x','to_y']].values
                         #get all the transitions at the new position
-                        allat = transpairsdf[(transpairsdf.from_x == cur[0]) & (transpairsdf.from_y == cur[1])]
+                        allat = firsttrans[(firsttrans.from_x == cur[0]) & (firsttrans.from_y == cur[1])]
                         #randomly select a transition pair
                         rando = allat.index.to_list()
                         shuffle(rando)
-                        pick = transpairsdf.loc[rando[0]]
+                        pick = combodf.loc[combodf.index.get_level_values('transition_combination') == rando[0]]
+                #append the pair of transitions to a list
+                allbs = pd.concat((allbs, pick))
+                #add the time these transitions take
+                ct = ct + pick.time_elapsed.sum()
             else:
                 break
         else:
             #randomly select a transition pair
             rando = allat.index.to_list()
             shuffle(rando)
-            pick = transpairsdf.loc[rando[0]]
+            pick = combodf.loc[combodf.index.get_level_values('transition_combination') == rando[0]]
             #append the pair of transitions to a list
-            bslist.append(pick[firstnames].to_list())
-            bslist.append(pick[secondnames].to_list())
+            allbs = pd.concat((allbs, pick))
             #add the time these transitions take
-            ct = ct + pick.time_elapsed + pick.time_elapsed_two
-
-
-    bsdf = pd.DataFrame(bslist, columns = firstnames)
+            ct = ct + pick.time_elapsed.sum()
+    
     #make cumulative time actually cumulative time
-    bsdf['cumulative_time'] = bsdf['time_elapsed'].cumsum()
+    allbs.loc[:,'cumulative_time'] = allbs['time_elapsed'].cumsum()
 
-    return bsdf
-
+    return allbs.reset_index(drop=True)
 
 
 def transition_count_wrapper(
-        bsdf, #transition dataframe from bootstrap_trajectories()
-        nbins, #bins in the CGPS
-        ct, #the cumulative time actually observed during the simulation, especially important for simulations that terminate early
+        args # tuple of arguments
         ):
+    #unpack args from imap
+    #bsdf: transition dataframe from bootstrap_trajectories()
+    #nbins: bins in the CGPS
+    # ct: the cumulative time actually observed during the simulation, especially important for simulations that terminate early
+    bsdf, nbins, ct = args
+    
     ############## get the Boosttrapped counts of each bin position ############
     results = []
     for x in range(nbins):
@@ -771,33 +740,22 @@ def contour_integral(
 
 
    
-###### get area enclosing rates using the average current field (not sure if that's correct to do)
-def get_area_enclosing_rate_avgcur(transrates,
-                            center = 'center',):
-    if center == 'center':
-        shiftbyx = round(transrates.x.max()/2)
-        shiftbyy = round(transrates.x.max()/2)
-    if type(center) == list:
-        shiftbyx = center[0]
-        shiftbyy = center[1]
-    aerlist = []
-    for x in range(1,int(transrates.x.max()+1)):
-        for y in range(1,int(transrates.y.max()+1)):
-            current = transrates[(transrates['x'] == x) & (transrates['y'] == y)]
-            aerlist.append({'x':x,
-                            'y':y,
-                            'aer':(((y-shiftbyy)*(current.x_plus_rate.values[0] - current.x_minus_rate.values[0])) - 
-                                   ((x-shiftbyx)*(current.y_plus_rate.values[0] - current.y_minus_rate.values[0])))/2
-                            })
-    return pd.DataFrame(aerlist).sort_values(by = ['x','y']).reset_index(drop=True)
+
 
 
 
 ######## get area enclosing rates the "real" way with individual interpolated transitions
-def get_area_enclosing_rate(cell,
-                            nbins, #number of bins in the CGPS
-                            xyscaling = list, # list of the PC factors by which to scale the x and y coordinates of the CGPS in [x,y] format
-                            center = 'center',):
+def get_area_enclosing_rate(
+        args
+        ):
+    
+    #unpack args for imap
+    #cell dataframe with the consecutive CGPS transitions
+    #nbins, #number of bins in the CGPS
+    #xyscaling = list, # list of the PC factors by which to scale the x and y coordinates of the CGPS in [x,y] format
+    #center = 'center',
+    cell, nbins, xyscaling, center = args
+    
     #get values to shift coordinates to the origin of the current
     if type(center) == list:
         shiftbyx = center[0]
@@ -843,41 +801,36 @@ def get_raw_cgps_trajectories(
     migresults = []
     for m, Mig in TotalFrame.groupby('Treatment'):
         results = []
-        pool = multiprocessing.Pool(processes=60)
-        for i, cells in Mig.groupby('CellID'):
-            cells, runs = utils.get_consecutive_timepoints(cells, 'time', time_interval)
-            for r in runs:
-                #skip runs less than 2 frames long
-                if len(r)<2:
-                    pass
-                else:
-                    cell = cells.iloc[r]
+        with multiprocessing.Pool(processes=60) as pool:
+            for i, cells in Mig.groupby('CellID'):
+                cells, runs = utils.get_consecutive_timepoints(cells, 'time', time_interval)
+                for r in runs:
+                    #skip runs less than 2 frames long
+                    if len(r)<2:
+                        pass
+                    else:
+                        cell = cells.iloc[r]
+    
+                        result = pool.apply_async(raw_transitions, args = (
+                            time_interval,
+                            cell,
+                            whichpcs,
+                            ))
+                        results.append(result)
 
-                    result = pool.apply_async(pair_transitions, args = (
-                        time_interval,
-                        cell,
-                        whichpcs,
-                        ))
-                    results.append(result)
-        pool.close()
-        pool.join()
-        #get results
-        results = [r.get() for r in results]
-        #separate results into transtions and transition pairs
-        rawtrans = pd.DataFrame(sum([r[0] for r in results],[]))
+            #get results
+            results = [r.get() for r in results]
+        rawtrans = pd.concat(results, ignore_index=True)
         rawtrans = rawtrans.sort_values(by = ['CellID','frame']).reset_index(drop=True)
-        rawpairs = pd.DataFrame(sum([r[1] for r in results],[]))
         rawtrans['Treatment'] = [m]*len(rawtrans)
-        rawpairs['Treatment'] = [m]*len(rawpairs)
-        migresults.append([rawtrans,rawpairs])
+        migresults.append(rawtrans)
         
-    rawtrans = pd.concat([mi[0] for mi in migresults])
-    rawpairs = pd.concat([mi[1] for mi in migresults])
+    rawtrans = pd.concat(migresults, ignore_index=True)
     rawtrans.to_csv(savedir+f'PC{whichpcs[0]}-PC{whichpcs[1]}_transitions_separated.csv')
-    rawpairs.to_csv(savedir+f'PC{whichpcs[0]}-PC{whichpcs[1]}_transition_pairs_separated.csv')
+
     print('Aggregated transitions')
     
-    return rawtrans, rawpairs
+    return rawtrans
 
 
 def get_interpolated_cgps_trajectories(
@@ -889,42 +842,36 @@ def get_interpolated_cgps_trajectories(
     migresults = []
     for m, Mig in TotalFrame.groupby('Treatment'):
         results = []
-        pool = multiprocessing.Pool(processes=60)
-        for i, cells in Mig.groupby('CellID'):
-            cells, runs = utils.get_consecutive_timepoints(cells, 'time', time_interval)
-            for r in runs:
-                #skip runs less than 2 frames long
-                if len(r)<2:
-                    pass
-                else:
-                    cell = cells.iloc[r]
-                    result = pool.apply_async(interpolate_2dtrajectory, args = (
-                        time_interval,
-                        cell.CellID.iloc[0],
-                        cell.frame.to_list(),
-                        cell[[f'PC{whichpcs[0]}bins',f'PC{whichpcs[1]}bins']].to_numpy(),
-                        ))
-                    results.append(result)
-        pool.close()
-        pool.join()
-
-        #get results
-        results = [r.get() for r in results]
+        with multiprocessing.Pool(processes=60) as pool:
+            for i, cells in Mig.groupby('CellID'):
+                cells, runs = utils.get_consecutive_timepoints(cells, 'time', time_interval)
+                for r in runs:
+                    #skip runs less than 2 frames long
+                    if len(r)<2:
+                        pass
+                    else:
+                        cell = cells.iloc[r]
+                        result = pool.apply_async(interpolate_2dtrajectory, args = (
+                            time_interval,
+                            cell.CellID.iloc[0],
+                            cell.frame.to_list(),
+                            cell[[f'PC{whichpcs[0]}bins',f'PC{whichpcs[1]}bins']].to_numpy(),
+                            ))
+                        results.append(result)
+    
+            #get results
+            results = [r.get() for r in results]
         #separate results into transtions and transition pairs
-        transdf_sep = pd.DataFrame(sum([r[0] for r in results],[]))
+        transdf_sep = pd.DataFrame([x for r in results for x in r])
         transdf_sep = transdf_sep.sort_values(by = ['CellID','frame']).reset_index(drop=True)
-        transpairsdf_sep = pd.DataFrame(sum([r[1] for r in results],[]))
         transdf_sep['Treatment'] = [m]*len(transdf_sep)
-        transpairsdf_sep['Treatment'] = [m]*len(transpairsdf_sep)
-        migresults.append([transdf_sep,transpairsdf_sep])
+        migresults.append(transdf_sep)
 
-    transdf_sep = pd.concat([mi[0] for mi in migresults])
-    transpairsdf_sep = pd.concat([mi[1] for mi in migresults])
+    transdf_sep = pd.concat(migresults)
     transdf_sep.to_csv(savedir+f'interpolated_PC{whichpcs[0]}-PC{whichpcs[1]}_transitions_separated.csv')
-    transpairsdf_sep.to_csv(savedir+f'interpolated_PC{whichpcs[0]}-PC{whichpcs[1]}_transition_pairs_separated.csv')
     print('Finished interpolating trajectories')
     
-    return transdf_sep, transpairsdf_sep
+    return transdf_sep
     
 ############## get the counts of cells leaving 
 def aggregate_transition_counts(
@@ -936,7 +883,7 @@ def aggregate_transition_counts(
     trresults = []
     for m, mig in transdf_sep.groupby('Treatment'):
         ttot = mig.time_elapsed.sum()
-        print(ttot)
+        print(f'Total time observed in this CGPS was {ttot/60} minutes')
         pool = multiprocessing.Pool(processes=60)
         results = []
         for x in range(nbins):
@@ -968,133 +915,111 @@ def aggregate_transition_counts(
     return trans_rate_df_sep
 
 
+
 ############## BOOTSTRAP MANY TRAJECTORIES ##########
 def get_bootstrapped_cgps_trajectories(
-        rawpairs, #raw transition pairs from get_raw_cgps_trajectories
+        rawtrans, #raw transition pairs from get_raw_cgps_trajectories
         whichpcs, #which two PCs to use in the cgps [x,y]
         time_interval, #real time between datapoints
         savedir, #where to save the aggregated counts
         nbins, #how many bins in the x and y cgps axes
         ttot, #set the total bootstrap time
+        ntrans = 1, #how many transitions to sample at each step
         bsiter = 3000, #number of times to bootstrap
         ):
     
-    #make a bunch of lists that I will append things to as I go
+    #make a bunch of lists that I will append things to as I go for each treatment
     bstrans = []
     bsint = []
-    bspairs = []
     bsframe_sep_full = []
     
     #bootstrap from raw trajectories
-    for m, mig in rawpairs.groupby('Treatment'):            
-        start = 0
-        stop = 300
-        allresults = []
-        while start<bsiter:
-            print(f'Starting {m} trajectory {start}-{stop}')
-            pool = multiprocessing.Pool(processes=60)
-            results = []
-            for x in range(start,stop+1):
-                result = pool.apply_async(bootstrap_trajectories, args = (
-                    mig,
-                    ttot,
-                    nbins,
+    for m, mig in rawtrans.groupby('Treatment'):            
+        
+        combolist = []
+        for cidc, cell in mig.groupby('CellID'):
+            cell, runs = utils.get_consecutive_timepoints(cell, 'frame', 1)
+            for r in runs:
+                limdf = cell.iloc[r]
+                for i in range(len(limdf) - ntrans + 1):
+                    combo = limdf.iloc[i:i + ntrans].copy()
+                    combolist.append(combo)
+
+        # Combine into a single DataFrame with MultiIndex
+        combodf = pd.concat(combolist)
+
+        #create multiindex for the overall dataframe
+        miarray = [np.repeat(range(int(len(combodf)/ntrans)),ntrans), np.tile(list(range(ntrans)),int(len(combodf)/ntrans))]
+        miindex = pd.MultiIndex.from_arrays(miarray, names = ['transition_combination','transition_index'])
+
+        #add correct multiindex to the dataframe of combinations
+        combodf.index = miindex
+        
+        #get list of tuples of arguments to pass to imap
+        mapargs = [(combodf,ttot,ntrans, False) for _ in range(bsiter)]
+        #boostrap with multiprocessing
+        print(f'Boostrapping trajectories with {ntrans} transition samples for {m}')
+        with multiprocessing.Pool(processes=60) as pool:
+            results = list(tqdm.tqdm(pool.imap(bootstrap_trajectories, mapargs), total=bsiter))
+        
+        #get results
+        migboot = pd.concat(results, ignore_index=True)
+        migboot['iter'] = list(itertools.chain.from_iterable([[k]*len(res) for k,res in enumerate(results)]))
+        migboot['Treatment'] = [m]*len(migboot)
+        #append to the larger list of dataframes
+        bstrans.append(migboot)
+
+        ###### now interpolate the bootstrapped trajectories ######
+        print(f'Interpolating trajectories for {m}')
+        results = []
+        with multiprocessing.Pool(processes=60) as pool:
+            for i, d in migboot.groupby('iter'):
+                cell = d.sort_values('cumulative_time').reset_index(drop = True)
+                traj = np.vstack((cell[['from_x','from_y']].to_numpy(),cell[['to_x','to_y']].iloc[-1].to_numpy()))
+                result = pool.apply_async(interpolate_2dtrajectory, args = (
+                    time_interval,
+                    cell.CellID.iloc[0],
+                    list(range(len(cell))),
+                    traj,
                     ))
                 results.append(result)
-            pool.close()
-            pool.join()
+
 
             #get results
             results = [r.get() for r in results]
-            allresults.extend(results)
-
-            start = stop + 1
-            stop = stop + 300
-            if stop>bsiter:
-                stop = bsiter
-
-                
-        for i, a in enumerate(allresults):
-             a['iter'] = i
-        migboot = pd.concat(allresults).reset_index(drop=True)
-        migboot['Treatment'] = [m]*len(migboot)
-        bstrans.append(migboot)
-
-        ###### now interpolate the bootstrapped trajectories ######   
-        pool = multiprocessing.Pool(processes=60)
-        results = []
-        for i, d in migboot.groupby('iter'):
-            cell = d.sort_values('cumulative_time').reset_index(drop = True)
-            traj = np.vstack((cell[['from_x','from_y']].to_numpy(),cell[['to_x','to_y']].iloc[-1].to_numpy()))
-            result = pool.apply_async(interpolate_2dtrajectory, args = (
-                time_interval,
-                cell.CellID.iloc[0],
-                list(range(len(cell))),
-                traj,
-                ))
-            results.append(result)
-        pool.close()
-        pool.join()
-
-        #get results
-        results = [r.get() for r in results]
-        bsinttrans = pd.DataFrame(sum([r[0] for r in results],[]))
-        bsinttrans['iter'] = list(itertools.chain.from_iterable([[k]*len(res[0]) for k,res in enumerate(results)]))
+        bsinttrans = pd.DataFrame([x for r in results for x in r])
+        bsinttrans['iter'] = list(itertools.chain.from_iterable([[k]*len(res) for k,res in enumerate(results)]))
         bsinttrans = bsinttrans.sort_values(by = ['CellID','frame']).reset_index(drop=True)
         bsinttrans['Treatment'] = [m]*len(bsinttrans)
         bsint.append(bsinttrans)
-        bsinttranspairs = pd.DataFrame(sum([r[1] for r in results],[]))
-        bsinttranspairs['Treatment'] = [m]*len(bsinttranspairs)
-        bspairs.append(bsinttranspairs)
 
-        
+
         ###### now get transition rates
-        start = 0
-        stop = 300
-        allresults = []
-        while start<bsiter:
-            print(f'Finished {m} rates {start}, starting {start}-{stop}')
-            pool = multiprocessing.Pool(processes=60)
-            results = []
-            for i in range(start,stop+1):
-                tempmig = migboot[migboot.iter == i]
-                ct = tempmig.time_elapsed.sum()
-                result = pool.apply_async(transition_count_wrapper, args = (
-                    tempmig,
-                    nbins,
-                    ct,
-                    ))
-                results.append(result)
-            pool.close()
-            pool.join()
-            #get results
-            results = [r.get() for r in results]
-            allresults.extend(results)
+        #get list of tuples of arguments to pass to imap
+        mapargs = [(it, nbins, it.time_elapsed.sum()) for i, it in migboot.groupby('iter')]
+        #boostrap with multiprocessing
+        print(f'Calculating bootstrapped CGPS transition rates for {m}')
+        with multiprocessing.Pool(processes=60) as pool:
+            results = list(tqdm.tqdm(pool.imap(transition_count_wrapper, mapargs), total=bsiter))
 
-            start = stop + 1
-            stop = stop + 300
-            if stop>bsiter:
-                stop = bsiter
-                
-        migrate = pd.concat(allresults).reset_index(drop=True)
+
+        #combine and add other info
+        migrate = pd.concat(results, ignore_index=True)
         migrate['Treatment'] = [m]*len(migrate)
-        iters = [[x]*(nbins**2) for x in range(int(len(migrate)/(nbins**2)))]
-        migrate['bs_iteration'] = list(itertools.chain.from_iterable(iters))
+        migrate['bs_iteration'] = np.repeat(np.arange(bsiter),nbins**2)
         bsframe_sep_full.append(migrate)
         
 
     ####### pull everything together and save
-    bstrans = pd.concat(bstrans)
-    bstrans.to_csv(savedir+f'PC{whichpcs[0]}-PC{whichpcs[1]}_bootstrapped_transitions.csv')
-    bsint = pd.concat(bsint)
-    bsint.to_csv(savedir+f'PC{whichpcs[0]}-PC{whichpcs[1]}_bootstrapped_interpolated_transitions.csv')
-    bspairs = pd.concat(bspairs)
-    bspairs.to_csv(savedir+f'PC{whichpcs[0]}-PC{whichpcs[1]}_bootstrapped_interpolated_transition_pairs.csv')
-    bsframe_sep_full = pd.concat(bsframe_sep_full)
-    bsframe_sep_full.to_csv(savedir+f'PC{whichpcs[0]}-PC{whichpcs[1]}_bootstrapped_transition_rates.csv')
+    bstrans = pd.concat(bstrans, ignore_index=True)
+    bstrans.to_csv(savedir+f'PC{whichpcs[0]}-PC{whichpcs[1]}_bootstrapped_{ntrans}_transitions.csv')
+    bsint = pd.concat(bsint, ignore_index=True)
+    bsint.to_csv(savedir+f'PC{whichpcs[0]}-PC{whichpcs[1]}_bootstrapped_{ntrans}_interpolated_transitions.csv')
+    bsframe_sep_full = pd.concat(bsframe_sep_full, ignore_index=True)
+    bsframe_sep_full.to_csv(savedir+f'PC{whichpcs[0]}-PC{whichpcs[1]}_bootstrapped_{ntrans}_transition_rates.csv')
     print('Finished bootstrapping')
     
-    return bstrans, bsint, bspairs, bsframe_sep_full
+    return bstrans, bsint, bsframe_sep_full
     
 
 ############# open average bootstrapped currents ###################
@@ -1103,6 +1028,7 @@ def get_avg_current_error(
         whichpcs, #which two PCs to use in the cgps [x,y]
         savedir, #where to save the aggregated counts
         nbins, #how many bins in the x and y cgps axes
+        ntrans = 1, #how many transitions to sample at each step
         ):
     #### get current field for this bootstrap realization ######
     ####### this is for looking at data spread for the current field ############
@@ -1125,7 +1051,7 @@ def get_avg_current_error(
                               'Treatment':m})
 
     bsfield_sep = pd.DataFrame(bsfield)
-    bsfield_sep.to_csv(savedir+f'PC{whichpcs[0]}-PC{whichpcs[1]}_bootstrapped_transitions_average_currents.csv')
+    bsfield_sep.to_csv(savedir+f'PC{whichpcs[0]}-PC{whichpcs[1]}_bootstrapped_{ntrans}_transitions_average_currents.csv')
     
     return bsfield_sep
 
@@ -1138,43 +1064,19 @@ def get_aer_cf(
         center, #origin in [x bin,y bin]
         savedir, #where to save calculated aers and cfs
         whichpcs, #which two PCs to use in the cgps [x,y]
+        ntrans = 1, #how many transitions to sample at each step
         ):
-    allaers = []
-    for i, m in bstrans.groupby('Treatment'):
-        start = 0
-        stop = 200
-        allresults = []
 
-        while start<bstrans.iter.max():
-            print(f'Finished {start}, starting {start}-{stop}')
-            pool = multiprocessing.Pool(processes=60)
-            results = []
-            for x in range(start,stop+1):
-                b = m[m.iter==x]
-                b = b.sort_values('cumulative_time').reset_index(drop = True)
-                result = pool.apply_async(get_area_enclosing_rate, args = (
-                    b,
-                    nbins,
-                    xyscaling,
-                    center,
-                    ))
-                results.append(result)
-            pool.close()
-            pool.join()
-            #get results
-            results = [r.get() for r in results]
-            allresults.extend(results)
 
-            start = stop + 1
-            stop = stop + 200
-            if stop>bstrans.iter.max():
-                stop = bstrans.iter.max()
+    #make list of imap arguments
+    bsiter = bstrans.iter.max()+1
+    mapargs = [(df.sort_values('cumulative_time').reset_index(drop = True),nbins,xyscaling,center) for i, df in bstrans.groupby(['Treatment','iter'])]
 
-        migboot = pd.concat(allresults)
-        allaers.append(migboot)
+    with multiprocessing.Pool(processes=60) as pool:
+        results = list(tqdm.tqdm(pool.imap(get_area_enclosing_rate, mapargs), total=bsiter))
 
-    allaers = pd.concat(allaers).reset_index(drop=True)
-    allaers.to_csv(savedir+f'PC{whichpcs[0]}-PC{whichpcs[1]}_Area_Enclosing_Rates.csv')
+    allaers = pd.concat(results, ignore_index=True)
+    allaers.to_csv(savedir+f'PC{whichpcs[0]}-PC{whichpcs[1]}_{ntrans}_transition_Area_Enclosing_Rates.csv')
 
 
 
