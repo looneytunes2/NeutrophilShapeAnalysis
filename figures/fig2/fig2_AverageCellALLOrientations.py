@@ -31,6 +31,23 @@ view.CameraPosition = [0,0,-50]
 view.ViewSize = [1000, 1000]  
 
 
+############# SCALE BAR
+slen = 5
+sx = 5
+sy = 10
+# 10um line scalebar
+line = Line(Point1=[sx, sy, 0], Point2=[sx+slen, sy, 0])
+# Apply a Tube filter to give it thickness
+tube = Tube(Input=line)
+tube.Radius = 0.25  # Adjust thickness as needed
+tube.NumberofSides = 20  # Makes it smoother
+# Show the tube in the active view
+tube_display = Show(tube)
+#change color
+tube_display.DiffuseColor = [0, 0, 0]
+
+
+
 #read one of the average PC shapes
 reader = XMLPolyDataReader(FileName=avg_recon)
 obj = GetRepresentation(reader)

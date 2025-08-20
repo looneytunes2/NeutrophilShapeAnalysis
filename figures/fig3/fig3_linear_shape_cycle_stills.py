@@ -29,36 +29,8 @@ posnum = int(len(meshfl)+1)
 cmap = cm.get_cmap('twilight')
 discrete_colors = cmap(np.linspace(0,1,posnum))
 
-#generate the positions of the meshes along the line
-scale = 20
-if posnum%2 == 0:
-    xval = posnum/2*scale-scale/2
-    pos = np.linspace(-xval,xval,posnum)
-else:
-    xval = (posnum-1)/2*scale
-    pos = np.linspace(-xval,xval,posnum)
 
-
-for i, p in enumerate(meshfl):
-    #get time point
-    # time = marr.arbitrarytime.values[i]
-    #open time point mesh
-    reader = XMLPolyDataReader(FileName= meshdir + p)
-    obj = GetRepresentation(reader)
-    obj.Position = [pos[i],0,0]
-    obj.AmbientColor = discrete_colors[i,:-1]
-    obj.DiffuseColor = discrete_colors[i,:-1]
-    # obj.Specular = 0.5        # Increase specular reflection
-    # obj.SpecularPower = 50.0
-    #put the first index also in the last position
-    if i==0:
-        reader = XMLPolyDataReader(FileName= meshdir + p)
-        obj = GetRepresentation(reader)
-        obj.Position = [pos[-1],0,0]
-        obj.AmbientColor = discrete_colors[-1,:-1]
-        obj.DiffuseColor = discrete_colors[-1,:-1]
-        # obj.Specular = 0.5        # Increase specular reflection
-        # obj.SpecularPower = 50.0
+        
 #change background to white
 paraview.simple._DisableFirstRenderCameraReset()
 LoadPalette(paletteName='WhiteBackground')
@@ -71,18 +43,75 @@ if not view:
     
 view.CameraViewUp = [0, -1, -1]
 view.CameraFocalPoint = [0, 0, 0]
-view.CameraPosition = [0, 0, -scale*5]
-view.ViewSize = [6000, 1500]  
-view.OrientationAxesVisibility = 1
+view.CameraPosition = [0, 0, -150]
+view.ViewSize = [4000, 4000]  
+view.OrientationAxesVisibility = 0
+
+
+############# SCALE BAR
+slen = 5
+sx = 5
+sy = 10
+# 10um line scalebar
+line = Line(Point1=[sx, sy, 0], Point2=[sx+slen, sy, 0])
+# Apply a Tube filter to give it thickness
+tube = Tube(Input=line)
+tube.Radius = 0.25  # Adjust thickness as needed
+tube.NumberofSides = 20  # Makes it smoother
+# Show the tube in the active view
+tube_display = Show(tube)
+#change color
+tube_display.DiffuseColor = [0, 0, 0]
+
+
+views = ['xy','xz']
+for i, p in enumerate(meshfl):
+    for v in views:
+        #get time point
+        # time = marr.arbitrarytime.values[i]
+        #open time point mesh
+        reader = XMLPolyDataReader(FileName= meshdir + p)
+        obj = GetRepresentation(reader)
+        # obj.Position = [pos[i],0,0]
+        obj.AmbientColor = discrete_colors[i,:-1]
+        obj.DiffuseColor = discrete_colors[i,:-1]
+        
+        if v == 'xz':
+            obj.Orientation = [-90,0,0]
+        elif v == 'yz':
+            obj.Orientation = [0,90,90]
+        
+
+        # obj.Specular = 0.5        # Increase specular reflection
+        # obj.SpecularPower = 50.0
+        #put the first index also in the last position
+        # if i==0:
+        #     reader = XMLPolyDataReader(FileName= meshdir + p)
+        #     obj = GetRepresentation(reader)
+        #     obj.Position = [pos[-1],0,0]
+        #     obj.AmbientColor = discrete_colors[-1,:-1]
+        #     obj.DiffuseColor = discrete_colors[-1,:-1]
+        #     # obj.Specular = 0.5        # Increase specular reflection
+        #     # obj.SpecularPower = 50.0
+            
+            
+        
+        # save animation
+        Render()
+        
+        WriteImage(__file__.split('.')[0]+f'_{p}_{v}.png')
+        
+        Hide(reader)
+    
 # view.UseColorPaletteForBackground = 0
 # view.Background = [84/255, 94/255, 135/255]
 
 
 
-SaveScreenshot(
-    __file__.split('.')[0]+'.png',
-    view,
-)
+# SaveScreenshot(
+#     __file__.split('.')[0]+'.png',
+#     view,
+# )
 
 
 

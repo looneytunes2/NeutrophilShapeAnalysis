@@ -51,6 +51,23 @@ view.OrientationAxesVisibility = 0
 
 
 
+############# SCALE BAR
+slen = 5
+sx = 3
+sy = 13
+# 10um line scalebar
+line = Line(Point1=[sx, sy, 0], Point2=[sx+slen, sy, 0])
+# Apply a Tube filter to give it thickness
+tube = Tube(Input=line)
+tube.Radius = 0.25  # Adjust thickness as needed
+tube.NumberofSides = 20  # Makes it smoother
+# Show the tube in the active view
+tube_display = Show(tube)
+#change color
+tube_display.DiffuseColor = [0, 0, 0]
+
+
+
 
 ############# get the rotations to undo them
 ### get euler angles
@@ -74,20 +91,25 @@ unroteuler = unrotthing.as_euler('xyz', degrees = True)[0]
 
 
 ##### make a little trajectory arrow at a specific position
-green = np.array([45, 181, 81])/255
+# green = np.array([45, 181, 81])/255
+
 trajar = Arrow()
-# ar.ShaftRadius = 0.3
-trajar.ShaftResolution = 100
-# ar.TipLength = 0.15
-trajar.TipRadius = 0.075
-trajar.TipResolution = 100
+trajar.ShaftRadius = 0.1
+trajar.ShaftResolution = 500
+trajar.TipLength = 0.3
+trajar.TipRadius = 0.2
+trajar.TipResolution = 500
 
 trajar_display = Show(trajar)
 trajar_display.Orientation = -Euler_Angles
 trajar_display.Scale = [5,5,5]
-trajar_display.DiffuseColor = green
-trajar_display.AmbientColor = green
-trajar_display.Position = [0,13,0]
+#change arrow color
+arcolor = np.zeros(3)
+trajar_display.DiffuseColor = arcolor
+trajar_display.AmbientColor = arcolor
+#turn off shininess
+trajar_display.Specular = 0.0
+trajar_display.Position = [-5.5,5.5,0]
 
 
 
@@ -210,7 +232,7 @@ zax_display.Orientation = [Euler_Angles[0],-90,Euler_Angles[2]+90]
 
 #align traj with x
 trajar_display.Orientation = [0,0,0]
-
+trajar_display.Position = [-3,7,0]
 
 Render()
     
@@ -285,7 +307,8 @@ for i, art in enumerate([xax, yax, zax]):
     transform_display.Position = xyzprops['Position'][i]
 
 
-
+#move trajectory arrow for the last time
+trajar_display.Position = [-1,11,0]
 
 
 Render()

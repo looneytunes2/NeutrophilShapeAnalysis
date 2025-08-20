@@ -12,30 +12,26 @@ import os
 import matplotlib.pyplot as plt
 import seaborn as sns
 from CustomFunctions.shapePCAtools import filter_extremes_based_on_percentile
-from CustomFunctions.file_management import multicsv
 from matplotlib import cm
 from matplotlib.colors import Normalize
 from scipy import interpolate
 
 
 ####### load common directories and data
+ntrans = 1
 time_interval = 10 #sec/frame
 basedir = 'E:/Aaron/Combined_37C_Confocal_PCA_s5/'
 datadir = basedir + 'Data_and_Figs/'
+savedir = basedir + 'random/'
 FullFrame = pd.read_csv(datadir + 'All_Data_with_CGPS_bins.csv', index_col=0)
 centers = pd.read_csv(datadir+'PC_bin_centers.csv', index_col=0)
 nbins = np.max(FullFrame[[x for x in FullFrame.columns.to_list() if 'bin' in x]].to_numpy())
 
 #set the max average aer for the colorbar stuff
-aermax = 0.0035
-
-
+aermax = 0.00435
 ### restrict data to RANDOM
 treatments = ['Random']
 
-savedir = basedir + 'random/'
-if not os.path.exists(savedir):
-    os.makedirs(savedir)
 
 #restrict dataframe to only random experiments
 TotalFrame = FullFrame[FullFrame.Treatment=='Random'].copy()
@@ -63,11 +59,17 @@ for ycol, a in enumerate(binlist):
         ind2 = int(bin2.split('PC')[-1])-1
         ax = axes[ind2, ind1]
 
-        if os.path.exists(savedir+ 'allCGPS/' +f'{bin1}-{bin2}_Area_Enclosing_Rates.csv'):
-            aerdf = pd.read_csv(savedir+ 'allCGPS/' +f'{bin1}-{bin2}_Area_Enclosing_Rates.csv', index_col=0)
-            print(f'Opened {bin1}-{bin2} aer files',aerdf.groupby('iter').mean().aer.mean())
+        if os.path.exists(savedir+ 'allCGPS/' +f'{bin1}-{bin2}_{ntrans}_transition_Area_Enclosing_Rates.csv'):
+            aerdf = pd.read_csv(savedir+ 'allCGPS/' +f'{bin1}-{bin2}_{ntrans}_transition_Area_Enclosing_Rates.csv', index_col=0)
+            print(f'Opened {bin1}-{bin2} aer files average aer mean is ',aerdf.groupby('iter').aer.mean().mean())
 
+            ### add average cycle period
+            avgcf = aerdf.groupby('iter').angular_velocity.mean().mean() #degrees/sec
+            cycle_period = abs(360/avgcf/60) #minutes/cycle
+            ax.text(0.05,0.8, str(round(cycle_period,1))+r' ($\frac{min}{cycle}$)',
+                    transform=ax.transAxes, fontsize = 20)
 
+            
             #get average aer values
             avgaerdf = aerdf.groupby('iter').mean()
             avgaerdf = filter_extremes_based_on_percentile(
@@ -76,15 +78,15 @@ for ycol, a in enumerate(binlist):
                 1)
             
             #get color based on the mean of the means
-            color = str(f(abs(avgaerdf.aer.mean())))#cmap(norm(abs(avgaerdf.aer.mean())))
-            # alph = 
+            color = str(f(abs(avgaerdf.aer.mean())))
+
             #plot the filled plot
             sns.kdeplot(data = avgaerdf, x='aer',
                         fill = True, color = color, alpha = 1, # cut = 0
                         ax = ax)
             #### make separate plot to change the line color
             sns.kdeplot(data = avgaerdf.aer.squeeze(),
-                        fill = False, color = '0.5', #cut = 0
+                        fill = False, color = '0.5', lw = 3,#cut = 0
                         ax = ax)
             
             
@@ -98,6 +100,10 @@ for ycol, a in enumerate(binlist):
             ax.tick_params(labelsize = 16)
             #rotate and horizontally align x axis labels because they're long
             ax.tick_params('x', rotation = 30)
+            
+            #center x axis
+            ax.set_xlim(-0.01,0.01)
+            
             for label in ax.get_xticklabels():
                 label.set_horizontalalignment('right')
             
@@ -111,6 +117,7 @@ for ycol, a in enumerate(binlist):
                 ax.set_xlabel('')
 
             
+
         #keep the upper right plot but remove plot box
         elif (ind1==0) & (ind2==0):
             ax.set_ylabel(bin2, fontsize = 40, labelpad = 24)
@@ -132,7 +139,7 @@ cbar = fig.colorbar(cm.ScalarMappable(norm=Normalize(0, aermax), cmap='Greys'), 
 cbar.ax.yaxis.set_tick_params(labelsize=20)
 cbar.ax.yaxis.set_ticks_position("left")
 cbar.ax.yaxis.set_label_position("left")
-cbar.set_label("Average Area Enclosing Rate (PC units²/sec)", fontsize = 30, labelpad = 7)
+cbar.set_label("Average Area Enclosing Rate (PC units²/sec)", fontsize = 40, labelpad = 7)
 
 #     plt.tight_layout() 
 # plt.subplots_adjust(wspace=0.01, hspace=0.01)

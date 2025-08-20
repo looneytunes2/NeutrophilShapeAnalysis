@@ -93,12 +93,12 @@ def raw_transitions(
             ct = ct + time_interval
             nextrow = df.iloc[i+1]
             #frame will reference the timepoint at the end of the transition
-            trans.append([nextrow.frame, row[f'PC{whichpcs[0]}bins'], row[f'PC{whichpcs[1]}bins'],
+            trans.append([nextrow.time, nextrow.frame, row[f'PC{whichpcs[0]}bins'], row[f'PC{whichpcs[1]}bins'],
                           nextrow[f'PC{whichpcs[0]}bins'], nextrow[f'PC{whichpcs[1]}bins'], time_interval, ct])
             
         
     #combine the data
-    alltrans = pd.DataFrame(trans, columns=['frame', 'from_x', 'from_y', 'to_x', 'to_y', 'time_elapsed','cumulative_time'])
+    alltrans = pd.DataFrame(trans, columns=['frame_time','frame', 'from_x', 'from_y', 'to_x', 'to_y', 'time_elapsed','cumulative_time'])
     #add cell identification
     alltrans['CellID'] = df.CellID.to_list()[:-1]
     # 'cell' will reference the cell/frame at the end of the transition
@@ -198,7 +198,7 @@ def interpolate_2dtrajectory(
     #combine the data
     alltrans = pd.DataFrame(trans, columns=['frame', 'from_x', 'from_y', 'to_x', 'to_y', 'time_elapsed','cumulative_time'])
     #add cell name
-    alltrans['CellID'] = [cellname]*len(alltrans)
+    alltrans['CellID'] = cellname
     #adjust time elapsed and cumulative time to real time
     alltrans['time_elapsed'] = alltrans['time_elapsed']*t_int
     alltrans['cumulative_time'] = alltrans['cumulative_time']*t_int
@@ -315,7 +315,7 @@ def interpolate_3dtrajectory(
     #combine the data
     alltrans = pd.DataFrame(trans, columns=['frame', 'from_x', 'from_y', 'from_z', 'to_x', 'to_y', 'to_z', 'time_elapsed','cumulative_time'])
     #add cell name
-    alltrans['CellID'] = [cellname]*len(alltrans)
+    alltrans['CellID'] = cellname
     #adjust time elapsed and cumulative time to real time
     alltrans['time_elapsed'] = alltrans['time_elapsed']*t_int*(len(traj)-1)
     alltrans['cumulative_time'] = alltrans['cumulative_time']*t_int*(len(traj)-1)
@@ -325,7 +325,7 @@ def interpolate_3dtrajectory(
     transpairs = pd.DataFrame(pairs, columns=['frame', 'from_x', 'from_y', 'from_z', 'to_x', 'to_y', 'to_z', 'time_elapsed','cumulative_time', \
                                               'frame_two', 'from_x_two', 'from_y_two', 'from_z_two', 'to_x_two', 'to_y_two', 'to_z_two', 'time_elapsed_two','cumulative_time_two'])
     #add cell name
-    transpairs['CellID'] = [cellname]*len(transpairs)
+    transpairs['CellID'] = cellname
     transpairs['time_elapsed'] = transpairs['time_elapsed']*t_int*(len(traj)-1)
     transpairs['cumulative_time'] = transpairs['cumulative_time']*t_int*(len(traj)-1)
     transpairs['time_elapsed_two'] = transpairs['time_elapsed_two']*t_int*(len(traj)-1)
@@ -455,87 +455,6 @@ def get_transition_counts_3d(
     return trans_count
 
 
-# def get_transition_counts_uneven_rates(
-#         x,
-#         y,
-#         fromm, #all the transitions from a particular box
-#         to, #all the transitions to that same box
-#         ):
-#     ### this is for the uneven transition rates from heavily interpolated transition data
-    
-#     x_minus_count = len([fromm['to_x'][a] for a in fromm['to_x'] if fromm['to_x'][a]<x])
-#     x_minus_time = sum([fromm['time_elapsed'][a] for a in fromm['to_x'] if fromm['to_x'][a]<x])
-#     x_minus_rev_count = len([to['from_x'][a] for a in to['from_x'] if to['from_x'][a]<x])
-#     x_minus_rev_time = sum([to['time_elapsed'][a] for a in to['from_x'] if to['from_x'][a]<x])
-#     if (x_minus_count == 0) and (x_minus_rev_count == 0):
-#         x_minus_rate = 0
-#     elif x_minus_count == 0:
-#         x_minus_rate = x_minus_rev_count/x_minus_rev_time
-#     elif x_minus_rev_count == 0:
-#         x_minus_rate = x_minus_count/x_minus_time
-#     else:
-#         x_minus_rate = (x_minus_count - x_minus_rev_count)/(x_minus_time + x_minus_rev_time)
-    
-#     x_plus_count = len([fromm['to_x'][a] for a in fromm['to_x'] if fromm['to_x'][a]>x])
-#     x_plus_time = sum([fromm['time_elapsed'][a] for a in fromm['to_x'] if fromm['to_x'][a]>x])
-#     x_plus_rev_count = len([to['from_x'][a] for a in to['from_x'] if to['from_x'][a]>x])
-#     x_plus_rev_time = sum([to['time_elapsed'][a] for a in to['from_x'] if to['from_x'][a]>x])
-#     if (x_plus_count == 0) and (x_plus_rev_count == 0):
-#         x_plus_rate = 0
-#     elif x_plus_count == 0:
-#         x_plus_rate = x_plus_rev_count/x_plus_rev_time
-#     elif x_plus_rev_count == 0:
-#         x_plus_rate = x_plus_count/x_plus_time
-#     else:
-#         x_plus_rate = (x_plus_count - x_plus_rev_count)/(x_plus_time + x_plus_rev_time)
-    
-#     y_minus_count = len([fromm['to_y'][a] for a in fromm['to_y'] if fromm['to_y'][a]<y])
-#     y_minus_time = sum([fromm['time_elapsed'][a] for a in fromm['to_y'] if fromm['to_y'][a]<y])
-#     y_minus_rev_count = len([to['from_y'][a] for a in to['from_y'] if to['from_y'][a]<y])
-#     y_minus_rev_time = sum([to['from_y'][a] for a in to['from_y'] if to['from_y'][a]<y])
-#     if (y_minus_count == 0) and (y_minus_rev_count == 0):
-#         y_minus_rate = 0
-#     elif y_minus_count == 0:
-#         y_minus_rate = y_minus_rev_count/y_minus_rev_time
-#     elif y_minus_rev_count == 0:
-#         y_minus_rate = y_minus_count/y_minus_time
-#     else:
-#         y_minus_rate = (y_minus_count - y_minus_rev_count)/(y_minus_time + y_minus_rev_time)
-        
-#     y_plus_count = len([fromm['to_y'][a] for a in fromm['to_y'] if fromm['to_y'][a]>y])
-#     y_plus_time = sum([fromm['time_elapsed'][a] for a in fromm['to_y'] if fromm['to_y'][a]>y])
-#     y_plus_rev_count = len([to['from_y'][a] for a in to['from_y'] if to['from_y'][a]>y])
-#     y_plus_rev_time = sum([to['time_elapsed'][a] for a in to['from_y'] if to['from_y'][a]>y])
-#     if (y_plus_count == 0) and (y_plus_rev_count == 0):
-#         y_plus_rate = 0
-#     elif y_plus_count == 0:
-#         y_plus_rate = y_plus_rev_count/y_plus_rev_time
-#     elif y_plus_rev_count == 0:
-#         y_plus_rate = y_plus_count/y_plus_time
-#     else:
-#         y_plus_rate = (y_plus_count - y_plus_rev_count)/(y_plus_time + y_plus_rev_time)
-        
-#     trans_count = {
-#         'x':x,
-#         'y':y,
-#         'x_minus_count':x_minus_count,
-#         'x_minus_count_rev':x_minus_rev_count,
-#         'x_minus_rate':x_minus_rate,
-#         'x_plus_count':x_plus_count,
-#         'x_plus_count_rev':x_plus_rev_count,
-#         'x_plus_rate':x_plus_rate,
-#         'y_minus_count':y_minus_count,
-#         'y_minus_count_rev':y_minus_rev_count,
-#         'y_minus_rate':y_minus_rate,
-#         'y_plus_count':y_plus_count,
-#         'y_plus_count_rev':y_plus_rev_count,
-#         'y_plus_rate':y_plus_rate
-#             }
-    
-#     return trans_count
-
-
-
 
 
 def bootstrap_trajectories(
@@ -650,117 +569,7 @@ def bootstrap_trajectories(
 
     return allbs.reset_index(drop=True)
 
-def new_bootstrap(
-        imap_args
-        ):
-        
-    #unpack args
-    # combodf: multi-indexed dataframe with tansition_combination and trandition_index names
-    # ttot: int total time for the simulation
-    # ntrans: int number of consecutive transitions to sample
-    # avoiddead: bool whether or not to avoid dead ends in the trajectory
-    combodf,ttot,ntrans,avoiddead = imap_args
-    
-    #get just the first transition of each combination
-    firsttrans = combodf.xs(0,level='transition_index')
-    
-    #start time at 0
-    ct = 0
-    #create an empty dataframe with the correct columns and indexing
-    allbs = pd.DataFrame(columns=combodf.columns)
-    allbs.index = pd.MultiIndex.from_arrays([[],[]], names = ['transition_combination','transition_index'])
-    #find the first random position
-    rando = combodf.index.levels[0].to_list()
-    shuffle(rando)
-    pick = combodf.loc[combodf.index.get_level_values('transition_combination') == rando[0]]
-    allbs = pd.concat((allbs, pick))
-    while ct<ttot:
-        #find the next postition after the second transition
-        cur = allbs.iloc[-1][['to_x','to_y']].values
-        #get all the transitions at the new position
-        allat = firsttrans[(firsttrans.from_x == cur[0]) & (firsttrans.from_y == cur[1])]
-        
-        #if the next transition doesn't have any future transitions, don't go there and pick a new one
-        if allat.empty:
-            if avoiddead:
-                #drop the "dead" transition
-                allbs.drop(allbs.index[-ntrans:], inplace=True)
-                #check is this happened at the beginning of the simulation and it needs to be started again 
-                #from another position, otherwise trim the last transition and continue
-                if len(allbs)==0:
-                    ct = 0
-                    allbs = pd.DataFrame(columns=combodf.columns)
-                    allbs.index = pd.MultiIndex.from_arrays([[],[]], names = ['transition_combination','transition_index'])
-                    #find the first random position
-                    rando = combodf.index.levels[0].to_list()
-                    shuffle(rando)
-                    pick = combodf.loc[combodf.index.get_level_values('transition_combination') == rando[0]]
-                    #add the random pick to the dataframe
-                    allbs = pd.concat((allbs, pick))
-                #subtract the time these transitions take
-                ct = ct - pick.time_elapsed.sum()
-                #set a timer for extreme cases of single transitions to deadends
-                loops = 0
-                while allat.empty:
-                    #find the next postition after the second transition
-                    cur = allbs.iloc[-1][['to_x','to_y']].values
-                    #get all the transitions at the new position
-                    allat = firsttrans[(firsttrans.from_x == cur[0]) & (firsttrans.from_y == cur[1])]
-                    #randomly select a transition pair
-                    rando = allat.index.to_list()
-                    shuffle(rando)
-                    pick = combodf.loc[combodf.index.get_level_values('transition_combination') == rando[0]]
-                    #add to the timer for extreme cases
-                    loops = loops + 1
-                    #if the current position only has one transition (to the empty position)
-                    #then trim it back an additional transition as well
-                    #or if this while loop has gone for 20 iterations and still not found a suitable transition
-                    #back up an additional transition
-                    if (len(allat)==1) or (loops == 20):
-                        #subtract the time these transitions take
-                        ct = ct - allbs.iloc[-ntrans:].time_elapsed.sum()
-                        #delete a further two transitions
-                        allbs.drop(allbs.index[-ntrans:], inplace=True)
-                        #check if this happened at the beginning of the simulation and it needs to be started again 
-                        #from another position, otherwise trim the last transition and continue
-                        if len(allbs)==0:
-                            ct = 0
-                            allbs = pd.DataFrame(columns=combodf.columns)
-                            allbs.index = pd.MultiIndex.from_arrays([[],[]], names = ['transition_combination','transition_index'])
-                            #find the first random position
-                            rando = combodf.index.levels[0].to_list()
-                            shuffle(rando)
-                            pick = combodf.loc[combodf.index.get_level_values('transition_combination') == rando[0]]
-                            #add the random pick to the dataframe
-                            allbs = pd.concat((allbs, pick))
-                        #find the next postition after the second transition
-                        cur = allbs.iloc[-1][['to_x','to_y']].values
-                        #get all the transitions at the new position
-                        allat = firsttrans[(firsttrans.from_x == cur[0]) & (firsttrans.from_y == cur[1])]
-                        #randomly select a transition pair
-                        rando = allat.index.to_list()
-                        shuffle(rando)
-                        pick = combodf.loc[combodf.index.get_level_values('transition_combination') == rando[0]]
-                #append the pair of transitions to a list
-                allbs = pd.concat((allbs, pick))
-                #add the time these transitions take
-                ct = ct + pick.time_elapsed.sum()
-            else:
-                break
-        else:
-            #randomly select a transition pair
-            rando = allat.index.to_list()
-            shuffle(rando)
-            pick = combodf.loc[combodf.index.get_level_values('transition_combination') == rando[0]]
-            #append the pair of transitions to a list
-            allbs = pd.concat((allbs, pick))
-            #add the time these transitions take
-            ct = ct + pick.time_elapsed.sum()
-    
-    #make cumulative time actually cumulative time
-    allbs.loc[:,'cumulative_time'] = allbs['time_elapsed'].cumsum()
 
-    return allbs.reset_index(drop=True).to_dict('records')
 
 def transition_count_wrapper(
         args # tuple of arguments
@@ -932,8 +741,8 @@ def get_raw_cgps_trajectories(
             #get results
             results = [r.get() for r in results]
         rawtrans = pd.concat(results, ignore_index=True)
-        rawtrans = rawtrans.sort_values(by = ['CellID','frame']).reset_index(drop=True)
-        rawtrans['Treatment'] = [m]*len(rawtrans)
+        rawtrans = rawtrans.sort_values(by = ['CellID','frame_time']).reset_index(drop=True)
+        rawtrans['Treatment'] = m
         migresults.append(rawtrans)
         
     rawtrans = pd.concat(migresults, ignore_index=True)
@@ -975,11 +784,11 @@ def get_interpolated_cgps_trajectories(
         #separate results into transtions and transition pairs
         transdf_sep = pd.DataFrame([x for r in results for x in r])
         transdf_sep = transdf_sep.sort_values(by = ['CellID','frame']).reset_index(drop=True)
-        transdf_sep['Treatment'] = [m]*len(transdf_sep)
+        transdf_sep['Treatment'] = m
         migresults.append(transdf_sep)
 
     transdf_sep = pd.concat(migresults)
-    transdf_sep.to_csv(savedir+f'interpolated_PC{whichpcs[0]}-PC{whichpcs[1]}_transitions_separated.csv')
+    transdf_sep.to_csv(savedir+f'PC{whichpcs[0]}-PC{whichpcs[1]}_interpolated_transitions_separated.csv')
     print('Finished interpolating trajectories')
     
     return transdf_sep
@@ -1015,7 +824,7 @@ def aggregate_transition_counts(
         #get results
         results = [r.get() for r in results]
         trans_rate_df_sep = pd.DataFrame(results)
-        trans_rate_df_sep['Treatment'] = [m]*len(trans_rate_df_sep)
+        trans_rate_df_sep['Treatment'] = m
         trans_rate_df_sep = trans_rate_df_sep.sort_values(by = ['x','y']).reset_index(drop=True)
         trresults.append(trans_rate_df_sep)
 
@@ -1049,7 +858,7 @@ def get_bootstrapped_cgps_trajectories(
         
         combolist = []
         for cidc, cell in mig.groupby('CellID'):
-            cell, runs = utils.get_consecutive_timepoints(cell, 'frame', 1)
+            cell, runs = utils.get_consecutive_timepoints(cell, 'frame_time', time_interval)
             for r in runs:
                 limdf = cell.iloc[r]
                 for i in range(len(limdf) - ntrans + 1):
@@ -1076,7 +885,7 @@ def get_bootstrapped_cgps_trajectories(
         #get results
         migboot = pd.concat(results, ignore_index=True)
         migboot['iter'] = list(itertools.chain.from_iterable([[k]*len(res) for k,res in enumerate(results)]))
-        migboot['Treatment'] = [m]*len(migboot)
+        migboot['Treatment'] = m
         #append to the larger list of dataframes
         bstrans.append(migboot)
 
@@ -1100,8 +909,8 @@ def get_bootstrapped_cgps_trajectories(
             results = [r.get() for r in results]
         bsinttrans = pd.DataFrame([x for r in results for x in r])
         bsinttrans['iter'] = list(itertools.chain.from_iterable([[k]*len(res) for k,res in enumerate(results)]))
-        bsinttrans = bsinttrans.sort_values(by = ['CellID','frame']).reset_index(drop=True)
-        bsinttrans['Treatment'] = [m]*len(bsinttrans)
+        bsinttrans = bsinttrans.sort_values(by = ['CellID','cumulative_time']).reset_index(drop=True)
+        bsinttrans['Treatment'] = m
         bsint.append(bsinttrans)
 
 
@@ -1116,7 +925,7 @@ def get_bootstrapped_cgps_trajectories(
 
         #combine and add other info
         migrate = pd.concat(results, ignore_index=True)
-        migrate['Treatment'] = [m]*len(migrate)
+        migrate['Treatment'] = m
         migrate['bs_iteration'] = np.repeat(np.arange(bsiter),nbins**2)
         bsframe_sep_full.append(migrate)
         

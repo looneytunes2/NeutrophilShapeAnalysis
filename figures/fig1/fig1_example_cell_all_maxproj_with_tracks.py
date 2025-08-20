@@ -74,6 +74,11 @@ xzmaxproj_bc[xzmaxproj_bc>1] = 1
 yzmaxproj_bc = yzmaxproj_bc/maxval
 yzmaxproj_bc[yzmaxproj_bc>1] = 1
 
+#invert the colors
+xymaxproj_bc = abs(xymaxproj_bc - 1)
+xzmaxproj_bc = abs(xzmaxproj_bc - 1)
+yzmaxproj_bc = abs(yzmaxproj_bc - 1)
+
 
 # Create a figure
 fig = plt.figure()#figsize=(7, 7))
@@ -137,13 +142,13 @@ scalebar_z_displacement = cropim.shape[-3]*zstep-scalebar_length-4
 ax1.plot([scalebar_x_displacement+scalebar_length, scalebar_x_displacement],
         [scalebar_y_displacement, scalebar_y_displacement],
         lw = 3,
-        color = 'white',
+        color = 'black',
         zorder=1)
-#scalbar text
+#scalebar text
 ax1.text(scalebar_x_displacement-2,
         scalebar_y_displacement - 4.5,
         f'{scalebar_length} μm',
-        color = 'white',
+        color = 'black',
         fontdict = {'fontsize': 16},
         zorder = 1)
 

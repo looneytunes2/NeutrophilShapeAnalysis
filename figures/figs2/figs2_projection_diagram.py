@@ -19,7 +19,7 @@ from vtkmodules.vtkFiltersCore import (
 )
 
 
-meshdir = 'E:/Aaron/Combined_37C_Confocal_PCA_smooth/Data_and_Figs/PC_Meshes/'
+meshdir = 'E:/Aaron/Combined_37C_Confocal_PCA_s5/Data_and_Figs/PC_Meshes/'
 
 
 reader = vtk.vtkXMLPolyDataReader()
@@ -155,31 +155,42 @@ coords = find_plane_mesh_intersection(mesh, [0,2], use_vtk_for_intersection=True
 #center coords on zero
 coords = coords - np.mean(coords,axis = 0)
 #shift the coords up so I can project onto the xaxis
-coords[:,1] = coords[:,1]+15
-
+xmin, ymin = np.min(coords,axis = 0)
+coords[:,0] = coords[:,0] + abs(xmin) + 1
+coords[:,1] = coords[:,1] + abs(ymin) + 1
 
 
 # Create a figure and axis
 fig, ax = plt.subplots()
 
 # Create a Polygon patch
-polygon = patches.Polygon(coords, closed=True, edgecolor='0.4', facecolor='lightblue', linewidth=2)
+polygon = patches.Polygon(coords, closed=True, edgecolor='0.4', facecolor='0.8', linewidth=3)
 
 # Add the polygon to the plot
 ax.add_patch(polygon)
 
 
 #add the "x" axis points
+#colors
 point_colors = plt.cm.Dark2.colors[:3]
-proj_points = np.array([[0,0],
-                        [np.max(coords,axis=0)[0],0],
-                        [np.min(coords,axis=0)[0],0]])
+point_colors = point_colors*2
+#points
+proj_points = np.array([[np.mean(coords,axis = 0)[0],0], #centroid on x axis
+                        [np.max(coords,axis=0)[0],0], #front on x axis
+                        [np.min(coords,axis=0)[0],0], #rear on x axis
+                        np.mean(coords,axis=0), #centroid
+                        [coords[np.argmax(coords[:,0])][0],coords[np.argmax(coords[:,0])][1]], #front
+                        [coords[np.argmin(coords[:,0])][0],coords[np.argmin(coords[:,0])][1]] #rear
+                        ])
 ax.scatter(proj_points[:,0], proj_points[:,1],s = 150, color = point_colors, edgecolors = 'black', zorder=2)
+
+#add the points 
+
 
 #arrow properties
 arrowdict = dict(facecolor='black', arrowstyle="simple, head_length=1.25, head_width=1.25", linewidth=1.5)
 #centroid arrow
-ax.annotate("", xy=(0, 0),xytext =(0,np.mean(coords,axis=0)[1]),
+ax.annotate("", xy=(np.mean(coords,axis = 0)[0],0),xytext = np.mean(coords,axis=0),
             arrowprops=arrowdict)
 #rear arrow
 ax.annotate("", xy=(coords[np.argmin(coords[:,0])][0], 0),xytext =(coords[np.argmin(coords[:,0])][0],coords[np.argmin(coords[:,0])][1]),
@@ -188,28 +199,46 @@ ax.annotate("", xy=(coords[np.argmin(coords[:,0])][0], 0),xytext =(coords[np.arg
 ax.annotate("", xy=(coords[np.argmax(coords[:,0])][0], 0),xytext =(coords[np.argmax(coords[:,0])][0],coords[np.argmax(coords[:,0])][1]),
             arrowprops=arrowdict)
 
+
+#Big trajectory arrow
+bigarrowdict = dict(facecolor='black', arrowstyle="simple, head_length=1.25, head_width=1.25", linewidth=3)
+ax.annotate("", xy=(coords[np.argmax(coords[:,0])][0], 9.5),xytext =(coords[np.argmax(coords[:,0])][0]-4, 9.5),
+            arrowprops=bigarrowdict)
+#trajectory label
+#xaxis text
+ax.text(coords[np.argmax(coords[:,0])][0]-4, 10.25, 'trajectory', va='center', ha='left', fontsize=20)
+
+
+
 # Set limits and aspect ratio
-ax.set_xlim(-30, 30)
-ax.set_ylim(-5, 35)
+ax.set_xlim(-0.15, 17)
+ax.set_ylim(-0.45, 10.5)
 ax.set_aspect('equal')  # Ensures equal scaling
 
 ###add the axes and axis text
-#xaxis
-ax.plot([-28,30],[0,0], color = [0.4,0.4,0.4],zorder=1)
 #zaxis
-ax.plot([-28,-28],[0,35], color = [0.4,0.4,0.4],zorder=1)
-#xaxis text
-ax.text(-28, -2, 'x-axis',
-        va='center', ha='left', fontsize=16)
-#zaxis text
-ax.text(-29.5, 0, 'z-axis', rotation='vertical',
-        va='bottom', ha='center', fontsize=16)
+ax.plot([0.3,0.3],[11,0], color = [0.4,0.4,0.4],lw=2, zorder=1)
+#xaxis
+ax.plot([0.3,18],[0,0], color = [0.4,0.4,0.4],lw=2, zorder=1)
 
-#turn off the axis splines
-ax.set_axis_off()
+
+#xaxis text
+ax.text(0.3, -0.6, 'x-axis', va='center', ha='left', fontsize=20)
+#zaxis text
+ax.text(-0.2, 0.1, 'z-axis', rotation='vertical', va='bottom', ha='center', fontsize=20)
+
+#turn off axis
+ax.axis('off')
 
 # Show the plot
 plt.tight_layout()
+
+
+
+
+
+
+
 
 #save
 plt.savefig(__file__.split('.')[0] + '.png', dpi = 500, bbox_inches='tight')

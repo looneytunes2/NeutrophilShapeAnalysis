@@ -35,9 +35,9 @@ def get_sphericity(
         surf, #object surface area
         vol, #object volume
         ):
-    r = ((3*vol)/(4*math.pi)) ** (1/3)
-    SA = 4*math.pi*r
-    return SA/surf
+    # r = ((3*vol)/(4*math.pi)) ** (1/3)
+    # SA = 4*math.pi*r
+    return (np.pi**(1/3)*(6*vol)**(2/3))/surf #SA/surf
 
 
 ### angle between two vectors in degrees
@@ -258,7 +258,6 @@ def get_shcoeffs_mod(
     xyres: float,
     zstep: float,
     Euler_Angles: np.array,
-    exceptions_list: list,
     sigma: float = 0,
     normal_rotation_method: str = 'none',
     compute_lcc: bool = True,
@@ -358,6 +357,9 @@ def get_shcoeffs_mod(
         >>> Error: 2.3738182456948795
     """
 
+    #make an empty variable to return if there's no exceptions
+    exceptions_list = None
+
     if len(image.shape) != 3:
         raise ValueError(
             "Incorrect dimensions: {}. Expected 3 dimensions.".format(image.shape)
@@ -368,7 +370,7 @@ def get_shcoeffs_mod(
         warnings.warn(
             "No foreground voxels found. Is the input image empty?" + str(img_name)
         )
-        exceptions_list.extend(["No foreground voxels found. Is the input image empty?", img_name])
+        exceptions_list = ["No foreground voxels found.", img_name]
 
     # Binarize the input. We assume that everything that is not background will
     # be use for parametrization
@@ -525,10 +527,9 @@ def get_shcoeffs_mod(
         the mesh may not be a manifold suitable for spherical harmonics\
         parameterization." + str(img_name)
         )
-        exceptions_list.extend(["Mesh centroid seems to fall outside the object. This indicates\
-        the mesh may not be a manifold suitable for spherical harmonics\
-        parameterization.", img_name])
+        exceptions_list = ["Mesh centroid seems to fall outside the object", img_name]
 
+        
     # Get coordinates of mesh points
     coords = numpy_support.vtk_to_numpy(mesh.GetPoints().GetData())
     #get the centroid
@@ -627,7 +628,6 @@ def shcoeffs_and_PILR_nonuc(
         xyres: float,
         zstep: float,
         str_name: str,
-        exceptions_list: list,
         normal_rotation_method: str,
         l_order: int,
         nisos: int,
@@ -649,8 +649,6 @@ def shcoeffs_and_PILR_nonuc(
             Z step of the image
         normal_rotation_method : str
             "widest" is longest axis parallel to trajectory
-        exceptions_list : List
-            List to append names of images that cannot be represented well by SH
         str_name : str
             String detailing the name of the intracellular structure in the image
         l_order : int
@@ -766,7 +764,6 @@ def shcoeffs_and_PILR_nonuc(
             xyres = xyres/xyres, #use pixels and not microns because I'll need pixel dimensions for PILRs
             zstep = zstep/xyres,
             Euler_Angles = euler_angles,
-            exceptions_list = exceptions_list,
             sigma = sigma,
             normal_rotation_method = normal_rotation_method,
             )
@@ -955,7 +952,6 @@ def shcoeffs_and_PILR_nonuc(
             xyres = xyres,
             zstep = zstep,
             Euler_Angles = euler_angles,
-            exceptions_list = exceptions_list,
             sigma = sigma,
             normal_rotation_method = normal_rotation_method,
             )
@@ -1091,3 +1087,8 @@ def shcoeffs_and_PILR_nonuc(
     return Shape_Stats, exceptions_list
 
 
+
+#wrapper for shcoeffs_and_PILR_nonuc for imap
+def get_shcoeffs_and_PILR_nonuc(args):
+    Shape_Stats, exceptions_list = shcoeffs_and_PILR_nonuc(*args)
+    return Shape_Stats, exceptions_list

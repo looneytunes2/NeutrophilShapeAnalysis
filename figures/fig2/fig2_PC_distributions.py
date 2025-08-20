@@ -42,6 +42,9 @@ for i, ax in enumerate(axes):
     ax.set_yticks([])
 
 axes[-1].set_xlabel('PC Value', fontsize = 16)#, labelpad=-0.5)
+fig.suptitle('PC Distributions',fontsize = 13, y = 0.95)
+
+
 plt.tight_layout()
 
 plt.savefig(__file__.split('.')[0]+'.png', bbox_inches='tight', dpi=300)

@@ -22,6 +22,7 @@ from matplotlib.patches import Ellipse, Rectangle
 treatments = ['Random']
 time_interval = 10 #sec/frame
 whichpcs = [1,7]
+ntrans = 1
 
 #get directories and open separated datasets
 basedir = 'E:/Aaron/Combined_37C_Confocal_PCA_s5/'
@@ -41,7 +42,7 @@ centers = pd.read_csv(datadir+'PC_bin_centers.csv', index_col=0)
 
 ######## open all of the data
 ########### interpolate all transitions so that only individual transitions are made ###########
-transdf_sep = pd.read_csv(savedir+f'interpolated_PC{whichpcs[0]}-PC{whichpcs[1]}_transitions_separated.csv', index_col=0)
+transdf_sep = pd.read_csv(savedir+f'PC{whichpcs[0]}-PC{whichpcs[1]}_interpolated_transitions_separated.csv', index_col=0)
 #ensure that DMSO is the first in order
 transdf_sep['Treatment'] = pd.Categorical(transdf_sep.Treatment, categories=treatments, ordered=True)
 transdf_sep = transdf_sep.sort_values(by='Treatment')
@@ -51,14 +52,10 @@ trans_rate_df_sep = pd.read_csv(savedir+f'PC{whichpcs[0]}-PC{whichpcs[1]}_binned
 trans_rate_df_sep['Treatment'] = pd.Categorical(trans_rate_df_sep.Treatment, categories=treatments, ordered=True)
 trans_rate_df_sep = trans_rate_df_sep.sort_values(by='Treatment')
 ############# open average bootstrapped currents ###################
-bsfield_sep = pd.read_csv(savedir+f'PC{whichpcs[0]}-PC{whichpcs[1]}_bootstrapped_transitions_average_currents.csv', index_col=0)
+bsfield_sep = pd.read_csv(savedir+f'PC{whichpcs[0]}-PC{whichpcs[1]}_bootstrapped_{ntrans}_transitions_average_currents.csv', index_col=0)
 #ensure that DMSO is the first in order
 bsfield_sep['Treatment'] = pd.Categorical(bsfield_sep.Treatment, categories=treatments, ordered=True)
 bsfield_sep = bsfield_sep.sort_values(by='Treatment')
-
-
-########## PC1/PC7 transition with error ellipses oriented to PCs WITHOUT PC MESH SLICES ################
-
 
 
 # inverse scale for arrows
@@ -69,8 +66,11 @@ elldf = bsfield_sep.merge(trans_rate_df_sep,left_on = ['x','y'], right_on = ['x'
 
 
 
+
+########## PC1/PC7 transition with error ellipses oriented to PCs WITHOUT PC MESH SLICES ################
+
 fig, ax = plt.subplots(figsize=(10,10))
-cbar_ax = fig.add_axes([0.93, .2, .025, .6])
+cbar_ax = fig.add_axes([0.94, .188, .025, .661])
 
 ttot = transdf_sep.time_elapsed.sum()
 #make numpy array with heatmap data
@@ -132,6 +132,11 @@ for x in range(1,nbins+1):
                   color = 'white',
                     zorder = 3 * 5)
     
+   
+# #plot the origin dot
+# ax.scatter(7-0.5, 7-0.5, s = 200, color = '#4481e3', zorder=2)
+
+    
 
 #         print(x, x+(xcurrent.values*scale),y,  y+(ycurrent.values*scale))
 ax.set_xlabel('PC1', fontsize = 40)
@@ -151,23 +156,25 @@ cbar_ax.set_ylabel('Probability', fontsize = 32, rotation = -90, labelpad = 33)
 #legend background
 lxp = 0.25
 lyp = 0.25
-rect = Rectangle((lxp, lyp), 1.685, 1.685, linewidth=1, edgecolor='black', facecolor='#80858a')
+rect = Rectangle((lxp, lyp), 2.185, 2.185, linewidth=1, edgecolor='black', facecolor='#80858a')
 ax.add_patch(rect)
 rect.set_zorder(4 * 5)
 #x-axis legend arrow
-ax.quiver(lxp+0.5,lyp+0.5,1*scale,0,angles = 'xy',scale_units = 'xy',scale = scale,color = "white",zorder = 4 * 5)
+ax.quiver(lxp+0.6,lyp+0.6,1*scale,0,angles = 'xy',scale_units = 'xy',scale = scale,color = "white",zorder = 4 * 5)
 #x-axis legend text
 xsc = f'{(np.diff(centers.PC1.to_list()).mean()/time_interval)*scale:.1e}'
 xsc = xsc.split('e')[0] + 'x10$^{' +  str(int(xsc.split('e')[1])) + '}$'
-ax.text(lxp+0.25,lyp+0.05,xsc+' $s^{-1}$', color = 'white', fontsize = 11, fontweight = 'bold',zorder = 4 * 5)
+ax.text(lxp+0.3,lyp+0.05,xsc+' $s^{-1}$', color = 'white', fontsize = 10, fontweight = 'bold',zorder = 4 * 5)
 #y-axis legend arrow
-ax.quiver(lxp+0.5,lyp+0.5,0,1*scale,angles = 'xy',scale_units = 'xy',scale = scale,color = 'white',zorder = 4 * 5)
+ax.quiver(lxp+0.6,lyp+0.6,0,1*scale,angles = 'xy',scale_units = 'xy',scale = scale,color = 'white',zorder = 4 * 5)
 #y-axis legend text
 ysc = f'{(np.diff(centers.PC7.to_list()).mean()/time_interval)*scale:.1e}'
 ysc = ysc.split('e')[0] + 'x10$^{' +  str(int(ysc.split('e')[1])) + '}$'
-ax.text(lxp+0.075,lyp+0.3,ysc+' $s^{-1}$', rotation = 'vertical', color = 'white', fontsize = 11, fontweight = 'bold',zorder = 4 * 5)
+ax.text(lxp+0.075,lyp+0.36,ysc+' $s^{-1}$', rotation = 'vertical', color = 'white', fontsize = 10, fontweight = 'bold',zorder = 4 * 5)
 
-                  
 
 plt.tight_layout()
+
+
+
 plt.savefig(__file__.split('.')[0] + '.png', bbox_inches='tight', dpi =500)

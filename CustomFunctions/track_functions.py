@@ -983,10 +983,10 @@ def segment_nuc_tracks_confocal_40x_fromsingle(imname, shape, ip, step, frame):
     # smoothing with 2d gaussian filter 
     structure_img_smooth = image_smoothing_gaussian_3d(struct_img, sigma=gaussian_smoothing_sigma)
     # step 1: Masked-Object (MO) Thresholding
-    thresh_img, object_for_debug = MO(structure_img_smooth[:,:,:], global_thresh_method='tri', object_minArea=1000, return_object=True)
+    thresh_img, object_for_debug = MO(structure_img_smooth[:,:,:], global_thresh_method='tri', object_minArea=600, return_object=True)
 
 
-    minArea = 1000
+    minArea = 170
     seg = thresh_img > 0
     seg = remove_small_objects(seg>0, min_size=minArea, connectivity=1, in_place=False)
     seg = seg.astype(np.uint8)
@@ -1003,8 +1003,6 @@ def segment_nuc_tracks_confocal_40x_fromsingle(imname, shape, ip, step, frame):
         thebox = np.array(prop.bbox)*2
         cent = np.array(prop.centroid)*2
         area = np.array(prop.area)*4
-        convex_area = np.array(prop.convex_area)*4
-        extent = prop.extent
         major_axis_length = np.array(prop.major_axis_length)*2
         minor_axis_length = np.array(prop.minor_axis_length)*2
     
@@ -1015,7 +1013,7 @@ def segment_nuc_tracks_confocal_40x_fromsingle(imname, shape, ip, step, frame):
         data = {'cell':count, 'frame':frame, 'z_min':thebox[0], 'y_min':thebox[1], 
                 'x_min':thebox[2],'z_max':thebox[3], 'y_max':thebox[4], 'x_max':thebox[5],
                'z':cent[0]*step, 'y':cent[1]*ip, 'x': cent[2]*ip, 'z_range': img.shape[-3],
-               'area':area, 'convex_area':convex_area, 'extent':extent,
+               'area':area,
                'minor_axis_length':minor_axis_length, 'major_axis_length':major_axis_length,
                'intensity_avg':intval.mean(), 'intensity_max':intval.max(), 'intensity_std':intval.std()}
         dictlist.append(data)
@@ -1023,7 +1021,7 @@ def segment_nuc_tracks_confocal_40x_fromsingle(imname, shape, ip, step, frame):
     df = pd.DataFrame.from_dict(dictlist)
             
 
-    return df.values.tolist(), seg, frame, rescaled.shape
+    return df.values.tolist(), df.columns.to_list(), seg, frame, rescaled.shape
 
 
 

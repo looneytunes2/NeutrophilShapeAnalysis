@@ -20,7 +20,7 @@ from CustomFunctions import linear_cycle_utils
 treatments = ['Random']
 time_interval = 10 #sec/frame
 whichpcs = [1,7]
-origin = [7, 7]
+origin = [9, 9]
 binrange = 360/6
 direction = 'clockwise'
 zerostart = 'left'

@@ -31,7 +31,7 @@ xpos = np.linspace(-xval,xval,reconnum)
 binrange = list(range(1,reconnum+1))
 xarr = np.stack((binrange,xpos))
 
-perspectives = ['xy','xy','xz','xz','yz','xz','xy','xy']#,'xy','xy']
+perspectives = ['xy','xy','xz','xz','yz','xz','xz','xy']#,'xy','xy']
 
 # good pink color #ffaaff
 #aaaaff

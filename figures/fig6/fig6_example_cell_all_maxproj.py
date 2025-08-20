@@ -7,14 +7,6 @@ Created on Wed Mar 19 10:13:06 2025
 
 import numpy as np
 import matplotlib.pyplot as plt
-from pathlib import Path
-import os
-import pandas as pd
-from matplotlib import cm
-from scipy.spatial import distance
-from scipy import interpolate
-from matplotlib.colors import Normalize
-from aicssegmentation.core import pre_processing_utils
 import matplotlib.gridspec as gridspec
 from aicsimageio.readers.tiff_reader import TiffReader
 
@@ -50,6 +42,13 @@ yzmaxproj_bc = yzmaxproj_bc/maxval
 yzmaxproj_bc[yzmaxproj_bc>1] = 1
 
 
+#invert colors
+xymaxproj_bc = abs(xymaxproj_bc-1)
+xzmaxproj_bc = abs(xzmaxproj_bc-1)
+yzmaxproj_bc = abs(yzmaxproj_bc-1)
+
+
+
 # Create a figure
 fig = plt.figure()#figsize=(7, 7))
 # Create a GridSpec with 2 rows and 2 columns
@@ -73,24 +72,33 @@ ax3.imshow(xzmaxproj_bc, cmap='gray') #, extent = [0, cropim.shape[-1]*xyres, 0,
 
 ### add scale bars
 scalebar_length = 5 # um
-scalebar_x_displacement = im.shape[-1]-scalebar_length/resolution-8
-scalebar_y_displacement = im.shape[-2]-8
+scalebar_x_displacement = im.shape[-1]-scalebar_length/resolution-12
+scalebar_y_displacement = im.shape[-2]-16
 scalebar_z_displacement = im.shape[-3]-scalebar_length/resolution-8
 ax1.plot([scalebar_x_displacement+scalebar_length/resolution, scalebar_x_displacement],
         [scalebar_y_displacement, scalebar_y_displacement],
         lw = 3,
-        color = 'white',
+        color = 'black',
         zorder=1)
-ax2.plot([scalebar_z_displacement+scalebar_length/resolution, scalebar_z_displacement],
-        [scalebar_y_displacement, scalebar_y_displacement],
-        lw = 3,
-        color = 'white',
-        zorder=1)
-ax3.plot([scalebar_x_displacement+scalebar_length/resolution, scalebar_x_displacement],
-        [im.shape[-3]-8, im.shape[-3]-8],
-        lw = 3,
-        color = 'white',
-        zorder=1)
+#scalbar text
+ax1.text(scalebar_x_displacement+scalebar_length/resolution/2,
+        scalebar_y_displacement + 12,
+        f'{scalebar_length} μm',
+        color = 'black',
+        fontdict = {'fontsize': 9},
+        ha = 'center',
+        zorder = 1)
+
+# ax2.plot([scalebar_z_displacement+scalebar_length/resolution, scalebar_z_displacement],
+#         [scalebar_y_displacement, scalebar_y_displacement],
+#         lw = 3,
+#         color = 'white',
+#         zorder=1)
+# ax3.plot([scalebar_x_displacement+scalebar_length/resolution, scalebar_x_displacement],
+#         [im.shape[-3]-8, im.shape[-3]-8],
+#         lw = 3,
+#         color = 'white',
+#         zorder=1)
     
 
 ax1.axis('off')

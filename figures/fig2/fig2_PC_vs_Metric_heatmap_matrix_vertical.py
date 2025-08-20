@@ -41,9 +41,9 @@ metrics =  [['Cell_Volume','Cell_SurfaceArea','Volume_Front_Ratio','Volume_Right
             ['speed','directional_autocorrelation']
             ]
 
-labelz = [['Cell Volume (µm$^3$)','Cell Surface Area (µm$^2$)','Front-Back Volume Ratio','Right-Left Volume Ratio','Top-Bottom Volume Ratio','Cell Sphericity'],
-          ['Cell Major Axis Length (µm)','Cell Minor Axis Length (µm)','Aspect Ratio','Long-Axis X-Z Angle (°)','Long-Axis X-Y Angle (°)','Long-Axis Total Angle (°)','Length Along Trajectory (µm)'],
-          ['Instantaneous Speed (µm/sec)','Persistence']#,'Directional Autocorrelation',
+labelz = [['Cell Volume (µm$^3$)','Cell Surface\nArea (µm$^2$)','Front-Back Volume\nRatio','Right-Left Volume\nRatio','Top-Bottom Volume\nRatio','Cell Sphericity'],
+          ['Cell Major Axis\nLength (µm)','Cell Minor Axis\nLength (µm)','Aspect Ratio','Long-Axis X-Z\nAngle (°)','Long-Axis X-Y\nAngle (°)','Long-Axis Total\nAngle (°)','Length Along\nTrajectory (µm)'],
+          ['Instantaneous\nSpeed (µm/sec)','Persistence']#,'Directional Autocorrelation',
           ]
 #get PCs in order
 PCs = list(np.unique([re.search('PC\d*',x)[0] for x in TotalFrame.columns.to_list() if re.search('PC\d*',x) is not None]))
@@ -74,7 +74,7 @@ for i, m in enumerate(metrics):
     if  i == 0:
         ax.set_xticklabels(
             PCs,
-            fontsize = 34
+            fontsize = 28
         )
         ax.tick_params('x',top=True, labeltop=True, bottom=False, labelbottom=False ,length=6, width=3)
     else:
@@ -85,7 +85,7 @@ for i, m in enumerate(metrics):
         labelz[i],
         # rotation=45,
         # horizontalalignment='right',
-        fontsize = 34
+        fontsize = 28
     )
     
     
@@ -107,14 +107,15 @@ for i, m in enumerate(metrics):
     #     pos = ax.get_position()
     #     ax.set_position([pos.x0 - 0.3, pos.y0, pos.width, pos.height])
 
-cbar_ax = fig.add_axes([0.85, 0.192, 0.025, 0.607])  # [left, bottom, width, height]
+# cbar_ax = fig.add_axes([0.84, 0.3, 0.027, 0.30])  # [left, bottom, width, height]
+cbar_ax = fig.add_axes([0.211, 0.09, 0.603, 0.013]) 
+
 
 # Add the colorbar to the new axis
-cbar = fig.colorbar(axes[-1].collections[0], cax=cbar_ax)
-cbar.set_label('Pearson Coefficient', fontsize=34, rotation=-90, labelpad=30)
-print([str(x.get_position()[1]) for x in cbar.ax.get_yticklabels()])
-cbar.ax.set_yticklabels(np.linspace(-1,1,len(cbar.ax.get_yticklabels())).astype(str),fontsize=22)
-
+cbar = fig.colorbar(axes[-1].collections[0], cax=cbar_ax, orientation='horizontal')
+cbar.set_label('Pearson Coefficient', fontsize=28)
+cbar.ax.xaxis.set_label_position('bottom')
+cbar.ax.set_xticklabels(np.linspace(-1,1,len(cbar.ax.get_xticklabels())).astype(str),fontsize=22)
 
 
 plt.savefig(__file__.split('.')[0]+'.png', bbox_inches='tight', dpi=500)

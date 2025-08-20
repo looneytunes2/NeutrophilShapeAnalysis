@@ -63,12 +63,14 @@ maxval = 1000
 xymaxproj_bc = xymaxproj_bc/maxval
 xymaxproj_bc[xymaxproj_bc>1] = 1
 
+#invert the colors
+invert = abs(xymaxproj_bc - 1)
 
 
 
 fig, ax = plt.subplots(1,1, figsize=(10,10))
 #plot the actual image
-ax.imshow(xymaxproj_bc, cmap='gray', zorder = 0)
+ax.imshow(invert, cmap='gray', zorder = 0)
 
 #make the color map to interpolate with 
 cmap = cm.get_cmap('rainbow')
@@ -104,23 +106,24 @@ for i, cell in df.groupby('TRACK_ID'):
 ax.plot([scalebar_x_displacement-(scalebar_length/resolution), scalebar_x_displacement],
         [scalebar_y_displacement, scalebar_y_displacement],
         lw = 5,
-        color = 'white',
+        color = 'black',
         zorder=1)
 #scalbar text
 ax.text(scalebar_x_displacement-(scalebar_length/resolution)-13,
                     scalebar_y_displacement + 30,
                     f'{scalebar_length} μm',
-                    color = 'white',
+                    color = 'black',
                     fontdict = {'fontsize': 18},
                     zorder = 1)
 
 #box around cell of interest
 boxcolor = '#e34444'
+linewidth = 4
 cbox  = np.array([495,600,150,50])#left right bottom top
-ax.plot([cbox[0],cbox[0]],[cbox[2],cbox[3]], color = boxcolor)
-ax.plot([cbox[1],cbox[1]],[cbox[2],cbox[3]], color = boxcolor)
-ax.plot([cbox[0],cbox[1]],[cbox[2],cbox[2]], color = boxcolor)
-ax.plot([cbox[0],cbox[1]],[cbox[3],cbox[3]], color = boxcolor)   
+ax.plot([cbox[0],cbox[0]],[cbox[2],cbox[3]], lw = linewidth, color = boxcolor)
+ax.plot([cbox[1],cbox[1]],[cbox[2],cbox[3]], lw = linewidth, color = boxcolor)
+ax.plot([cbox[0],cbox[1]],[cbox[2],cbox[2]], lw = linewidth, color = boxcolor)
+ax.plot([cbox[0],cbox[1]],[cbox[3],cbox[3]], lw = linewidth, color = boxcolor)   
     
 # Turn off all spines and ticks
 ax.spines['top'].set_visible(False)
@@ -139,19 +142,19 @@ ax.tick_params(
 )
 
 #### colorbar stuff for the tracks
-cbar_ax = fig.add_axes([-0.01, 0.049, 0.018, 0.905]) #vertical
-# cbar_ax = fig.add_axes([0.25, 0.989, 0.5, 0.03]) #horizontal
+# cbar_ax = fig.add_axes([-0.02, 0.25, 0.024, 0.50]) #vertical
+cbar_ax = fig.add_axes([0.25, 0.989, 0.5, 0.03]) #horizontal
 cbar = plt.colorbar(plt.cm.ScalarMappable(cmap=cmap, norm=norm),
                        cax = cbar_ax,
                         ticks = np.linspace(0, track_length, int((track_length/6)+1)),
-                       orientation='vertical')
-cbar.ax.yaxis.set_ticks_position("left")
-cbar.ax.yaxis.set_label_position("left")
+                       orientation='horizontal')
+cbar.ax.xaxis.set_ticks_position("top")
+cbar.ax.xaxis.set_label_position("top")
 cbar.set_label("Time (min)", fontsize = 26, labelpad = 7)  # Label for colorbar
 # cbar.set_ticklabels([str(int(float(x.get_text())*time_interval/60)) for x in cbar.ax.yaxis.get_ticklabels()])
 cbar.set_ticks(np.arange(0, track_length+1, mesh_image_interval))
 cbar.set_ticklabels((np.arange(0, track_length+1, mesh_image_interval)*time_interval/60).astype('str'))
-cbar.ax.tick_params(axis="y", labelsize = 15)#pad=-1, , rotation=-45)
+cbar.ax.tick_params(axis="x", labelsize = 15)#pad=-1, , rotation=-45)
 
 plt.tight_layout()
 

@@ -9,7 +9,7 @@ import os
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
-
+import matplotlib.lines as mlines
 
 
 #get directories and open separated datasets
@@ -27,14 +27,11 @@ if not os.path.exists(savedir):
 FullFrame = pd.read_csv(datadir + 'All_Data_with_CGPS_bins.csv', index_col=0)
 #restrict dataframe to only random experiments
 TotalFrame = FullFrame[FullFrame.Treatment.isin(treatments)]
-#limit the dataframe to only tracks with at least 10 frames
-TotalFrame_filtered = TotalFrame[TotalFrame['CellID'].map(TotalFrame['CellID'].value_counts()) >= 10]
-
 
 
 ##### Cell Mean stats of interest COLORED BY Stdev ########
-soi = ['Cell_Volume','Cell_SurfaceArea','Cell_Aspect_Ratio','speed','directional_autocorrelation']
-ylabels = ['Cell Volume (µm$^3$)','Cell Surface Area (µm$^2$)', 'Cell Aspect Ratio','Instantaneous Speed (µm/s)','Persistence']#, 'Turn Angle (°)']
+soi = ['Cell_Volume','Cell_Aspect_Ratio','speed',]
+ylabels = ['Cell Volume (µm$^3$)','Cell Aspect Ratio','Instantaneous Speed (µm/s)']#, 'Turn Angle (°)']
 scale = len(soi)
 linewid = 2
 
@@ -43,7 +40,7 @@ linewid = 2
 fig, axes = plt.subplots(1,scale,figsize=(scale*4*0.45,4))
 for i, ax in enumerate(axes.flatten()):
     sns.violinplot(y=TotalFrame[soi[i]], color = '0.65',
-                   linewidth = linewid, inner = None, ax=ax, )
+                   linewidth = 0, inner = None, ax=ax, )
     ax.collections[0].set_edgecolor('black')
     sns.boxplot(y=TotalFrame[soi[i]], width = 0.15, color = 'white', 
                 showcaps=False, showfliers=False,
@@ -58,7 +55,7 @@ for i, ax in enumerate(axes.flatten()):
                     'color': 'black'
                     },
                 whiskerprops={
-                    'linewidth': linewid,
+                    'linewidth': 0,
                     'color': 'black'
                     },
                 capprops={
@@ -79,15 +76,25 @@ for i, ax in enumerate(axes.flatten()):
     ax.spines['right'].set_visible(False)
     #remove x tick
     ax.set_xticks([])
+    
+    #go all the way to zero
+    ax.set_ylim(min(0, ax.get_ylim()[0]), ax.get_ylim()[1])
+    
+#how many images data points are there
+imnum = fig.text(1.28/len(soi), 1, f'n = {len(TotalFrame)} images',
+        va='center', ha='center', fontsize=14)
+imnum_xpos = imnum.get_position()[0]
+imline = mlines.Line2D([imnum_xpos-0.18, imnum_xpos+0.18], [0.98, 0.98], color='black', lw=1,)
+fig.add_artist(imline)
+
 
 #how many images data points are there
-fig.text(1.55/5, 1, f'n = {len(TotalFrame)} images',
+intnum = fig.text(2.65/len(soi), 1, f'n = {len(TotalFrame.speed.dropna())} intervals',
         va='center', ha='center', fontsize=14)
+intnum_xpos = intnum.get_position()[0]
+intline = mlines.Line2D([intnum_xpos-0.1, intnum_xpos+0.1], [0.98, 0.98], color='black', lw=1,)
 
-#how many images data points are there
-fig.text(4.1/5, 1, f'n = {len(TotalFrame.speed.dropna())} intervals',
-        va='center', ha='center', fontsize=14)
-
+fig.add_artist(intline)
 
 
 plt.tight_layout()

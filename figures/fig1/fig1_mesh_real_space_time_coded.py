@@ -114,6 +114,18 @@ tube_display = Show(tube)
 tube_display.DiffuseColor = [0, 0, 0]
 
 
+# #label for scalebar
+# text_source = Text()
+# text_source.Text = '10 μm'  # Set the text content
+# # Create a text representation
+# text_display = GetRepresentation(text_source)
+# # Set the position in 3D space
+# text_display.WindowLocation = 'Any Location'
+# text_display.Position = [sx+(slen/2),sy-0.5]
+# text_display.FontSize = 150
+
+
+
 #change background to white
 paraview.simple._DisableFirstRenderCameraReset()
 LoadPalette(paletteName='WhiteBackground')

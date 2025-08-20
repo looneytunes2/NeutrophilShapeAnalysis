@@ -15,7 +15,7 @@ import matplotlib
 import matplotlib.patches as patches
 
 #get directories and open separated datasets
-fluxorigin = [7,7]
+fluxorigin = [9,9]
 binrange = 20
 bin_centers = np.arange(0, 360, binrange)
 bin_edges = np.unique([(round(b-binrange/2,4), round(b+binrange/2,4)) for b in bin_centers])
@@ -32,12 +32,11 @@ datadir = basedir + 'Data_and_Figs/'
 savedir = basedir + 'random/'
 if not os.path.exists(savedir):
     os.makedirs(savedir)
-    
-FullFrame = pd.read_csv(datadir + 'All_Data_with_CGPS_bins.csv', index_col=0)
-nbins = np.max(FullFrame[[x for x in FullFrame.columns.to_list() if 'bin' in x]].to_numpy())
+
+
 #open the centers of the binned PCs
 centers = pd.read_csv(datadir+'PC_bin_centers.csv', index_col=0)
-
+nbins = len(centers.iloc[:,0])
 
 
 
@@ -136,9 +135,9 @@ for i, bc in enumerate(bin_centers):
             tickcoords[i] = ur[maxy]
     
     ####### add tick coordinate to the correct tick list
-    if tickcoords[i][0] == 11:
+    if tickcoords[i][0] == nbins:
         rightticks.append([bclabels[i], tickcoords[i][1]])
-    elif tickcoords[i][1] == 11:
+    elif tickcoords[i][1] == nbins:
         topticks.append([bclabels[i], tickcoords[i][0]])
     elif tickcoords[i][0] == 0:
         leftticks.append([bclabels[i], tickcoords[i][1]])

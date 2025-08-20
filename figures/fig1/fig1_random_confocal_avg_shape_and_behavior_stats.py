@@ -33,8 +33,8 @@ TotalFrame_filtered = TotalFrame[TotalFrame['CellID'].map(TotalFrame['CellID'].v
 
 
 ##### Cell Mean stats of interest COLORED BY Stdev ########
-soi = ['Cell_Volume','Cell_SurfaceArea','Cell_Aspect_Ratio','speed','directional_autocorrelation']
-ylabels = ['Cell Volume (µm$^3$)','Cell Surface Area (µm$^2$)', 'Cell Aspect Ratio','Instantaneous Speed (µm/s)','Persistence']#, 'Turn Angle (°)']
+soi = ['Cell_Volume','Cell_Aspect_Ratio','speed']
+ylabels = ['Cell Volume (µm$^3$)', 'Cell Aspect Ratio','Instantaneous Speed (µm/s)']#, 'Turn Angle (°)']
 scale = len(soi)
 linewid = 2
 
@@ -43,27 +43,39 @@ linewid = 2
 fig, axes = plt.subplots(1,scale,figsize=(scale*4*0.45,4))
 for i, ax in enumerate(axes.flatten()):
     stat = TotalFrame_filtered[['CellID', soi[i]]].groupby('CellID').mean()  
-
-    sns.swarmplot(y = soi[i], data = stat, color = 'grey', size = 3.5, alpha = 0.5, ax = ax)
-    sns.boxplot(y = soi[i], data = stat, color = 'white', 
+    sns.swarmplot(y = soi[i], data = stat, color = 'grey', size = 3.5, alpha = 0.6, ax = ax, zorder = 1)
+    
+    #put the IQR box
+    sns.boxplot(y = soi[i], data = stat, width = 0.5,
                 boxprops={
                     'fill': False,
-                    'linewidth': linewid,
-                    'edgecolor': 'black'
+                    'linewidth': 1.5,
+                    'edgecolor': 'black',
+                    'zorder':2
                     },
                 medianprops={
-                    'linewidth': linewid,
+                    'linewidth': 1.5,
                     'color': 'black'
                     },
                 whiskerprops={
-                    'linewidth': linewid,
+                    'linewidth': 0,
                     'color': 'black'
                     },
                 capprops={
-                    'linewidth': linewid,
+                    'linewidth': 0,
                     'color': 'black'
                     },
-                showfliers=False, ax = ax)
+                showfliers=False, ax = ax, zorder=2)
+    
+    #draw the average line
+    allavg = TotalFrame[soi[i]].mean()
+    allavgline = ax.plot([-0.35,0.35],[allavg,allavg], lw = linewid, color = '#1581b0', label = 'Population Mean', zorder = 3)
+    #average of averages
+    avgavg = TotalFrame.groupby('CellID')[soi[i]].mean().mean()
+    avgavgline = ax.plot([-0.35,0.35],[avgavg,avgavg], lw = linewid, color = '#44e3d6', label = 'Average Track Mean', zorder = 3)
+    
+
+
     #tick stuff
     ax.set_ylabel(ylabels[i], fontsize = 16)#, labelpad=-0.5)
     ax.set_xlabel('')
@@ -74,9 +86,23 @@ for i, ax in enumerate(axes.flatten()):
     #set y limits
     ax.set_ylim(0, ax.get_ylim()[1])
 
-#how many images unique cells (data points) are there
-fig.text(0.5, 1, f'n = {len(TotalFrame_filtered.CellID.unique())} cells',
-        va='center', ha='center', fontsize=14)
+# #how many images unique cells (data points) are there
+# fig.text(0.5, 0.91, f'n = {len(TotalFrame_filtered.CellID.unique())} cells',
+#         va='center', ha='center', fontsize=10)
+    # ax.get_legend_handles_labels()
+
+### legend above plots
+handles, labels  = ax.get_legend_handles_labels()
+legend = fig.legend(handles,
+           labels,
+           loc='upper center',
+           ncol = 2,
+            bbox_to_anchor= (0.5,0.95),
+           frameon = False)
+
+
+fig.suptitle('Cell Track Means', fontsize=16)
+
 
 plt.tight_layout()
 

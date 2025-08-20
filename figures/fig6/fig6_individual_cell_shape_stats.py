@@ -19,8 +19,8 @@ savedir = basedir + 'random/'
 FullFrame = pd.read_csv(datadir + 'All_Data_with_CGPS_bins.csv', index_col = 0)
 
 
-metrics = ['Cell_Volume','Cell_SurfaceArea','Cell_Aspect_Ratio']
-labelz = ['Cell Volume (µm$^3$)','Cell Surface Area (µm$^2$)', 'Cell Aspect Ratio']
+metrics = ['Cell_Volume','Cell_Aspect_Ratio', 'speed','directional_autocorrelation']
+labelz = ['Cell Volume (µm$^3$)','Cell Aspect Ratio','Instantaneous Speed (µm/s)','Persistence']
 
 
 
@@ -31,20 +31,42 @@ set3 = plt.cm.Set3
 cmap = matplotlib.colors.ListedColormap(list(set3.colors)+[set2.colors[-2]] + [set1.colors[-1]])
 
 
-fig, axes = plt.subplots(1,len(metrics), figsize=(scale*len(metrics), scale))
+fig, axes = plt.subplots(2,2, figsize=(scale*len(metrics)/2, scale*2))
 
-for i, ax in enumerate(axes):
-    sns.boxplot(data = FullFrame, x = 'Treatment', y = metrics[i], hue = 'CellID', palette = cmap.colors, ax = ax)
+flierprops = dict(marker='.', markersize=1.5)
+linewid = 1
+for i, ax in enumerate(axes.flatten()):
+    sns.boxplot(data = FullFrame, x = 'CellID', y = metrics[i], palette = cmap.colors,
+                showcaps=False,
+                boxprops={
+                    'zorder': 2
+                    },
+                whiskerprops={
+                    'linewidth': 0,
+                    },
+                flierprops={
+                    'marker': '',
+                    },
+                ax=ax)
+    
+    
+    
+    sns.stripplot(data = FullFrame, x = 'CellID', y = metrics[i], jitter = False, color = 'gray',
+                  s = 1.2, alpha = 0.7, zorder = 1, ax = ax)
+    
     ax.legend_ = None
     ax.set_xlabel('')
     ax.set_xticks([])
     ax.set_xticklabels('')
     ax.set_ylabel(labelz[i], fontsize = 20)
     
-    #plot the average of the averages
-    avgs = FullFrame[['CellID',metrics[i]]].groupby('CellID').mean()
-    avgavg = avgs[metrics[i]].mean()
+    #plot the median of medians
+    avgs = FullFrame[['CellID',metrics[i]]].groupby('CellID').median()
+    avgavg = avgs[metrics[i]].median()
     ax.axhline(avgavg, ls = '--', color = 'black', alpha = 0.4)
+    
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
     
 plt.tight_layout()
 

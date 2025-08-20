@@ -34,7 +34,14 @@ if not os.path.exists(savedir):
 TotalFrame = FullFrame[FullFrame.Treatment=='Random'].copy()
 
 
-
+#manually define origins for all of the CGPSs
+allorigins = [[[8,6],[8,7],[9,8],[9,7],[9,7],[9,9],[9,9]],
+                [[8,8],[8,8],[8,8],[8,8],[8,9],[8,9]],
+                    [[7,8],[8,8],[8,8],[8,8],[8,8]],
+                        [[8,9],[8,8],[8,8],[7,9]],
+                            [[8,8],[8,8],[8,8]],
+                                [[6,8],[7,9]],
+                                    [[8,8]]]
 
 
 ########### ONE BIG DIAGONAL GRAPH OF ALL PC CGPS's ##############
@@ -45,17 +52,19 @@ binlist = [i for i in TotalFrame.columns.to_list() if 'bin' in i]
    
 fig, axes = plt.subplots(len(binlist),len(binlist), figsize = (40,40))
 
+# center = allorigins[int(xrow-1)][int(ycol-(2+xrow-1))]
+
 #single colorbar axis
 cbar_ax = fig.add_axes([.91, .303, .012, .376])
-for xrow, a in enumerate(binlist[::-1]):
-    for ycol, b in enumerate(binlist[::-1]):
+for xrow, a in enumerate(binlist):
+    for ycol, b in enumerate(binlist):
         bin1 = a.split('bin')[0]
         bin2 = b.split('bin')[0]
 
         ax = axes[int(bin1.split('PC')[-1])-1,int(bin2.split('PC')[-1])-1]
 
         if os.path.exists(savedir+ 'allCGPS/' +f'{bin1}-{bin2}_binned_transition_rates_separated.csv'):
-            transdf_sep = pd.read_csv(savedir+ 'allCGPS/' +f'interpolated_{bin1}-{bin2}_transitions_separated.csv', index_col=0)
+            transdf_sep = pd.read_csv(savedir+ 'allCGPS/' +f'{bin1}-{bin2}_interpolated_transitions_separated.csv', index_col=0)
             trans_rate_df_sep = pd.read_csv(savedir+ 'allCGPS/' +f'{bin1}-{bin2}_binned_transition_rates_separated.csv', index_col=0)
             print(f'Opened {bin1}-{bin2} transition rate files')
 
@@ -85,6 +94,7 @@ for xrow, a in enumerate(binlist[::-1]):
                 yticklabels = True,
                 ax = ax,
                 cbar=False,
+                zorder = 1
             )
 
             ######################### vector map of probability flux ################
@@ -100,7 +110,8 @@ for xrow, a in enumerate(binlist[::-1]):
                               angles = 'xy',
                               scale_units = 'xy',
                               scale = scale,
-                              color = 'white')
+                              color = 'white',
+                              zorder = 3)
 
 
             # axis label stuff
@@ -109,6 +120,12 @@ for xrow, a in enumerate(binlist[::-1]):
             ax.set_xlim(0,nbins+1)
             ax.set_ylim(0,nbins+1)
 
+
+            ##### draw a little blue dot for the origin
+            # if ycol!= 0:
+                
+            orig = allorigins[int(xrow)][int(ycol-(1+xrow))]
+            ax.scatter(orig[0]-0.5, orig[1]-0.5, s = 60, color = '#4481e3', zorder=2)
 
 
             if a == binlist[0]:
@@ -152,6 +169,8 @@ for xrow, a in enumerate(binlist[::-1]):
             print('remove this plot')
             ax.remove()
 
+
+
 #remove box around upper right plot
 axes[0,0].tick_params(left=False, bottom=False, labelleft=False, labelbottom=False)
 
@@ -160,7 +179,7 @@ cbar = fig.colorbar(axes[0, 1].collections[0], cax=cbar_ax)
 cbar.ax.yaxis.set_tick_params(labelsize=20)
 cbar.ax.yaxis.set_ticks_position("right")
 cbar.ax.yaxis.set_label_position("right")
-cbar.set_label("Probability", fontsize = 40, labelpad = 8, rotation=90)
+cbar.set_label("Probability", fontsize = 40, labelpad = 36, rotation=-90)
 #     plt.tight_layout() 
 plt.subplots_adjust(wspace=0.01, hspace=0.01)
 

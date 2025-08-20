@@ -150,7 +150,7 @@ def get_aer_state(
     #interpolate for smoothening
     tck, u = interpolate.splprep(np.array((cellnona.time.values,
                                            cellnona.aer.cumsum().values)),
-                                 s = 1, w = w)#k=1, s=2, w = w)
+                                 k=3, s = 1, w = w)#k=1, s=2, w = w)
     x, y = interpolate.splev(u, tck, der=0)
     #get the derivative of the smoothened curve
     deriv = np.gradient(y, x)
@@ -163,3 +163,25 @@ def get_aer_state(
     cell.loc[cellnona.index,'aer_state'] = statethresh
 
     return cell, tck, w
+
+
+#### bootstrap a confidence interval similar to seaborn
+def bs_ci(values, #distribution to sample from
+          iterations = 1000, #how many times to sample
+          ):
+    
+    if type(values) != np.ndarray:
+        values = np.array(values)
+    #remove nan
+    values = values[~np.isnan(values)]
+    leng = len(values)
+    iters = np.zeros((iterations))
+    for i in range(iterations):
+        sample_inds = np.random.randint(0,leng,leng)
+        sample = values[sample_inds]
+        iters[i] = sample.mean()
+    #calculate 95% percentile interval
+    lower = np.percentile(iters, 2.5)
+    upper = np.percentile(iters, 97.5)
+    
+    return lower, upper

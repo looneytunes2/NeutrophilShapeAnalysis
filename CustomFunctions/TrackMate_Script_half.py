@@ -1,4 +1,6 @@
-#adapted from https://imagej.net/plugins/trackmate/scripting
+### adapted from https://imagej.net/plugins/trackmate/scripting
+### tracks objects in segmented movies
+
 
 import sys
 import os

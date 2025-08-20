@@ -22,7 +22,7 @@ from CustomFunctions.track_functions import segment_caax_tracks_confocal_40x_fro
 from CustomFunctions.file_management import multicsv
 from CustomFunctions.PILRagg import read_pilr_regions
 from CustomFunctions.utils import get_consecutive_timepoints
-
+from tqdm import tqdm
 
 
 # Function to find Angle
@@ -158,29 +158,21 @@ def segment_and_crop(
         df_track = pd.concat([tm.drop(columns=['POSITION_X','POSITION_Y','POSITION_Z']), 
                             rp.iloc[ii].drop(columns=['frame','x','y','z', 'cell']).reset_index(drop=True)], axis=1)
         df_track = df_track.rename(columns={'TRACK_ID':'cell', 'FRAME':'frame'})
+    
+        
+        ###### get distance travelled
         #sort by cell and frame
         df_track = df_track.sort_values(['cell','frame'])
+        #calculate distance
+        posdiff = df_track[['x','y','z']].diff()
+        df_track['dist'] = np.sqrt(posdiff.x**2 + posdiff.y**2 + posdiff.x**2)    
+        #reset distances for any frame gaps
+        df_track.loc[df_track.frame.diff()!=1,'dist'] = 0
     
     
-    
-        #############find distance travelled##################
-        longdistmatrix = distance.pdist(df_track[['x','y','z']])
-        shortdistmatrix = distance.squareform(longdistmatrix)
-        shortdistmatrix = np.array(shortdistmatrix)
-        dist = pd.Series([], dtype = 'float64')
-        for count, i in enumerate(shortdistmatrix):
-            if count == 0:
-                temp = pd.Series([0])
-                dist = dist.append(temp, ignore_index=True)
-            else:
-                temp = pd.Series(shortdistmatrix[count,count-1])
-                dist = dist.append(temp, ignore_index=True)
-        df_track = df_track.reset_index(drop = True)
-        df_track['dist'] = dist
-        #     #first rows that have super long distances from previous cell, so set them to 0
-        #     df_track.loc[df_track.groupby('cell').head(1).index,'dist'] = 0
-    
-        ############ replace unrealistic jumps in distance ##############
+        ############ replace unrealistic jumps in distance so
+        ############ they don't throw off the euclidean filter too badly
+        ############ speed jumps will be filtered later
         for x in df_track[df_track.dist>4].index.values:
             df_track.loc[x,'dist'] = df_track.dist.mean()
     
@@ -193,14 +185,6 @@ def segment_and_crop(
         cellsmorethan = euclid.loc[euclid['euc_dist']>10, 'cell']
         df_track = df_track[df_track.cell.isin(cellsmorethan)]
     
-        #     ########remove "slow"/dead cells############
-        #     #sum distances
-        #     df_track_distsums = df_track.groupby('cell').sum()
-        #     df_track_distsums = df_track_distsums.add_suffix('_sum').reset_index()
-    
-        #     #grab only cells with sums above a threshold distance
-        #     cellsmorethan = df_track_distsums.loc[df_track_distsums['dist_sum']>5, 'cell']
-        #     df_track = df_track[df_track.cell.isin(cellsmorethan)]
     
     
         ########remove edge cells############
@@ -218,35 +202,6 @@ def segment_and_crop(
         df_track = df_track[df_track['area'] > 4000 ]
         #reset index after dropping all the rows
         df_track = df_track.reset_index(drop = True)
-    
-    
-        # ######## remove cells that touch ###########    
-        # to_remove = []
-        # for i, cell in df_track.groupby('cell'):
-        #     if i>0:
-        #         changes = abs(cell['convex_area'].pct_change())
-        #         largerthan = changes[changes>0.75]
-        #         if largerthan.empty == False:
-        #             to_remove.extend(largerthan.index.to_list())
-    
-    
-                # changes = cell['convex_area'].diff()
-                # largerthan = changes[changes>cell['convex_area']*0.333]
-                # smallerthan = changes[changes<cell['convex_area']*-0.333]
-                # print(largerthan.index,smallerthan.index)
-                # #remove all frames of a cell after it contacts another cell
-                # if largerthan.empty == False:
-                #     for n in largerthan.index:
-                #         to_remove.append(list(range(n, max(cell.index)+1)))
-                # #remove all frames of a cell before it splits from another cell
-                # if smallerthan.empty == False:
-                #     for n in smallerthan.index:
-                #         to_remove.append(list(range(cell.index[0], n-1)))
-        # #remove duplicate indicies
-        # to_remove = [j for x in to_remove for j in x]
-        # to_remove = list(set(to_remove))
-        #drop touching or splitting cells
-        # df_track = df_track.drop(to_remove)
     
     
     
@@ -291,11 +246,12 @@ def segment_and_crop(
                 results = [r.get() for r in results]
                 #make sure there's no None results from failed segmentations
                 results = [x for x in results if x!=None]
-                #aggregate the dataframe
-                df = pd.DataFrame(results).sort_values(by = 'frame').reset_index(drop=True)
-                #add cell ID before saving
-                df['CellID'] = [df.cell.iloc[0].split('_frame')[0]]*len(df)
-                df.to_csv(posdir+df.cell.iloc[0].split('_frame')[0]+'_cellpos.csv')
+                if len(results)>0:
+                    #aggregate the dataframe
+                    df = pd.DataFrame(results).sort_values(by = 'frame').reset_index(drop=True)
+                    #add cell ID before saving
+                    df['CellID'] = [df.cell.iloc[0].split('_frame')[0]]*len(df)
+                    df.to_csv(posdir+df.cell.iloc[0].split('_frame')[0]+'_cellpos.csv')
 
 
 
@@ -559,80 +515,65 @@ def seg_to_mesh(
     datalist = [x.split('_cell_info.csv')[0] for x in os.listdir(csvdir)]
     imlist = [x for x in os.listdir(imdir) if x.endswith('segmented.tiff') and x.split('_segmented.tiff')[0] in datalist]
     
-    errorlist = []
-    start = 0
-    stop = 300
-    allresults = []
-    while start<len(imlist):
-        print(f'Finished {start}, starting {start}-{stop}')
-        results = []
-        pool = multiprocessing.Pool(processes=60)
-        for i in imlist[start:stop]:
-            
-            #choose structure name based on file name
-            if 'actin' in i:
-                str_name = 'actin'
-            elif ('Hoechst' in i) or ('DNA' in i):
-                str_name = 'nucleus'
-            elif 'myosin' in i:
-                str_name = 'myosin'
-            else:
-                str_name = ''
-            
-            #assign the normal rotation value for that particular cell
-            if (norm_rot == 'provided') or (type(norm_rot) == float):
+    mapargs = []
+    for i in imlist:
+        
+        #choose structure name based on file name
+        if 'actin' in i:
+            str_name = 'actin'
+        elif ('Hoechst' in i) or ('DNA' in i):
+            str_name = 'nucleus'
+        elif 'myosin' in i:
+            str_name = 'myosin'
+        else:
+            str_name = ''
+        
+        #assign the normal rotation value for that particular cell
+        if (norm_rot == 'provided') or (type(norm_rot) == float):
 #                 try:
-                norm_rot = float(widthpeaks[widthpeaks.cell == i.split('_segment')[0]]['Closest_minimums'].values[0])
+            norm_rot = float(widthpeaks[widthpeaks.cell == i.split('_segment')[0]]['Closest_minimums'].values[0])
 #                 #exception for if 
 #                 except:
 #                     norm_rot = 'widest weighted'
-                    
-            #put in the pool
-            result = pool.apply_async(shparam_mod.shcoeffs_and_PILR_nonuc, args = (
-                imdir+i,
-                savedir,
-                xyres,
-                zstep,
-                str_name,
-                errorlist,
-                norm_rot,
-                l_order,
-                nisos,
-                pilr_method,
-                sigma,
-                align_method,
-                ))
-            results.append(result)
-        pool.close()
-        pool.join()
-        #get results and append to the larger results list
-        results = [r.get() for r in results]
-        allresults.extend(results)
-        
-        start = stop + 1
-        stop = stop + 1000
-        if stop>len(imlist):
-            stop = len(imlist)
-    
+                
+        #append unique args to list
+        mapargs.append((
+            imdir+i,
+            savedir,
+            xyres,
+            zstep,
+            str_name,
+            norm_rot,
+            l_order,
+            nisos,
+            pilr_method,
+            sigma,
+            align_method,
+            ))
+
+    #parallel processing for all segmented images
+    with multiprocessing.Pool(processes=60) as pool:
+        results = list(tqdm(pool.imap(shparam_mod.get_shcoeffs_and_PILR_nonuc, mapargs), total=len(mapargs)))
+
+    #organize results
     errorlist = []
-    bigdf = []
-    for r in allresults:
-        
-        #extend list with all of the shape stats
-        Shape_Stats = pd.DataFrame([r[0].values()],
-                                      columns = list(r[0].keys()))
-        bigdf.append(Shape_Stats)
-        #extend list with cells that had warnings when getting shcoeffs
-        errorlist.extend(r[1])
+    dflist = []
+    for r in results:
+        dflist.append(r[0])
+        #get list with cells that had warnings when getting shcoeffs
+        if r[1]:
+            errorlist.append(r[1])
     
     
     #save the shape metrics dataframe
-    bigdf = pd.concat(bigdf).reset_index(drop=True)
+    bigdf = pd.DataFrame(dflist)
     bigdf.to_csv(datadir + f'Shape_Metrics_{mindir.split("/")[-2]}.csv')
-
+    
     #save list of cells that don't have centroid in shape
-    pd.Series(errorlist).to_csv(datadir + f'ListToExclude_{mindir.split("/")[-2]}.csv')
+    errordf = pd.DataFrame(errorlist, columns = ['reason','cell'])
+    errordf.to_csv(datadir + f'ListToExclude_{mindir.split("/")[-2]}.csv')
 
+    
 
 
 

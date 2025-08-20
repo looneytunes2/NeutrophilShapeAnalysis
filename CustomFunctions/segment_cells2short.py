@@ -40,16 +40,20 @@ from vtk.util import numpy_support
 
 
 
-def MM_slicetostack_reader(direct, time, shape, rang):
+def MM_slicetostack_reader(direct, #directory of the image slices
+                           frame, #which image frame to open
+                           shape, #shape of a single frame in czyx
+                           zrange, #iterable with all the z slices to include
+                           ):
     if len(shape)>3:
         ch = shape[0]
-        full = np.zeros((ch, len(rang), shape[-2], shape[-1]), dtype=np.uint16)
+        full = np.zeros((ch, len(zrange), shape[-2], shape[-1]), dtype=np.uint16)
     else:
         ch = 1
-        full = np.zeros((len(rang), shape[-2], shape[-1]), dtype=np.uint16)
+        full = np.zeros((len(zrange), shape[-2], shape[-1]), dtype=np.uint16)
     for c in range(ch):
-        for i, z in enumerate(rang):
-            full[i,:,:] = TiffReader(direct+f'img_channel{c:03}_position000_time{time:09}_z{z:03}.tif').data
+        for i, z in enumerate(zrange):
+            full[i,:,:] = TiffReader(direct+f'img_channel{c:03}_position000_time{frame:09}_z{z:03}.tif').data
     return full
 
 
@@ -1117,68 +1121,77 @@ def segment_cells_rotafter_memonly(
     # segment cropped image
     seg_rimg = segment_caax_norot(raw_img)
     
-
-    #get intensity features
-    mem_feat = get_intensity_features(raw_img, seg_rimg)
-    mem_keylist = [x for x in list(mem_feat) if not x.endswith('lcc')]
-
-
-    #crop the segmented image
-    im_labeled, n_labels = skimage.measure.label(
-                              seg_rimg, background=0, return_num=True)
-    im_props = skimage.measure.regionprops(im_labeled)
+    #only continue to process image if the segmentation doesn't touch the
+    #image border
+    if not(np.any(seg_rimg[0, :, :] > 0) or
+           np.any(seg_rimg[-1, :, :] > 0) or
+           np.any(seg_rimg[:, 0, :] > 0) or
+           np.any(seg_rimg[:, -1, :] > 0) or
+           np.any(seg_rimg[:, :, 0] > 0) or
+           np.any(seg_rimg[:, :, -1] > 0)
+           ):
+        
+        #get intensity features
+        mem_feat = get_intensity_features(raw_img, seg_rimg)
+        mem_keylist = [x for x in list(mem_feat) if not x.endswith('lcc')]
     
     
+        #crop the segmented image
+        im_labeled, n_labels = skimage.measure.label(
+                                  seg_rimg, background=0, return_num=True)
+        im_props = skimage.measure.regionprops(im_labeled)
+        
+        
+        
+        #get original centroids
+        cent = im_props[0].centroid
     
-    #get original centroids
-    cent = im_props[0].centroid
-
-    #SAVE SEGMENTED IMAGE
-    out=seg_rimg.astype(np.uint8)
-    out[out>0]=255
+        #SAVE SEGMENTED IMAGE
+        out=seg_rimg.astype(np.uint8)
+        out[out>0]=255
+        
+        
+        # remove file if it already exists
+        seg_file = savedir + cell_name + '_segmented.tiff'
+        if os.path.exists(seg_file):
+            os.remove(seg_file)
+        OmeTiffWriter.save(out, seg_file, dimension_order = "CZYX")
+        
+       
+        #SAVE THE RAW IMAGE
+        raw_file = savedir + cell_name + '_raw.tiff'
+        if os.path.exists(raw_file):
+            os.remove(raw_file)
+        OmeTiffWriter.save(raw_img, raw_file, dimension_order = "CZYX")
+        
+        
     
-    
-    # remove file if it already exists
-    seg_file = savedir + cell_name + '_segmented.tiff'
-    if os.path.exists(seg_file):
-        os.remove(seg_file)
-    OmeTiffWriter.save(out, seg_file, dimension_order = "CZYX")
-    
-   
-    #SAVE THE RAW IMAGE
-    raw_file = savedir + cell_name + '_raw.tiff'
-    if os.path.exists(raw_file):
-        os.remove(raw_file)
-    OmeTiffWriter.save(raw_img, raw_file, dimension_order = "CZYX")
-    
-    
-
-    
-    #Append shape metrics to dataframe
-    data = {'image': image_name,
-                    'cell': cell_name,
-                    'structure': 'none',
-                    'frame': temp_df.frame,
-                    'x':(cent[2]+croparr[0])*xyres, #centroid within the big image in microns
-                    'y':(cent[1]+croparr[2])*xyres, #centroid within the big image in microns
-                    'z':(cent[0]+croparr[4])*zstep,#centroid within the big image in microns
-                    'xmincrop': croparr[0],
-                    'ymincrop': croparr[2],
-                    'zmincrop': croparr[4],
-                    'xmaxcrop': croparr[1],
-                    'ymaxcrop': croparr[3],
-                    'zmaxcrop': croparr[5],
-                    'cell': cell_name,
-                   'Cell_'+mem_keylist[0]: mem_feat[mem_keylist[0]],
-                   'Cell_'+mem_keylist[1]: mem_feat[mem_keylist[1]],
-                   'Cell_'+mem_keylist[2]: mem_feat[mem_keylist[2]],
-                   'Cell_'+mem_keylist[3]: mem_feat[mem_keylist[3]],
-                   'Cell_'+mem_keylist[4]: mem_feat[mem_keylist[4]],
-                   'Cell_'+mem_keylist[5]: mem_feat[mem_keylist[5]]
-                    }
-    
-    
-    return data 
+        
+        #Append shape metrics to dataframe
+        data = {'image': image_name,
+                        'cell': cell_name,
+                        'structure': 'none',
+                        'frame': temp_df.frame,
+                        'x':(cent[2]+croparr[0])*xyres, #centroid within the big image in microns
+                        'y':(cent[1]+croparr[2])*xyres, #centroid within the big image in microns
+                        'z':(cent[0]+croparr[4])*zstep,#centroid within the big image in microns
+                        'xmincrop': croparr[0],
+                        'ymincrop': croparr[2],
+                        'zmincrop': croparr[4],
+                        'xmaxcrop': croparr[1],
+                        'ymaxcrop': croparr[3],
+                        'zmaxcrop': croparr[5],
+                        'cell': cell_name,
+                       'Cell_'+mem_keylist[0]: mem_feat[mem_keylist[0]],
+                       'Cell_'+mem_keylist[1]: mem_feat[mem_keylist[1]],
+                       'Cell_'+mem_keylist[2]: mem_feat[mem_keylist[2]],
+                       'Cell_'+mem_keylist[3]: mem_feat[mem_keylist[3]],
+                       'Cell_'+mem_keylist[4]: mem_feat[mem_keylist[4]],
+                       'Cell_'+mem_keylist[5]: mem_feat[mem_keylist[5]]
+                        }
+        
+        
+        return data 
 
 
 
