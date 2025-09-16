@@ -146,14 +146,12 @@ ax.tick_params(
 cbar_ax = fig.add_axes([0.25, 0.989, 0.5, 0.03]) #horizontal
 cbar = plt.colorbar(plt.cm.ScalarMappable(cmap=cmap, norm=norm),
                        cax = cbar_ax,
-                        ticks = np.linspace(0, track_length, int((track_length/6)+1)),
+                        ticks = np.linspace(0, len(frame_range), int((track_length/3)+1)),
                        orientation='horizontal')
 cbar.ax.xaxis.set_ticks_position("top")
 cbar.ax.xaxis.set_label_position("top")
 cbar.set_label("Time (min)", fontsize = 26, labelpad = 7)  # Label for colorbar
-# cbar.set_ticklabels([str(int(float(x.get_text())*time_interval/60)) for x in cbar.ax.yaxis.get_ticklabels()])
-cbar.set_ticks(np.arange(0, track_length+1, mesh_image_interval))
-cbar.set_ticklabels((np.arange(0, track_length+1, mesh_image_interval)*time_interval/60).astype('str'))
+cbar.set_ticklabels(np.arange(-((len(cbar.ax.xaxis.get_major_ticks())/2)-0.5), 0.5, 0.5).astype('str'))
 cbar.ax.tick_params(axis="x", labelsize = 15)#pad=-1, , rotation=-45)
 
 plt.tight_layout()

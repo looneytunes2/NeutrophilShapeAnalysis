@@ -12,12 +12,16 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from scipy import stats
 from matplotlib.lines import Line2D
+from statsmodels.stats.multicomp import pairwise_tukeyhsd
+
+
 
 treatments = ['Random','Galvanotaxis']
 time_interval = 10 #sec/frame
 whichpcs = [1,7]
-vmin = -3 #lower bound for heatmap 
-vmax = 3 #upper bound for heatmap 
+origin = [9,9] #origin of flux in the full-sized CGPS
+vmin = -1.5 #lower bound for heatmap 
+vmax = 1.5 #upper bound for heatmap 
 
 
 #get directories and open separated datasets
@@ -29,7 +33,7 @@ savedir = [basedir + 'galv/', basedir + 'random/']
 centers = pd.read_csv(datadir+'PC_bin_centers.csv', index_col=0)
 nbins = len(centers.iloc[:,0])
 #trim bins outside 2 std
-bintrim = 2
+bintrim = 3
 nbins_trim = nbins - 2*bintrim
 
 ######## open all of the data
@@ -93,11 +97,11 @@ ax.invert_yaxis()
 #get rid of tick labels
 ax.set_xticks([])
 ax.set_yticks([])
-ax.set_xticks(np.arange(0.5,nbins_trim+0.5)[[0,(round(nbins_trim/2)-1),-1]])
-ax.set_xticklabels([round(centers.iloc[bintrim:nbins-bintrim].PC1.iloc[x],1) for x in [0,int(round(nbins_trim/2)-1), int(nbins_trim-1)]],
+ax.set_xticks(np.arange(0.5,nbins_trim+0.5)[[0,nbins_trim//2,-1]])
+ax.set_xticklabels([round(centers.PC1.iloc[x+bintrim],1) for x in [0,nbins_trim//2, int(nbins_trim-1)]],
                    fontsize = 14)
-ax.set_yticks(np.arange(0.5,nbins_trim+0.5)[[0,(round(nbins_trim/2)-1),-1]])
-ax.set_yticklabels([round(centers.iloc[bintrim:nbins-bintrim].PC7.iloc[x],1) for x in [0,int(round(nbins_trim/2)-1), int(nbins_trim-1)]],
+ax.set_yticks(np.arange(0.5,nbins_trim+0.5)[[0,nbins_trim//2,-1]])
+ax.set_yticklabels([round(centers.PC7.iloc[x+bintrim],1) for x in [0,nbins_trim//2, int(nbins_trim-1)]],
                    fontsize = 14)
 #set axis titles
 ax.set_xlabel(f'PC{whichpcs[0]}', fontsize = 24)
@@ -120,6 +124,73 @@ plt.tight_layout()
 
 
 plt.savefig(__file__.split('.')[0] + '.png', dpi = 500, bbox_inches='tight')
+
+
+
+
+
+####### Get the quadrant info
+ori_adj = np.array(origin) - bintrim
+
+d = differences.copy()
+c = countmap[1]
+orix = ori_adj[0]
+oriy = ori_adj[1]
+
+#empty dataframe
+quad = []
+quad.append({'quadrant':['upperleft']*(len(d[oriy:,:orix].flatten())),
+              'diffs': d[oriy:,:orix].flatten(),
+              'counts': c[oriy:,:orix].flatten()})
+quad.append({'quadrant':['upperright']*(len(d[oriy:,orix:].flatten())),
+              'diffs': d[oriy:,orix:].flatten(),
+              'counts': c[oriy:,orix:].flatten()})
+quad.append({'quadrant':['lowerright']*(len(d[:oriy,orix:].flatten())),
+              'diffs': d[:oriy,orix:].flatten(),
+              'counts': c[:oriy,orix:].flatten()})
+quad.append({'quadrant':['lowerleft']*(len(d[:oriy,:orix].flatten())),
+              'diffs': d[:oriy,:orix].flatten(),
+              'counts': c[:oriy,:orix].flatten()})
+quaddf = pd.concat([pd.DataFrame(x) for x in quad])
+
+print(stats.f_oneway(*[q.diffs.to_list() for _, q in quaddf.groupby('quadrant')]))
+tukey = pairwise_tukeyhsd(endog=quaddf.diffs.values, groups=quaddf.quadrant.values, alpha=0.05)
+tukey_df = pd.DataFrame(
+    data=tukey._results_table.data[1:], 
+    columns=tukey._results_table.data[0] 
+)
+
+
+# #### start building the figure
+# fig, ax = plt.subplots(1,1,figsize=(3,5))
+# sns.stripplot(data = quaddf, x = 'quadrant', y = 'diffs', ax = ax)
+
+# #set title
+# ax.set_title([x[:11]+'\n'+x[11:] if x == 'Para-Nitro-Blebbistatin' else x for x in treatments][int(i+1)])#, fontsize = 32)
+
+
+# #plot significance stars
+# ticklabels = [x.get_text() for x in ax.xaxis.get_ticklabels()]
+# slv = 0 #star level
+# ymin, ymax = ax.get_ylim()
+# for r, row in tukey_df[tukey_df.reject].iterrows():
+#     print('star')
+#     pstar = get_stars(row['p-adj'])
+#     xp = np.sort(np.array([ticklabels.index(row.group1),ticklabels.index(row.group2)]))
+#     starinc = (ymax-ymin)*0.02 if pstar == 'n.s.' else (ymax-ymin)*0.001
+#     barinc = (ymax-ymin)*0.08
+#     #star
+#     nsfs = 10 if pstar=='n.s.' else 12
+#     # ax.text(xp.mean(), ymax+starinc, pstar, fontsize = nsfs, ha='center')
+#     ax.text(xp.mean(), ymax+(barinc*slv), pstar, fontsize = nsfs, ha='center')
+#     #bar
+#     ax.plot([xp[0]+0.1,xp[1]-0.1], [ymax+(barinc*slv),ymax+(barinc*slv)], color = 'black')
+
+#     slv = slv+1
+
+# plt.tight_layout()
+
+# plt.savefig(__file__.split('.')[0] + '_quadrants.png', dpi = 500, bbox_inches='tight')
 
 
 
@@ -168,7 +239,7 @@ ax.plot([weightedmeans[0]]*2,[-0.33,0.33], c='black')
 
 
 #add ns to plot
-ax.text(2.7, 0, 'n.s.', fontsize = 10, ha = 'center')
+ax.text(0,0.55, 'n.s.', fontsize = 10, ha = 'center')
 
 
 #line at zero
@@ -176,8 +247,8 @@ ax.axvline(0,-1,2, color = '0.7', ls = '--', zorder = 1)
 
 #adjust plot limits to center 0
 ax.set_ylim(-0.5,0.5)
-ax.set_xlim(-3,3)
-ax.set_xticks([-3,-2,-1,0,1,2,3])
+ax.set_xlim(vmin,vmax)
+# ax.set_xticks([-3,-2,-1,0,1,2,3])
 
 
 ax.set_yticks([0])

@@ -31,12 +31,11 @@ if not os.path.exists(shapefold):
 
 #open actual data
 df = pd.read_csv(datadir + 'All_Data_with_CGPS_bins.csv', index_col=0)
-nbins = np.max(df[[x for x in df.columns.to_list() if 'bin' in x]].to_numpy())
 #open the centers of the binned PCs
 centers = pd.read_csv(datadir+'PC_bin_centers.csv', index_col=0)
 TotalFrame = df[df.Treatment=='Random'].copy()
 
-shapefold = 'C:/Users/Aaron/NeutrophilShapeAnalysis/figures/figs2/PC1-PC7_Cycle_AllSHCoeff_Visualization/Random'
+# shapefold = 'C:/Users/Aaron/NeutrophilShapeAnalysis/figures/figs2/PC1-PC7_Cycle_AllSHCoeff_Visualization/Random'
 
 cycleshapes = [x for x in os.listdir(shapefold) if '.vtp' in x]
 cycleshapes.sort(key=lambda x: float(re.findall('(?<=frame_)\d*', x)[0]))

@@ -13,6 +13,10 @@ time_interval = 10
 meshframes = np.arange(66, 92,3)
 #get the discrete times in minutes
 times = (meshframes-meshframes.min())*time_interval/60
+#get the time reversed as strings
+timelabels = -times[::-1]
+timelabels[timelabels == 0] = 0
+#define colorscale boundaries
 boundaries = np.linspace(0,times.max(),len(times)+1)
 tick_locs = (boundaries[:-1] + boundaries[1:]) / 2  # centers
 
@@ -32,7 +36,7 @@ cbar = fig.colorbar(matplotlib.cm.ScalarMappable(norm=norm, cmap=cmap),
 
 cbar.set_label('Time (min)', fontsize=26)
 cbar.ax.xaxis.set_label_position('bottom')
-cbar.ax.set_xticklabels(times,fontsize=16)
+cbar.ax.set_xticklabels(timelabels,fontsize=16)
 
 
 

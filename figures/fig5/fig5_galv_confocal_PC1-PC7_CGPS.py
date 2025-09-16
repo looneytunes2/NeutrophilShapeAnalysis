@@ -34,7 +34,7 @@ if not os.path.exists(savedir):
 
 #open the centers of the binned PCs
 centers = pd.read_csv(datadir+'PC_bin_centers.csv', index_col=0)
-nbins = len(centers.iloc[:,0])
+nbins = centers.shape[0]
 
 
 
@@ -101,20 +101,7 @@ for x in range(1,nbins+1):
         xcurrent = (current.x_plus_rate - current.x_minus_rate)/2
         ycurrent = (current.y_plus_rate - current.y_minus_rate)/2
 
-        ell = Ellipse(xy=(x-0.5+(xcurrent.values*(1/scale)),y-0.5+(ycurrent.values*(1/scale))),
-                width=np.sqrt(abs(current.eval1)*(1/scale)) if current.evec1x.values[0] == 1 else np.sqrt(abs(current.eval2)*(1/scale)),
-                  height=np.sqrt(abs(current.eval1)*(1/scale)) if current.evec1y.values[0] == 1 else np.sqrt(abs(current.eval2)*(1/scale)),
-                angle=np.arctan2(current.evec1y,current.evec1x),
-                     color = 'lightblue')
-        ax.add_artist(ell)
-        ell.set_alpha(0.2)
-
-for x in range(1,nbins+1):
-    for y in range(1,nbins+1):
-        current = elldf[(elldf['x'] == x) & (elldf['y'] == y)]
-        xcurrent = (current.x_plus_rate - current.x_minus_rate)/2
-        ycurrent = (current.y_plus_rate - current.y_minus_rate)/2
-        anglecolor = (np.arctan2(xcurrent,ycurrent) *180/np.pi)+180
+        #add flux current arrow        
         ax.quiver(x-0.5,
                    y-0.5, 
                    xcurrent,
@@ -122,10 +109,28 @@ for x in range(1,nbins+1):
                   angles = 'xy',
                   scale_units = 'xy',
                   scale = scale,
-#                   width = 0.012,
-#                   minlength = 0.8,
                   color = 'white',
                     zorder = 3 * 5)
+
+
+        #determine ellipse width, height and angle
+        #always set eval1 to width and adjust angle accordingly
+        eh = np.sqrt(abs(current.eval2))*(2/scale)
+        ew = np.sqrt(abs(current.eval1))*(2/scale)
+        evec = current[['evec1x','evec1y']].values[0]
+        eang = np.degrees(np.arctan2(evec[1],evec[0]))
+        
+        #define the error oval
+        ell = Ellipse(xy=(x-0.5+(xcurrent.values*(1/scale)),y-0.5+(ycurrent.values*(1/scale))),
+                      width=ew,
+                      height=eh,
+                      angle=eang,
+                      color = 'lightblue',
+                      alpha = 0.15,
+                      zorder = 2)
+        ax.add_artist(ell)
+        
+
     
 
 #         print(x, x+(xcurrent.values*scale),y,  y+(ycurrent.values*scale))

@@ -54,7 +54,7 @@ fig, ax = plt.subplots()
 
 #list to keep track of final areas to find similar bootstraps
 finalareas = []
-
+nanless = []
 #loop through real cell picks and draw smoothened lines with aer state
 for i, cell in TotalFrame[TotalFrame.CellID.isin(cellpicks)].groupby('CellID'):
 
@@ -120,23 +120,56 @@ for i, cell in TotalFrame[TotalFrame.CellID.isin(cellpicks)].groupby('CellID'):
     
     finalareas.append(cell.aer.cumsum().values[-1])
 
-    
+    #add the Nan-less aer to a list to measure differences with bootstraps
+    nanless.append(cellnona[['time','aer']])
 
 #### select three bootstrap iterations that have similar aers to the real cell
 #limit to iters that go the full time
 maxiter = bsaers.iter.value_counts().max()
 iterfull = bsaers.iter.value_counts()[bsaers.iter.value_counts()==maxiter].index
 
-## get final areas of the bootstraps
-finalbsarea = bsaers[bsaers.iter.isin(iterfull)].groupby('iter').apply(lambda x: x.aer.cumsum().iloc[-1])
+# ## get final areas of the bootstraps
+# finalbsarea = bsaers[bsaers.iter.isin(iterfull)].groupby('iter').apply(lambda x: x.aer.cumsum().iloc[-1])
 
-#### get bs with closest area to real cells
-firstmatch = (finalbsarea-finalareas[0]).abs().sort_values()[:15] #bs iters near cell 0
-secondmatch = (finalbsarea-finalareas[1]).abs().sort_values()[:15] #bs iters near cell 12
-thirdmatch = (finalbsarea-finalareas[2]).abs().sort_values()[:15] #bs iters near cell 13
+#get all the data from full bs iters
+fulliters = bsaers[bsaers.iter.isin(iterfull)].rename(columns = {'real_time':'time'})
+#calculate aer cumsums
+fulliterscumsum = fulliters.groupby('iter').apply(lambda x: x.aer.fillna(0).cumsum()).reset_index().rename(columns = {'aer':'aercumsum'})
+#merge cumsum with time
+fulliters = pd.merge(fulliters, fulliterscumsum.drop(columns = ['iter']), left_index = True, right_on = 'level_1')
+
+#get the least differences between the real cell picks and the bs curves
+bestfits = []
+def myround(x, base=5):
+    return base * np.round(x/base)
+for n in nanless:
+    n['aercumsum'] = n.aer.cumsum()
+    #round times to 5 to be consistent with bs iters
+    n.loc[:,'time'] = myround(n.time.values)
+    #pivot bs with only the real times
+    piviters = fulliters[fulliters.time.isin(n.time)]
+    df_wide = piviters.pivot_table(
+        index="time",          
+        columns="iter",  
+        values="aercumsum",     
+        aggfunc="first"
+        ).reset_index().drop(columns = 'time')
+    
+    #sum of squared differences    
+    diffs = df_wide.apply(lambda x: ((x - n.aercumsum)**2).sum(), axis = 0)
+    #sort the diffs and get iter numbers
+    bestfits.append(diffs.sort_values().index.to_list()[:10])
 
 
-bspicks = [2383,349,2087]
+# #### get bs with closest area to real cells
+# firstmatch = (finalbsarea-finalareas[0]).abs().sort_values()[:15] #bs iters near cell 0
+# secondmatch = (finalbsarea-finalareas[1]).abs().sort_values()[:15] #bs iters near cell 12
+# thirdmatch = (finalbsarea-finalareas[2]).abs().sort_values()[:15] #bs iters near cell 13
+
+
+
+
+bspicks = [2597, 2562, 935]
 bspointspacing = 0.5
 ######### also plot three example bootstrapped curves on the same plot
 for i in bspicks:

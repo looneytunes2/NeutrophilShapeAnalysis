@@ -15,7 +15,7 @@ from CustomFunctions.shapePCAtools import filter_extremes_based_on_percentile
 from matplotlib import cm
 from matplotlib.colors import Normalize
 from scipy import interpolate
-
+from sklearn.linear_model import LinearRegression
 
 ####### load common directories and data
 ntrans = 1
@@ -28,7 +28,7 @@ centers = pd.read_csv(datadir+'PC_bin_centers.csv', index_col=0)
 nbins = np.max(FullFrame[[x for x in FullFrame.columns.to_list() if 'bin' in x]].to_numpy())
 
 #set the max average aer for the colorbar stuff
-aermax = 0.00435
+aermax = 0.02588
 ### restrict data to RANDOM
 treatments = ['Random']
 
@@ -61,7 +61,35 @@ for ycol, a in enumerate(binlist):
 
         if os.path.exists(savedir+ 'allCGPS/' +f'{bin1}-{bin2}_{ntrans}_transition_Area_Enclosing_Rates.csv'):
             aerdf = pd.read_csv(savedir+ 'allCGPS/' +f'{bin1}-{bin2}_{ntrans}_transition_Area_Enclosing_Rates.csv', index_col=0)
-            print(f'Opened {bin1}-{bin2} aer files average aer mean is ',aerdf.groupby('iter').aer.mean().mean())
+            # print(f'Opened {bin1}-{bin2} aer files average aer mean is ',aerdf.groupby('iter').aer.mean().mean())
+
+
+            #fit lines to get aer and cf
+            dflist = []
+            for i, t in aerdf.groupby(['Treatment','iter']):
+                t = t.sort_values('cumulative_time').reset_index(drop=True)
+                t['cumulative_time_min'] = t.cumulative_time/60
+                aerreg = LinearRegression(fit_intercept = False).fit(np.insert(t.cumulative_time_min.values,0,0).reshape(-1, 1),
+                                                                     np.insert(t.aer.cumsum().values,0,0).reshape(-1, 1))
+                aerresid = aerreg.score(np.insert(t.cumulative_time_min.values,0,0).reshape(-1, 1),
+                                        np.insert(t.aer.cumsum().values,0,0).reshape(-1, 1))
+                cfreg = LinearRegression(fit_intercept = False).fit(np.insert(t.cumulative_time_min.values,0,0).reshape(-1, 1),
+                                                                     np.insert(t.angular_velocity.cumsum().values,0,0).reshape(-1, 1))
+                cfresid = aerreg.score(np.insert(t.cumulative_time_min.values,0,0).reshape(-1, 1),
+                                        np.insert(t.angular_velocity.cumsum().values,0,0).reshape(-1, 1))
+                dflist.append({'Treatment':i[0],'iter':i[1],
+                               'aerresid':aerresid,'aercoef':aerreg.coef_[0][0],
+                               'cfresid':aerresid,'cfcoef':aerreg.coef_[0][0]})
+            avgdf = pd.DataFrame(dflist)
+
+
+            avgdf_filtered = filter_extremes_based_on_percentile(
+                avgdf,
+                ['aercoef','aerresid'],
+                1)
+
+            print(f'Opened {bin1}-{bin2} aer files average aer mean is ',avgdf.aercoef.mean())
+
 
             ### add average cycle period
             avgcf = aerdf.groupby('iter').angular_velocity.mean().mean() #degrees/sec
@@ -70,22 +98,22 @@ for ycol, a in enumerate(binlist):
                     transform=ax.transAxes, fontsize = 20)
 
             
-            #get average aer values
-            avgaerdf = aerdf.groupby('iter').mean()
-            avgaerdf = filter_extremes_based_on_percentile(
-                avgaerdf,
-                ['aer'],
-                1)
+            # #get average aer values
+            # avgaerdf = aerdf.groupby('iter').mean()
+            # avgaerdf = filter_extremes_based_on_percentile(
+            #     avgaerdf,
+            #     ['aer'],
+            #     1)
             
             #get color based on the mean of the means
-            color = str(f(abs(avgaerdf.aer.mean())))
+            color = str(f(abs(avgdf_filtered.aercoef.mean())))
 
             #plot the filled plot
-            sns.kdeplot(data = avgaerdf, x='aer',
+            sns.kdeplot(data = avgdf_filtered, x='aercoef',
                         fill = True, color = color, alpha = 1, # cut = 0
                         ax = ax)
             #### make separate plot to change the line color
-            sns.kdeplot(data = avgaerdf.aer.squeeze(),
+            sns.kdeplot(data = avgdf_filtered.aercoef.squeeze(),
                         fill = False, color = '0.5', lw = 3,#cut = 0
                         ax = ax)
             
@@ -102,7 +130,7 @@ for ycol, a in enumerate(binlist):
             ax.tick_params('x', rotation = 30)
             
             #center x axis
-            ax.set_xlim(-0.01,0.01)
+            # ax.set_xlim(-0.01,0.01)
             
             for label in ax.get_xticklabels():
                 label.set_horizontalalignment('right')

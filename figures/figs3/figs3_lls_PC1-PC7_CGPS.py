@@ -23,6 +23,7 @@ treatments = ['Random']
 time_interval = 5 #sec/frame
 whichpcs = [1,7]
 ntrans = 1
+origin = [12,11]
 
 #get directories and open separated datasets
 basedir = 'E:/Aaron/Combined_37C_Confocal_PCA_s5_LLS_Apply/'
@@ -50,7 +51,7 @@ bsfield_sep = pd.read_csv(savedir+f'PC{whichpcs[0]}-PC{whichpcs[1]}_bootstrapped
 ########## PC1/PC7 transition with error ellipses oriented to PCs WITHOUT PC MESH SLICES ################
 
 # inverse scale for arrows
-scale = 0.0008
+scale = 0.0012
 
 # combine fake error data with real transition data
 elldf = bsfield_sep.merge(trans_rate_df_sep,left_on = ['x','y'], right_on = ['x','y'])
@@ -93,13 +94,22 @@ for x in range(1,nbins+1):
         xcurrent = (current.x_plus_rate - current.x_minus_rate)/2
         ycurrent = (current.y_plus_rate - current.y_minus_rate)/2
         if not xcurrent.empty:
+            #determine ellipse width, height and angle
+            #always set eval1 to width and adjust angle accordingly
+            eh = np.sqrt(abs(current.eval2))*(2/scale)
+            ew = np.sqrt(abs(current.eval1))*(2/scale)
+            evec = current[['evec1x','evec1y']].values[0]
+            evec = evec if evec[1]>0 else -evec
+            eang = np.degrees(np.arctan2(evec[1],evec[0]))
+
             ell = Ellipse(xy=(x-0.5+(xcurrent.values*(1/scale)),y-0.5+(ycurrent.values*(1/scale))),
-                    width=np.sqrt(abs(current.eval1)*(1/scale)) if current.evec1x.values[0] == 1 else np.sqrt(abs(current.eval2)*(1/scale)),
-                      height=np.sqrt(abs(current.eval1)*(1/scale)) if current.evec1y.values[0] == 1 else np.sqrt(abs(current.eval2)*(1/scale)),
-                    angle=np.arctan2(current.evec1y,current.evec1x),
-                          color = 'lightblue')
+                          width=ew,
+                          height=eh,
+                          angle=eang,
+                          color = 'lightblue',
+                          alpha = 0.15,
+                          zorder = 2)
             ax.add_artist(ell)
-            ell.set_alpha(0.2)
 
 for x in range(1,nbins+1):
     for y in range(1,nbins+1):
@@ -107,7 +117,6 @@ for x in range(1,nbins+1):
         xcurrent = (current.x_plus_rate - current.x_minus_rate)/2
         ycurrent = (current.y_plus_rate - current.y_minus_rate)/2
         if not xcurrent.empty:
-            anglecolor = (np.arctan2(xcurrent,ycurrent) *180/np.pi)+180
             ax.quiver(x-0.5,
                        y-0.5, 
                        xcurrent,
@@ -115,11 +124,15 @@ for x in range(1,nbins+1):
                       angles = 'xy',
                       scale_units = 'xy',
                       scale = scale,
-    #                   width = 0.012,
-    #                   minlength = 0.8,
                       color = 'white',
                         zorder = 3 * 5)
-    
+
+
+#### ADD THE FLUX ORIGIN DOT
+ax.scatter(origin[0]-0.5, origin[1]-0.5, s = 130, color = '#4481e3', zorder=2)
+
+
+
 
 #         print(x, x+(xcurrent.values*scale),y,  y+(ycurrent.values*scale))
 ax.set_xlabel('PC1', fontsize = 40)

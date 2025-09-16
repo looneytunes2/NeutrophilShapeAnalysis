@@ -176,7 +176,7 @@ sns.boxplot(x = 'Treatment', y='aerresid', data = avgdf_filtered, width = 0.15, 
             ax=ax)
 
 #DMSO to bleb
-ax.text(0.5,1.095,get_stars(pnbpval_adj), fontsize=12, ha ='center')
+ax.text(0.5,1.11,get_stars(pnbpval_adj), fontsize=10, ha ='center')
 ax.plot([0,1],[1.1,1.1], color = 'black')
 #DMSO to CK666
 ax.text(1,1.172,get_stars(ck666pval_adj), fontsize=12, ha ='center')

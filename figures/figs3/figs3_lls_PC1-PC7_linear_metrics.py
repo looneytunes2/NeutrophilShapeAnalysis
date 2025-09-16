@@ -20,7 +20,6 @@ from scipy.stats import t
 
 
 treatments = ['Random']
-time_interval = 10 #sec/frame
 whichpcs = [1,7]
 origin = [12,11]
 binrange = 20
@@ -36,7 +35,6 @@ if not os.path.exists(savedir):
     os.makedirs(savedir)
     
 FullFrame = pd.read_csv(datadir + 'All_Data_with_CGPS_bins.csv', index_col=0)
-nbins = np.max(FullFrame[[x for x in FullFrame.columns.to_list() if 'bin' in x]].to_numpy())
 #open the centers of the binned PCs
 centers = pd.read_csv(datadir+'PC_bin_centers.csv', index_col=0)
 TotalFrame = FullFrame[FullFrame.Treatment=='Random']

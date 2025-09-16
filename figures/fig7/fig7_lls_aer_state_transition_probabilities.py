@@ -199,5 +199,5 @@ plt.savefig(__file__.split('.')[0] + '.png', dpi = 500, bbox_inches='tight')
 #### save the average rates of bootstrapped state transitions
 bscellprobs.groupby('transition_type').rate.mean().to_csv(__file__.split('.')[0] + '_bootstrapped_transition_rates.csv')
 #### save the average real state transition rates
-avgrealrates = realcellprobs.groupby('transition_type').counts.sum()/(realcellprobs.counts.sum()*time_interval)
+avgrealrates = realcellprobs.groupby('transition_type').counts.sum()/(realcellprobs.counts.sum()*time_interval) #number of transitions per total observed time
 avgrealrates.to_csv(__file__.split('.')[0] + '_raw_transition_rates.csv')

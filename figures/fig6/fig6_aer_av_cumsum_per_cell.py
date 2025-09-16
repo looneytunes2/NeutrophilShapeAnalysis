@@ -19,11 +19,8 @@ basedir = 'E:/Aaron/Combined_37C_Confocal_PCA_s5_LLS_Apply/'
 datadir = basedir + 'Data_and_Figs/'
 savedir = basedir + 'random/'
 
-
+### open big data
 FullFrame = pd.read_csv(datadir + 'All_Data_with_CGPS_bins.csv', index_col = 0)
-nbins = np.max(FullFrame[[x for x in FullFrame.columns.to_list() if 'bin' in x]].to_numpy())
-#open the centers of the binned PCs
-centers = pd.read_csv(datadir+'PC_bin_centers.csv', index_col=0)
 
 #open aers previously calculated
 allaers = pd.read_csv(savedir + f'PC{whichpcs[0]}-PC{whichpcs[1]}_raw_transition_aer_cf.csv', index_col = 0)

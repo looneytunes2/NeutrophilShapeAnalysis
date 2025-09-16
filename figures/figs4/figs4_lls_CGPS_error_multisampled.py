@@ -14,7 +14,7 @@ import matplotlib.transforms
 import seaborn as sns
 from cmocean import cm
 from matplotlib.patches import Ellipse, Rectangle
-
+import re
 
 
 #get directories and open separated datasets
@@ -23,7 +23,6 @@ from matplotlib.patches import Ellipse, Rectangle
 treatments = ['Random']
 time_interval = 5 #sec/frame
 whichpcs = [1,7]
-ntrans = 1
 
 #get directories and open separated datasets
 basedir = 'E:/Aaron/Combined_37C_Confocal_PCA_s5_LLS_Apply/'
@@ -32,11 +31,15 @@ savedir = basedir + 'random/'
 if not os.path.exists(savedir):
     os.makedirs(savedir)
     
-FullFrame = pd.read_csv(datadir + 'All_Data_with_CGPS_bins.csv', index_col=0)
-nbins = np.max(FullFrame[[x for x in FullFrame.columns.to_list() if 'bin' in x]].to_numpy())
+#get the list of ntrans
+ntranslist = [n for n in os.listdir(savedir) if '_average_currents' in n]
+ntranslist = [int(re.search('(?<=bootstrapped_)\d*', n)[0]) for n in ntranslist]
+ntranslist.sort()
+ntranslist = ntranslist[:2]
+
 #open the centers of the binned PCs
 centers = pd.read_csv(datadir+'PC_bin_centers.csv', index_col=0)
-
+nbins = centers.shape[0]
 
 
 
@@ -47,20 +50,20 @@ trans_rate_df_sep = pd.read_csv(savedir+f'PC{whichpcs[0]}-PC{whichpcs[1]}_binned
 
 
 
-fig, axes = plt.subplots(1,3,figsize=(15,5), sharey = True)
+fig, axes = plt.subplots(1,len(ntranslist),figsize=(5*len(ntranslist),5), sharey = True)
 
 ##### loop for plotting error ellipses
 for n, ax in enumerate(axes):
     #set axis title
-    ax.set_title(f'{n+1} transitions') if n!=0 else ax.set_title(f'{n+1} transition')
+    ax.set_title(f'{ntranslist[n]} Transitions', fontsize = 25) if n!=0 else ax.set_title(f'{ntranslist[n]} Transition', fontsize = 25)
     
     ############# open average bootstrapped currents ###################
-    bsfield_sep = pd.read_csv(savedir+f'PC{whichpcs[0]}-PC{whichpcs[1]}_bootstrapped_{n+1}_transitions_average_currents.csv', index_col=0)
+    bsfield_sep = pd.read_csv(savedir+f'PC{whichpcs[0]}-PC{whichpcs[1]}_bootstrapped_{ntranslist[n]}_transitions_average_currents.csv', index_col=0)
     
     ########## PC1/PC7 transition with error ellipses oriented to PCs WITHOUT PC MESH SLICES ################
     
     # inverse scale for arrows
-    scale = 0.0008
+    scale = 0.0015
     
     # combine fake error data with real transition data
     elldf = bsfield_sep.merge(trans_rate_df_sep,left_on = ['x','y'], right_on = ['x','y'])
@@ -78,19 +81,23 @@ for n, ax in enumerate(axes):
             xcurrent = (current.x_plus_rate - current.x_minus_rate)/2
             ycurrent = (current.y_plus_rate - current.y_minus_rate)/2
     
+            #determine ellipse width, height and angle
+            #always set eval1 to width and adjust angle accordingly
+            eh = np.sqrt(abs(current.eval2))*(2/scale)
+            ew = np.sqrt(abs(current.eval1))*(2/scale)
+            evec = current[['evec1x','evec1y']].values[0]
+            evec = evec if evec[1]>0 else -evec
+            eang = np.degrees(np.arctan2(evec[1],evec[0]))
+
             ell = Ellipse(xy=(x-0.5+(xcurrent.values*(1/scale)),y-0.5+(ycurrent.values*(1/scale))),
-                    width=np.sqrt(abs(current.eval1)*(1/scale)) if current.evec1x.values[0] == 1 else np.sqrt(abs(current.eval2)*(1/scale)),
-                      height=np.sqrt(abs(current.eval1)*(1/scale)) if current.evec1y.values[0] == 1 else np.sqrt(abs(current.eval2)*(1/scale)),
-                    # angle=np.arctan2(current.evec1y,current.evec1x),
-                         # edgecolor = colorlist[i],
-                         # facecolor = None,
-                         # fill = False,
-                         # lw = 2,
-                         color = '#f04a4a',
-                         alpha = 0.8, 
-                         zorder = 2)
+                          width=ew,
+                          height=eh,
+                          angle=eang,
+                          color = '#f04a4a',
+                          alpha = 0.2,
+                          zorder = 2)
             ax.add_artist(ell)
-            # ell.set_alpha(0.7)
+
 
 
     #also plot the current arrows
@@ -131,21 +138,21 @@ for n, ax in enumerate(axes):
 #legend background
 lxp = 0.225
 lyp = 0.225
-rect = Rectangle((lxp, lyp), 2.2, 2.2, linewidth=1, edgecolor='black', facecolor='#80858a')
+rect = Rectangle((lxp, lyp), 2.6, 2.6, linewidth=1, edgecolor='black', facecolor='#80858a')
 axes[0].add_patch(rect)
 rect.set_zorder(4 * 5)
 #x-axis legend arrow
-axes[0].quiver(lxp+0.65,lyp+0.65,1*scale,0,angles = 'xy',scale_units = 'xy',scale = scale,color = "white",zorder = 4 * 5)
+axes[0].quiver(lxp+0.8,lyp+0.8,1*scale,0,angles = 'xy',scale_units = 'xy',scale = scale,color = "white",zorder = 4 * 5)
 #x-axis legend text
 xsc = f'{(np.diff(centers.PC1.to_list()).mean()/time_interval)*scale:.1e}'
 xsc = xsc.split('e')[0] + 'x10$^{' +  str(int(xsc.split('e')[1])) + '}$'
-axes[0].text(lxp+0.30,lyp+0.05,xsc+' $s^{-1}$', color = 'white', fontsize = 5, fontweight = 'bold',zorder = 4 * 5)
+axes[0].text(lxp+0.35,lyp+0.05,xsc+' $s^{-1}$', color = 'white', fontsize = 4.5, fontweight = 'bold',zorder = 4 * 5)
 #y-axis legend arrow
-axes[0].quiver(lxp+0.69,lyp+0.65,0,1*scale,angles = 'xy',scale_units = 'xy',scale = scale,color = 'white',zorder = 4 * 5)
+axes[0].quiver(lxp+0.8,lyp+0.8,0,1*scale,angles = 'xy',scale_units = 'xy',scale = scale,color = 'white',zorder = 4 * 5)
 #y-axis legend text
 ysc = f'{(np.diff(centers.PC7.to_list()).mean()/time_interval)*scale:.1e}'
 ysc = ysc.split('e')[0] + 'x10$^{' +  str(int(ysc.split('e')[1])) + '}$'
-axes[0].text(lxp+0.09,lyp+0.35,ysc+' $s^{-1}$', rotation = 'vertical', color = 'white', fontsize = 5, fontweight = 'bold',zorder = 4 * 5)
+axes[0].text(lxp+0.09,lyp+0.35,ysc+' $s^{-1}$', rotation = 'vertical', color = 'white', fontsize = 4.5, fontweight = 'bold',zorder = 4 * 5)
 
 
 

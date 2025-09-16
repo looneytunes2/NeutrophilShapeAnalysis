@@ -105,8 +105,8 @@ ax.set_xlabel('Area Enclosing Rate (PC units²/sec)', fontsize = 15)
 #change fontsize on axis ticks
 ax.tick_params(labelsize = 8)
 
-ax.set_xlim(0.008,0.126)
-ax.set_ylim(0.6,1.1)
+ax.set_xlim(0.018,0.126)
+ax.set_ylim(0.6,1.05)
 
 ax.spines['top'].set_visible(False)
 ax.spines['right'].set_visible(False)
