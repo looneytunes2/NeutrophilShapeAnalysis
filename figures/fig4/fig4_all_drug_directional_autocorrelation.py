@@ -62,11 +62,6 @@ print(f'n = {df[df.lag_min==maxlag*time_interval/60].groupby("Treatment").apply(
 
 
 
-# # Run repeated measures ANOVA
-# aovrm = AnovaRM(data=df.groupby(['Treatment','lag_min']).mean().reset_index(), depvar='dot_prod', subject='Treatment', within=['lag_min'])
-# result = aovrm.fit()
-# print(result)
-
 ### run kruskal wallace at each time point
 testlist = []
 for i, l in df.groupby('lag_min'):
@@ -86,18 +81,17 @@ sns.set_palette(palette=colorlist)
 fig, ax = plt.subplots()
 sns.lineplot(data = df, x = 'lag_min',y = 'dot_prod', hue = 'Treatment',  lw = 3, ax = ax)
 
-# ###stars
-# ax.plot(kwdf.iloc[[0,10]].lag.values, [0.95,0.95], ls = '-', color = 'black')
-# midx = (kwdf.iloc[[0,10]].lag.diff()/2).values[1]+kwdf.iloc[0].lag
-# ax.text(midx, 0.96, '*', fontsize = 10, ha = 'center')
-
-# ax.text(sigkw.iloc[-3].lag, 0.32,'*', fontsize = 10, ha = 'center')
-# ax.text(sigkw.iloc[-2].lag, 0.22,'*', fontsize = 10, ha = 'center')
-# ax.text(sigkw.iloc[-1].lag, 0.22,'*', fontsize = 10, ha = 'center')
 
 ax.set_ylabel('Directional Autocorrelation', fontsize = 18)
 ax.set_xlabel('Time lag (min)', fontsize = 18)
 
+### make the legend larger
+leg = ax.legend(loc = [0.4, 0.7])
+for line in leg.get_lines():
+    line.set_linewidth(3)
+for text in leg.get_texts():
+    text.set_fontsize(14)
+    
 
 ax.spines['top'].set_visible(False)
 ax.spines['right'].set_visible(False)

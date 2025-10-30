@@ -18,7 +18,7 @@ from matplotlib import cm
 curdir = os.path.dirname(os.path.abspath(__file__))
 
 ##### load all of the data to get average speeds
-whichpcs = [1,7]
+whichpcs = [2,5]
 treatments = ['Random']
 binrange = 20
 #get directories and open separated datasets

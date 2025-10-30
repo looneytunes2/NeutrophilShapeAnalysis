@@ -153,7 +153,9 @@ def get_aer_state(
                                  k=3, s = 1, w = w)#k=1, s=2, w = w)
     x, y = interpolate.splev(u, tck, der=0)
     #get the derivative of the smoothened curve
-    deriv = np.gradient(y, x)
+    dx, dy = interpolate.splev(u, tck, der=1)
+    deriv = dy/cellnona.time.max()
+
     #threshold with np.select
     threshs = [deriv>=derivthresh, deriv<=-derivthresh]
     choices = ['increasing', 'decreasing']

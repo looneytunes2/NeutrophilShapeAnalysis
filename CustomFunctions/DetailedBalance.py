@@ -15,7 +15,7 @@ import multiprocessing
 import itertools
 import math
 import tqdm
-
+import random
 
 
 
@@ -1016,6 +1016,84 @@ def get_aer_cf(
 
     allaers = pd.concat(results, ignore_index=True)
     allaers.to_csv(savedir+f'PC{whichpcs[0]}-PC{whichpcs[1]}_{ntrans}_transition_Area_Enclosing_Rates.csv')
+
+
+
+
+########## measure gap frequency and duration
+def get_gap_stats(
+        df, #dataframe
+        group, #what is the identifier to group by as a str
+        time_interval, #frame rate of the data
+        gapcol = 'aer', #column that I care about gaps in, will be dropped
+        ):
+    gaps = []
+    gap_freqs = []
+    for c, cell in df.groupby(group):
+        #drop spots where there's no AER
+        cell = cell[~cell[gapcol].isna()]
+        cell = cell.sort_values('time').reset_index(drop = True)
+        #find time differences between frames
+        diffs = cell.time.diff()
+        #find gaps larger than the imaging interval
+        bigdiffs = diffs[diffs.abs()>time_interval].to_list()
+        #measure the frequency of gaps in # / sec
+        celldiff_freq = len(bigdiffs)/cell.time.max()
+        
+        #append the gap lengths and frequencies
+        gaps.extend(bigdiffs)
+        gap_freqs.append(celldiff_freq)
+        
+    
+    gap_frame_num = np.round(np.array(gaps)/time_interval)
+    
+    ## average frequency of gaps in seconds
+    gap_prob = np.mean(gap_freqs)
+    # probability of gaps in # / frame
+    gap_prob_frame = gap_prob*time_interval
+    
+    return gap_prob_frame, gap_frame_num
+
+
+
+
+######### get dataframe of bootstrapped rows to drop to mimic LLS data gaps
+def bootstrap_gaps(
+    bsdf, #dataframe with bootstrap iterations (doesn't actually need aer)
+    gap_prob, #gap probability NOTE: this won't necessarily match the gap frequency in the output
+    gap_frame_num, #distribution of gap lengths in numbers of frames
+    ):
+    
+    bs_gapped_list = []
+    for i, it in bsdf.groupby('iter'):
+        it = it.sort_values('real_time').reset_index(drop = True)
+        ## loop through the bootstrap iteration and put in gaps with similar
+        ## probability and duration to those in the real cells
+        ftk = 0 ## frames to keep
+        ftklist = []
+        cur_prob = gap_prob ## current probability
+        while ftk<len(it):
+            if random.random()<cur_prob:
+                ## pick a gap length from the distribution
+                gp = random.choice(gap_frame_num)
+                ftk = ftk+gp
+                cur_prob = 0 #don't put gaps after gaps
+            else:
+                ftk = ftk+1
+                cur_prob = gap_prob
+            ftklist.append(ftk)
+        
+        ## drop the rows that are now gaps
+        dropped = it.loc[np.array(ftklist[:-1]).astype(int)]
+        bs_gapped_list.append(dropped)
+        
+    #combine into one dataframe    
+    bs_gap_df = pd.concat(bs_gapped_list, ignore_index = True)
+    #restrict it just to identifier info only
+    identifiers = bs_gap_df[['iter','real_time']]
+
+    return identifiers
+
 
 
 

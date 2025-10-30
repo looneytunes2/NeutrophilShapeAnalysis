@@ -37,8 +37,8 @@ fullimshape = [361,150,1024,1024]
 
 #scale bar info
 scalebar_x_displacement = fullimshape[-1]-30
-scalebar_y_displacement = fullimshape[-2]-45
-scalebar_length = 20
+scalebar_y_displacement = fullimshape[-2]-50
+scalebar_length = 50
 resolution = 0.3394 #um / pixel
 
 
@@ -109,11 +109,11 @@ ax.plot([scalebar_x_displacement-(scalebar_length/resolution), scalebar_x_displa
         color = 'black',
         zorder=1)
 #scalbar text
-ax.text(scalebar_x_displacement-(scalebar_length/resolution)-13,
-                    scalebar_y_displacement + 30,
+ax.text(scalebar_x_displacement-(scalebar_length/resolution) + 19,
+                    scalebar_y_displacement + 36,
                     f'{scalebar_length} μm',
                     color = 'black',
-                    fontdict = {'fontsize': 18},
+                    fontdict = {'fontsize': 24},
                     zorder = 1)
 
 #box around cell of interest

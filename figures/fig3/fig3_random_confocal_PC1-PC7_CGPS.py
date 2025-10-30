@@ -159,23 +159,22 @@ cbar_ax.set_yticklabels(cbar_ax.get_yticklabels(),fontsize=18)
 cbar_ax.set_ylabel('Probability', fontsize = 32, rotation = -90, labelpad = 33)
 
 #legend background
-lxp = 0.25
-lyp = 0.25
-rect = Rectangle((lxp, lyp), 2.185, 2.185, linewidth=1, edgecolor='black', facecolor='#80858a')
+lxp = 0.35
+lyp = 0.35
+legh = 1.15
+legw = 3.0
+rect = Rectangle((lxp, lyp), legw, legh, linewidth=1, edgecolor='black', facecolor='#80858a')
 ax.add_patch(rect)
 rect.set_zorder(4 * 5)
+scalevalue = 0.0017
 #x-axis legend arrow
-ax.quiver(lxp+0.6,lyp+0.6,1*scale,0,angles = 'xy',scale_units = 'xy',scale = scale,color = "white",zorder = 4 * 5)
+#position of arrow in middle of box
+arrxp = lxp + legw/2 - (scalevalue/scale)/2 
+ax.quiver(arrxp,lyp+0.8,scalevalue,0,angles = 'xy',scale_units = 'xy',scale = scale,color = "white",zorder = 4 * 5)
 #x-axis legend text
-xsc = f'{(np.diff(centers.PC1.to_list()).mean()/time_interval)*scale:.1e}'
+xsc = f'{scalevalue:.1e}'
 xsc = xsc.split('e')[0] + 'x10$^{' +  str(int(xsc.split('e')[1])) + '}$'
-ax.text(lxp+0.3,lyp+0.05,xsc+' $s^{-1}$', color = 'white', fontsize = 10, fontweight = 'bold',zorder = 4 * 5)
-#y-axis legend arrow
-ax.quiver(lxp+0.6,lyp+0.6,0,1*scale,angles = 'xy',scale_units = 'xy',scale = scale,color = 'white',zorder = 4 * 5)
-#y-axis legend text
-ysc = f'{(np.diff(centers.PC7.to_list()).mean()/time_interval)*scale:.1e}'
-ysc = ysc.split('e')[0] + 'x10$^{' +  str(int(ysc.split('e')[1])) + '}$'
-ax.text(lxp+0.075,lyp+0.36,ysc+' $s^{-1}$', rotation = 'vertical', color = 'white', fontsize = 10, fontweight = 'bold',zorder = 4 * 5)
+ax.text(lxp+0.1,lyp+0.15,xsc+' $s^{-1}$', color = 'white', fontsize = 16, fontweight = 'bold',zorder = 4 * 5)
 
 
 plt.tight_layout()

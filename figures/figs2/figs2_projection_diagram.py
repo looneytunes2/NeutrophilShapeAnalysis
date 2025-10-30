@@ -173,7 +173,7 @@ ax.add_patch(polygon)
 #add the "x" axis points
 #colors
 point_colors = plt.cm.Dark2.colors[:3]
-point_colors = point_colors*2
+# point_colors = point_colors*2
 #points
 proj_points = np.array([[np.mean(coords,axis = 0)[0],0], #centroid on x axis
                         [np.max(coords,axis=0)[0],0], #front on x axis
@@ -182,22 +182,39 @@ proj_points = np.array([[np.mean(coords,axis = 0)[0],0], #centroid on x axis
                         [coords[np.argmax(coords[:,0])][0],coords[np.argmax(coords[:,0])][1]], #front
                         [coords[np.argmin(coords[:,0])][0],coords[np.argmin(coords[:,0])][1]] #rear
                         ])
-ax.scatter(proj_points[:,0], proj_points[:,1],s = 150, color = point_colors, edgecolors = 'black', zorder=2)
+ax.scatter(proj_points[3:,0], proj_points[3:,1],s = 150, color = point_colors, edgecolors = 'black', zorder=10)
 
-#add the points 
+
+
+### add the points projected onto the x axis
+proj_cent = patches.Circle((proj_points[0,0], 0), 0.25, facecolor=point_colors[0],
+                        edgecolor = 'black', clip_on=False, zorder = 0)
+ax.add_patch(proj_cent)
+proj_front = patches.Circle((proj_points[1,0], 0), 0.25, facecolor=point_colors[1],
+                        edgecolor = 'black', clip_on=False, zorder = 0)
+ax.add_patch(proj_front)
+proj_rear = patches.Circle((proj_points[2,0], 0), 0.25, facecolor=point_colors[2],
+                        edgecolor = 'black', clip_on=False, zorder = 0)
+ax.add_patch(proj_rear)
+
 
 
 #arrow properties
-arrowdict = dict(facecolor='black', arrowstyle="simple, head_length=1.25, head_width=1.25", linewidth=1.5)
+arrowdict = dict(facecolor=point_colors[0], arrowstyle="simple, tail_width = 0.5, head_length=1.25, head_width=1.25", linewidth=1.5)
 #centroid arrow
 ax.annotate("", xy=(np.mean(coords,axis = 0)[0],0),xytext = np.mean(coords,axis=0),
-            arrowprops=arrowdict)
+            arrowprops=arrowdict, zorder = 5)
 #rear arrow
+arrowdict = dict(facecolor=point_colors[2], arrowstyle="simple, tail_width = 0.5, head_length=1.25, head_width=1.25", linewidth=1.5)
 ax.annotate("", xy=(coords[np.argmin(coords[:,0])][0], 0),xytext =(coords[np.argmin(coords[:,0])][0],coords[np.argmin(coords[:,0])][1]),
-            arrowprops=arrowdict)
+            arrowprops=arrowdict, zorder = 5)
 #front arrow
+arrowdict = dict(facecolor=point_colors[1], arrowstyle="simple, tail_width = 0.5,  head_length=1.25, head_width=1.25", linewidth=1.5)
 ax.annotate("", xy=(coords[np.argmax(coords[:,0])][0], 0),xytext =(coords[np.argmax(coords[:,0])][0],coords[np.argmax(coords[:,0])][1]),
-            arrowprops=arrowdict)
+            arrowprops=arrowdict, zorder = 5)
+
+
+
 
 
 #Big trajectory arrow
@@ -209,26 +226,18 @@ ax.annotate("", xy=(coords[np.argmax(coords[:,0])][0], 9.5),xytext =(coords[np.a
 ax.text(coords[np.argmax(coords[:,0])][0]-4, 10.25, 'trajectory', va='center', ha='left', fontsize=20)
 
 
+#### set ax labels
+ax.set_xlabel('x-axis (μm)', fontsize = 20)
+ax.set_ylabel('z-axis (μm)', fontsize = 20)
+
 
 # Set limits and aspect ratio
-ax.set_xlim(-0.15, 17)
-ax.set_ylim(-0.45, 10.5)
+# ax.set_xlim(-0.15, 17)
+ax.set_ylim(0, 10.5)
 ax.set_aspect('equal')  # Ensures equal scaling
+ax.spines['top'].set_visible(False)
+ax.spines['right'].set_visible(False)
 
-###add the axes and axis text
-#zaxis
-ax.plot([0.3,0.3],[11,0], color = [0.4,0.4,0.4],lw=2, zorder=1)
-#xaxis
-ax.plot([0.3,18],[0,0], color = [0.4,0.4,0.4],lw=2, zorder=1)
-
-
-#xaxis text
-ax.text(0.3, -0.6, 'x-axis', va='center', ha='left', fontsize=20)
-#zaxis text
-ax.text(-0.2, 0.1, 'z-axis', rotation='vertical', va='bottom', ha='center', fontsize=20)
-
-#turn off axis
-ax.axis('off')
 
 # Show the plot
 plt.tight_layout()

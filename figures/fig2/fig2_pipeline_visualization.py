@@ -54,7 +54,7 @@ view.OrientationAxesVisibility = 0
 ############# SCALE BAR
 slen = 5
 sx = 3
-sy = 13
+sy = 11
 # 10um line scalebar
 line = Line(Point1=[sx, sy, 0], Point2=[sx+slen, sy, 0])
 # Apply a Tube filter to give it thickness
@@ -205,7 +205,7 @@ Render()
     
 WriteImage(__file__.split('.')[0] + '_unrotated.png')
 Hide(unrotsource)
-
+Hide(tube)
 
 
 

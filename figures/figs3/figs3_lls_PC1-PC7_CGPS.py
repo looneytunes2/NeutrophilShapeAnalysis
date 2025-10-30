@@ -9,9 +9,7 @@ import pandas as pd
 import numpy as np
 import os
 import matplotlib.pyplot as plt
-import matplotlib.transforms
 import seaborn as sns
-from cmocean import cm
 from matplotlib.patches import Ellipse, Rectangle
 
 
@@ -129,7 +127,7 @@ for x in range(1,nbins+1):
 
 
 #### ADD THE FLUX ORIGIN DOT
-ax.scatter(origin[0]-0.5, origin[1]-0.5, s = 130, color = '#4481e3', zorder=2)
+ax.scatter(origin[0]-0.5, origin[1]-0.5, s = 160, color = '#11bd20', zorder=2)
 
 
 
@@ -149,24 +147,24 @@ ax.set_ylim(0,nbins+1)
 cbar_ax.set_yticklabels(cbar_ax.get_yticklabels(),fontsize=18)
 cbar_ax.set_ylabel('Probability', fontsize = 32, rotation = -90, labelpad = 33)
 
+###### flux vector scale 
 #legend background
 lxp = 0.35
 lyp = 0.35
-rect = Rectangle((lxp, lyp), 2.195, 2.195, linewidth=1, edgecolor='black', facecolor='#80858a')
+legh = 1.4
+legw = 3.95
+rect = Rectangle((lxp, lyp), legw, legh, linewidth=1, edgecolor='black', facecolor='#80858a')
 ax.add_patch(rect)
 rect.set_zorder(4 * 5)
+scalevalue = 0.0017
 #x-axis legend arrow
-ax.quiver(lxp+0.8,lyp+0.8,1*scale,0,angles = 'xy',scale_units = 'xy',scale = scale,color = "white",zorder = 4 * 5)
+#position of arrow in middle of box
+arrxp = lxp + legw/2 - (scalevalue/scale)/2 
+ax.quiver(arrxp,lyp+0.95,scalevalue,0,angles = 'xy',scale_units = 'xy',scale = scale,color = "white",zorder = 4 * 5)
 #x-axis legend text
-xsc = f'{(np.diff(centers.PC1.to_list()).mean()/time_interval)*scale:.1e}'
+xsc = f'{scalevalue:.1e}'
 xsc = xsc.split('e')[0] + 'x10$^{' +  str(int(xsc.split('e')[1])) + '}$'
-ax.text(lxp+0.3,lyp+0.08,xsc+' $s^{-1}$', color = 'white', fontsize = 11, fontweight = 'bold',zorder = 4 * 5)
-#y-axis legend arrow
-ax.quiver(lxp+0.8,lyp+0.8,0,1*scale,angles = 'xy',scale_units = 'xy',scale = scale,color = 'white',zorder = 4 * 5)
-#y-axis legend text
-ysc = f'{(np.diff(centers.PC7.to_list()).mean()/time_interval)*scale:.1e}'
-ysc = ysc.split('e')[0] + 'x10$^{' +  str(int(ysc.split('e')[1])) + '}$'
-ax.text(lxp+0.08,lyp+0.36,ysc+' $s^{-1}$', rotation = 'vertical', color = 'white', fontsize = 11, fontweight = 'bold',zorder = 4 * 5)
+ax.text(lxp+0.18,lyp+0.15,xsc+' $s^{-1}$', color = 'white', fontsize = 22, fontweight = 'bold',zorder = 4 * 5)
 
 
 plt.tight_layout()

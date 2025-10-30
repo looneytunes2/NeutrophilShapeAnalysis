@@ -10,7 +10,7 @@ import pandas as pd
 from CustomFunctions import utils
 import matplotlib.pyplot as plt
 import seaborn as sns
-
+from matplotlib.lines import Line2D
 
 time_interval = 10 #sec/frame
 
@@ -65,6 +65,24 @@ ax.tick_params(axis='both', labelsize=14)
 
 ax.spines['top'].set_visible(False)
 ax.spines['right'].set_visible(False)
+
+
+
+# Define custom legend items
+type_legend_handles = [
+    Line2D([0], [0], color='0.4', lw=3, label='Mean line'),
+    Line2D([0], [0], color=[0.4, 0.4, 0.4, 0.2], lw=9, label='95% CI'),
+]
+
+# Add custom legend to this subplot
+type_legend = ax.legend(handles=type_legend_handles,
+                        loc=[0.6,0.7],
+                        fontsize = 14,
+                        )#title='Data type')
+
+ax.add_artist(type_legend)
+
+
 
 plt.tight_layout()
 

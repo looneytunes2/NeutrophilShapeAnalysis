@@ -90,7 +90,7 @@ siglist = ['speed']#,'PC7']#,'Turn_Angle','relative_angle']
 ylabels = ['Instantaneous Speed (µm/sec)']#, 'PC7']#,'Turn Angle (°)','Alignment to Electric Field (°)']
 
 ############### CELL AVERAGES OF SIGNIFICANT METRICS #################################
-colorlist = ['#a244c9','#6cc46d']
+colorlist = ['0.65','#8adb93']
 sns.set_palette(palette=colorlist)
 
 scale = len(siglist)
@@ -99,7 +99,7 @@ linewid= 2
 fig, axes = plt.subplots(1,scale,figsize=(scale*4*0.7,4))
 for i, sig in enumerate(siglist):
     ax = axes#[i]
-    sns.swarmplot(x = 'Treatment', y = sig, data = ModeFrame, size = 2.5, alpha = 0.6, ax = ax)
+    sns.swarmplot(x = 'Treatment', y = sig, data = ModeFrame, size = 2.5, ax = ax, zorder = 1)
     sns.boxplot(x = 'Treatment', y = sig, data = ModeFrame, width = 0.5,
                 boxprops={
                     'fill': False,
@@ -140,7 +140,10 @@ for i, sig in enumerate(siglist):
 
 
     #get the adjusted p value of the statistic in question
-    pv = metrics_pvcorr[metriclist.index(sig)]
+    # pv = metrics_pvcorr[metriclist.index(sig)]
+    _, pv = ss.ttest_ind(ModeFrame[ModeFrame.Treatment == treatments[0]][sig].dropna().values,
+                            ModeFrame[ModeFrame.Treatment == treatments[1]][sig].dropna().values)
+    print(f'speed p val is {pv}')
     if pv < 0.001:
         stars = '***'
     elif pv < 0.01:
@@ -173,7 +176,6 @@ ylabels = ['Cell Sphericity',
            'PC7']
 
 ############### CELL AVERAGES OF SIGNIFICANT METRICS #################################
-colorlist = ['#a244c9','#6cc46d']
 sns.set_palette(palette=colorlist)
 
 scale = len(siglist)
@@ -182,7 +184,7 @@ linewid= 2
 fig, axes = plt.subplots(1,scale,figsize=(scale*4*0.7,4))
 for i, sig in enumerate(siglist):
     ax = axes[i]
-    sns.swarmplot(x = 'Treatment', y = sig, data = ModeFrame, size = 2.5, alpha = 0.6, ax = ax)
+    sns.swarmplot(x = 'Treatment', y = sig, data = ModeFrame, size = 2.5, ax = ax, zorder = 1)
     sns.boxplot(x = 'Treatment', y = sig, data = ModeFrame, width = 0.5,
                 boxprops={
                     'fill': False,

@@ -14,6 +14,7 @@ from CustomFunctions.segment_cells2short import MM_slicetostack_reader
 from matplotlib import cm
 from scipy.spatial import distance
 from scipy import interpolate
+from scipy.spatial import KDTree
 from matplotlib.colors import Normalize
 from matplotlib.animation import FuncAnimation
 from aicssegmentation.core import pre_processing_utils
@@ -24,7 +25,9 @@ def format_seconds(seconds):
     sec = abs(seconds)
     minutes = int(sec // 60)
     secs = int(sec % 60)
-    return f"{minutes:02}:{secs:02}" if seconds>0 else f"-{minutes:02}:{secs:02}"
+    return f"{minutes:02}:{secs:02}" if seconds>=0 else f"-{minutes:02}:{secs:02}"
+
+
 
 #open tracking data
 basedir = 'E:/Aaron/Galvanotaxis_Confocal_40x_37C_10s/'
@@ -32,9 +35,22 @@ trackdir = basedir + 'Tracking_Images/'
 imagename = os.listdir(trackdir)[1]
 df = pd.read_csv(Path(trackdir,imagename,imagename+'_TrackMateLog.csv'))
 time_interval = 10
+xyres = [0.3394,0.3394,0.7]
+
+####### match tracking data with intensity data so that I can exclude dim cells
+rp = pd.read_csv(Path(trackdir,imagename,imagename+'_region_props.csv'), index_col = 0)
+#fix trackmate columns to get names right and units in microns
+rp['x'] = rp.x/xyres[0]
+rp['y'] = rp.y/xyres[1]
+rp['z'] = rp.z/xyres[2]
+#make kdtree and query with trackmate log
+kd = KDTree(rp[['frame','x','y','z']].to_numpy())
+dd, ii = kd.query(df[['FRAME','POSITION_X','POSITION_Y','POSITION_Z']])
+df = pd.concat([df,rp.iloc[ii].drop(columns=['frame','x','y','z', 'cell']).reset_index(drop=True)], axis=1)
 
 
 
+        
 #server directories
 raw_dir = '//10.158.28.37/ExpansionHomesA/avlnas/HL60 Galv/'
 direct = raw_dir +imagename.split('_')[0]+'/' +imagename+'/Default/'
@@ -81,7 +97,7 @@ invert = abs(maxproj_bc - 1)
 
 
 #set the range of frames to calculate the track worm
-frame_range = 12
+frame_range = 24
 
 
 #make the color map to interpolate with 
@@ -120,12 +136,16 @@ for pf, f in enumerate(range(endframe)):
                         'x': x,
                         'y': y,
                         'color_interp': interpoints,
+                        'intensity': [cell.iloc[t].intensity_avg]*len(x),
                         })
 
 wormdf = pd.DataFrame(wormlist)
 wormdf = wormdf.explode(wormdf.columns.to_list()).reset_index(drop = True)
 
 
+intsorted = wormdf.groupby('TRACK_ID').intensity.mean().sort_values()
+dimcells = intsorted[intsorted<540].index.to_list()
+wormdflim = wormdf[~wormdf.TRACK_ID.isin(dimcells)]
 
 
 fig, ax = plt.subplots(1,1, figsize=(10,10))
@@ -136,14 +156,12 @@ imsh = ax.imshow(invert[0], cmap='gray', zorder = 0)
 
 ### time label
 #get times for the timestamp
-times = wormdf.frame.sort_values().unique()*time_interval
+times = wormdflim.frame.sort_values().unique()*time_interval
 mstimes = [format_seconds(0)]+[format_seconds(x) for x in times]
 timer = ax.text(3,40,format_seconds(0), color = 'black', fontdict = {'fontsize': 24})
+#also label how I'm indicating time
+timeindlabel = ax.text(0,-5,'MM:SS', color = 'black', fontdict = {'fontsize': 19})
 
-
-# #create EF labels and colors
-# eflabels = [['EF OFF','#9e36ba'] if x<181 else ['EF ON','#2ab54f'] for x in range(startframe, fullimshape[0]) ]
-# EF = ax.text(3, fullimshape[-2]-5, eflabels[0][0], color = eflabels[0][1], fontdict = {'fontsize': 24})
 
 #plot tracks
 worms = None #ax.scatter([], [], s = 1.2, color = cmap(norm([]))[:,:3], alpha = 0.1, zorder = 1)
@@ -180,10 +198,9 @@ cbar.ax.xaxis.set_ticks_position("top")
 cbar.ax.xaxis.set_label_position("top")
 cbar.set_label("Time (min)", fontsize = 18, labelpad = 7)  # Label for colorbar
 #invert the time labels
-cbar.set_ticklabels((np.arange(-frame_range, mesh_image_interval, mesh_image_interval)*time_interval/60).astype('str'))
+cbar.set_ticklabels((np.arange(-frame_range, mesh_image_interval, mesh_image_interval)*
+                     time_interval/60).astype('str'))
 cbar.ax.tick_params(axis="x", labelsize = 12)#pad=-1, , rotation=-45)
-
-
 
 
 
@@ -201,21 +218,16 @@ def animate(i,):
     if worms is not None:
         worms.remove()
     if i>0:
-        currentworms = wormdf[wormdf.point_frame==i]
+        currentworms = wormdflim[wormdflim.point_frame==i]
         worms = ax.scatter(currentworms.x, currentworms.y, s = 1.2,
                        color = cmap(norm(currentworms.color_interp.astype(float)))[:,:3],
                        alpha = 0.1, zorder = 1)
     else:
         worms = None
 
-
     #timer animation
     timer.set_text(mstimes[i])
 
-    # #EF label
-    # EF.set_text(eflabels[i][0])
-    # EF.set_color(eflabels[i][1])
-    
     if worms is not None:
         return imsh, timer, worms,# EF,
     else:
@@ -224,8 +236,6 @@ def animate(i,):
 #add two to the frame count to adjust the range function and to add a blank frame at the beginning
 ani = FuncAnimation(fig, animate, interval=10, repeat=True,
                     frames=len(range(endframe)),)
-
-# ani.save('C:/Users/Aaron/Desktop/' + imagename + '_animated.mp4', fps=10, dpi = 200)#, extra_args=['-vcodec', 'libx264'])
 
 
 ani.save(__file__.split('.')[0]  + '.mp4', fps=10, dpi = 200)#, extra_args=['-vcodec', 'libx264'])

@@ -65,7 +65,7 @@ fig, ax = plt.subplots()
 for ii, (i, c) in enumerate(csframe.groupby('CellID')):
     ax.plot(c.timemin, c.aer_cumsum, c = cmap.colors[ii], lw = 2)
 ax.set_xlabel('Time (min)', fontsize =18)
-ax.set_ylabel('CGPS Area Enclosed', fontsize =18)
+ax.set_ylabel('Area Enclosed (PC units²)', fontsize =18)
 ax.spines['top'].set_visible(False)
 ax.spines['right'].set_visible(False)
 plt.tight_layout()

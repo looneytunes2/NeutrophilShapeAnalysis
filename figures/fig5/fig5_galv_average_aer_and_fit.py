@@ -46,10 +46,10 @@ dflist = []
 for i, t in df.groupby(['Treatment','iter']):
     t = t.sort_values('cumulative_time').reset_index(drop=True)
     t['cumulative_time_min'] = t.cumulative_time/60
-    aerreg = LinearRegression(fit_intercept = False).fit(np.insert(t.cumulative_time_min.values,0,0).reshape(-1, 1),
-                                                         np.insert(t.aer.cumsum().values,0,0).reshape(-1, 1))
-    aerresid = aerreg.score(np.insert(t.cumulative_time_min.values,0,0).reshape(-1, 1),
-                            np.insert(t.aer.cumsum().values,0,0).reshape(-1, 1))
+    aerreg = LinearRegression().fit(t.cumulative_time_min.values.reshape(-1, 1),
+                                    t.aer.cumsum().values.reshape(-1, 1))
+    aerresid = aerreg.score(t.cumulative_time_min.values.reshape(-1, 1),
+                            t.aer.cumsum().values.reshape(-1, 1))
     dflist.append({'Treatment':i[0],'iter':i[1],'aerresid':aerresid,'aercoef':aerreg.coef_[0][0]})
 avgdf = pd.DataFrame(dflist)
 
@@ -63,14 +63,14 @@ avgdf_filtered = filter_extremes_based_on_percentile(
 
 ############### CELL AVERAGES OF SIGNIFICANT METRICS #################################
 # colorlist = [list(sns.color_palette('pastel').as_hex())[i] for i in [0,3,8]]
-colorlist = ['#e3a1db','#afe6aa']
+colorlist = ['0.65','#8adb93']
 sns.set_palette(palette=colorlist)
 
 
 ##### stats for line fits
 stat, pval = stats.stats.ttest_ind(avgdf[avgdf.Treatment == treatments[0]].aercoef.values,
                             avgdf[avgdf.Treatment == treatments[1]].aercoef.values)
-print('t test for R squared ', pval)
+print('t test for AER coeff ', pval)
 
 fig, ax = plt.subplots(1, 1, figsize=(4,5))#, sharex=True)
 linewid = 2
@@ -125,8 +125,8 @@ plt.savefig(__file__.split('.')[0] + '_AER.png', dpi = 500, bbox_inches='tight')
 
 
 ##### stats for line fits
-stat, pval = stats.mannwhitneyu(avgdf[avgdf.Treatment == treatments[0]].aerresid.values,
-                   avgdf[avgdf.Treatment == treatments[1]].aerresid.values)
+stat, pval = stats.mannwhitneyu(avgdf[avgdf.Treatment == treatments[0]].aerresid.dropna().values,
+                   avgdf[avgdf.Treatment == treatments[1]].aerresid.dropna().values)
 print('Mann Whitney test for R squared ',pval)
 
 fig, ax = plt.subplots(1, 1, figsize=(4,5))#, sharex=True)

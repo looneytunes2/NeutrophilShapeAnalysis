@@ -45,21 +45,38 @@ def segment_whole_images(
         trackdir, #where to save the segmented tracking images
         xyres,
         zstep,
-        fullimshape, #shape of the full movie in TZYX format
+        # fullimshape, #shape of the full movie in TZYX format
         ):
 
     
     for f in foldlist:
         ims = [o for o in os.listdir(raw_dir+f+'/')]
+        ## create the actual list of image directories including if there is
+        ## multiple positions
+        imagedirs = []
         for i in ims:
-    
+            #get all the folders in the experiment directory
+            tempdir = raw_dir+f+'/'+i
+            imagedirs.extend([tempdir + '/' + fo + '/' for fo in os.listdir(tempdir) if os.path.isdir(os.path.join(tempdir, fo))])
+        for imdir in imagedirs:
+            #define the name of the acquisition
+            imsplit = imdir.split('/')
+            i = imsplit[-3]+'_'+imsplit[-2]
+            
             #make the trackdir if it doesn't exist
             if not os.path.exists(trackdir+i+'/'):
                 os.makedirs(trackdir+i+'/')
-            #directory of all the slices for this movie
-            imdir = raw_dir+f+'/'+i+'/Default/'
     
-    
+            ## automatically detec image shape based on slice names
+            shapestring = sorted([x for x in os.listdir(imdir) if x.endswith('.tif')])[-1]
+            shapetime = int(re.findall(r'(?<=time)\d+', shapestring)[0])
+            shapez = int(re.findall(r'(?<=_z)\d+', shapestring)[0])
+            ## combine and add 1 because of zero index
+            fullimshape = [int(shapetime+1),
+                           int(shapez+1),
+                           1024,
+                           1024]
+            
             ##### automatically detect image size
             #         #sort the list of images and get the last one
             #         last = sorted([o for o in os.listdir(imdir) if o.endswith('tif')])[-1]

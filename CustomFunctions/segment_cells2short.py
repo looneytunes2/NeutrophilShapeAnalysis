@@ -45,6 +45,11 @@ def MM_slicetostack_reader(direct, #directory of the image slices
                            shape, #shape of a single frame in czyx
                            zrange, #iterable with all the z slices to include
                            ):
+    #detect position in directory
+    if 'Pos' in direct:
+        pos = int(direct.split('Pos')[-1][0])
+    else:
+        pos = 0
     if len(shape)>3:
         ch = shape[0]
         full = np.zeros((ch, len(zrange), shape[-2], shape[-1]), dtype=np.uint16)
@@ -53,7 +58,7 @@ def MM_slicetostack_reader(direct, #directory of the image slices
         full = np.zeros((len(zrange), shape[-2], shape[-1]), dtype=np.uint16)
     for c in range(ch):
         for i, z in enumerate(zrange):
-            full[i,:,:] = TiffReader(direct+f'img_channel{c:03}_position000_time{frame:09}_z{z:03}.tif').data
+            full[i,:,:] = TiffReader(direct+f'img_channel{c:03}_position{pos:03}_time{frame:09}_z{z:03}.tif').data
     return full
 
 

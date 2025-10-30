@@ -326,34 +326,38 @@ for i,l in enumerate(blarrnodis):
 label = ['Back','Center','Front']
 fig, ax = plt.subplots(1,1, figsize=(5, 5))
 for j, y in enumerate(blarrnodis[:,:,0].T):
-    sns.lineplot(x = np.arange(0,360,binrange), y = y, color = line_colors[j], lw=2.5, ci='none', ax = ax, label = label[j])
+    sns.lineplot(x = np.arange(0,360,binrange), y = y, color = line_colors[j],
+                 lw=2.5, ci='none', ax = ax, label = label[j], zorder = 2)
 
 
 #make x ticks intervals of 60
 ax.set_xticks(np.arange(0,420,60))
 ax.set_xlim(-20,360)
 
+
+# ### also add speed to the plot on a separate axis
+# ax2 = ax.twinx()
+# ax2.plot(np.arange(0,360,binrange), avgbinspeeds, color='darkblue', zorder = 1)
+# ax2.set_ylabel('Instantaneous\nSpeed (µm/sec)', color='darkblue', rotation = -90, labelpad = 50,
+#                fontsize = 20)
+# ax2.tick_params(axis='y', labelcolor='darkblue')
+
+
+
 ax.set_title('Back Position Fixed', fontsize = 20)
 ax.set_ylabel('X Position (μm)', fontsize = 20)
 ax.set_xlabel('Angular Cycle Position (°)', fontsize = 20)
 ax.spines['top'].set_visible(False)
+# ax2.spines['top'].set_visible(False)
 ax.spines['right'].set_visible(False)
 ax.legend().set_visible(False)
+
+#make the line at the middle of the cycle
+ax.axvline(180,color = 'black', linestyle = '--',linewidth=1, alpha = 0.3, zorder=3)
 
 plt.tight_layout()
     
 plt.savefig(__file__.split('.')[0] + '_back_no_displacement.png', dpi = 500, bbox_inches='tight')
-
-
-
-
-
-
-TotalFrame.groupby(f'PC{whichpcs[0]}_PC{whichpcs[1]}_Continuous_Angular_Bins').LengthAlongTrajectoryRear.mean()
-
-
-
-
 
 
 

@@ -9,7 +9,7 @@ import pandas as pd
 import numpy as np
 import os
 import matplotlib.pyplot as plt
-from matplotlib.patches import Ellipse
+from matplotlib.patches import Rectangle, Ellipse, Circle, FancyArrow
 import seaborn as sns
 
 
@@ -34,7 +34,7 @@ TotalFrame = FullFrame[FullFrame.Treatment=='Random'].copy()
 
 #manually define origins for all of the CGPSs
 allorigins = [[[8,8],[8,7],[9,8],[9,7],[9,7],[9,9],[9,9]],
-                [[8,8],[8,8],[8,8],[8,8],[8,9],[8,9]],
+                [[8,8],[8,8],[8,9],[8,8],[8,9],[8,9]],
                     [[7,8],[8,8],[8,8],[8,8],[8,8]],
                         [[8,9],[8,8],[8,8],[7,9]],
                             [[8,8],[8,8],[8,8]],
@@ -154,7 +154,7 @@ for xrow, a in enumerate(binlist):
             # if ycol!= 0:
                 
             orig = allorigins[int(xrow)][int(ycol-(1+xrow))]
-            ax.scatter(orig[0]-0.5, orig[1]-0.5, s = 60, color = '#4481e3', zorder=2)
+            ax.scatter(orig[0]-0.5, orig[1]-0.5, s = 90, color = '#11bd20', zorder=2)
 
 
             if a == binlist[0]:
@@ -199,6 +199,24 @@ for xrow, a in enumerate(binlist):
             ax.remove()
 
 
+### add flux vector scale bar
+#legend background
+lxp = 0.35
+lyp = 0.35
+legh = 1.7
+legw = 7.8
+rect = Rectangle((lxp, lyp), legw, legh, linewidth=1, edgecolor='black', facecolor='#80858a')
+axes[0,1].add_patch(rect)
+rect.set_zorder(4 * 5)
+scalevalue = 0.0017
+#x-axis legend arrow
+arrxp = lxp + legw/2 - (scalevalue/scale)/2 
+axes[0,1].quiver(arrxp,lyp+1.25,scalevalue,0,angles = 'xy',scale_units = 'xy',scale = scale,color = "white",zorder = 4 * 5)
+#x-axis legend text
+xsc = f'{scalevalue:.1e}'
+xsc = xsc.split('e')[0] + 'x10$^{' +  str(int(xsc.split('e')[1])) + '}$'
+axes[0,1].text(lxp+0.1,lyp+0.15,xsc+' $s^{-1}$', color = 'white', fontsize = 20, fontweight = 'bold',zorder = 4 * 5)
+
 
 #remove box around upper right plot
 axes[0,0].tick_params(left=False, bottom=False, labelleft=False, labelbottom=False)
@@ -214,3 +232,52 @@ plt.subplots_adjust(wspace=0.01, hspace=0.01)
 
 
 plt.savefig(__file__.split('.')[0]+'.png', bbox_inches='tight', dpi = 500)
+
+
+
+###### now make a separate figure to make the legend
+fig, ax = plt.subplots()
+
+ax.patch.set_facecolor(sns.color_palette('rocket')[0])
+
+#arrow marker
+arrow = FancyArrow(0.25, -1, -0.5, 0, width=0.15, head_length = 0.1,
+                   facecolor='white', edgecolor = None, label='Arrow')
+ax.add_artist(arrow)
+
+#error oval marker
+ell = Ellipse(xy=(0,-2),
+              width=0.6,
+              height=0.4,
+              color = 'lightblue',
+              alpha = 0.12,
+              )
+ax.add_artist(ell)
+
+# origin marker
+ax.scatter(0, -3, s = 300, color = '#11bd20')
+
+#### all the labels
+## arrow label
+ax.text(0.4,-1.1,'Average flux', c = 'white', fontsize = 24)
+## error label
+ax.text(0.4,-2.1,'Error estimation', c = 'white', fontsize = 24)
+## origin label
+ax.text(0.4,-3.1,'Flux origin', c = 'white', fontsize = 24)
+
+#adjust plot limits
+ax.set_xlim(-0.42,1.6)
+ax.set_ylim(-3.5,-0.5)
+
+#legend title
+fig.suptitle('CGPS legend', fontsize = 32)
+
+#get rid of axis framing
+for spine in ax.spines.values():
+    spine.set_visible(False)
+ax.tick_params(left=False, bottom=False, labelleft=False, labelbottom=False)
+
+
+plt.savefig(__file__.split('.')[0]+'_legend.png', bbox_inches='tight', dpi = 500)
+
+

@@ -13,13 +13,13 @@ import seaborn as sns
 from CustomFunctions import utils
 from scipy import interpolate
 from matplotlib.lines import Line2D
-
+import matplotlib.colors as mc
+from matplotlib.cm import ScalarMappable
 #get directories and open separated datasets
 
 
 treatments = ['Random']
 time_interval = 5 #sec/frame
-derivthresh = 0.0007
 whichpcs = [1,7]
 ntrans = 1
 pointspacing = 0.5
@@ -47,9 +47,29 @@ TotalFrame = pd.merge(FullFrame, allaers[['aer','angular_velocity','cell']],on='
 
 
 # cell = TotalFrame[TotalFrame.CellID == TotalFrame.CellID.unique()[1]]
-cellpicks = TotalFrame.CellID.unique()[[0,12,13]]
+cellpicks = TotalFrame.CellID.unique()[[0,7]]
 
 
+#color palette for AER
+copal = sns.diverging_palette(20, 220, as_cmap=True)
+
+#colors for diverging cmap
+low_color = '#d14c45'   # blue
+mid_color = '#a8a8a8'   # white
+high_color = '#3e88ad'   # red
+#create color map
+cmap = mc.LinearSegmentedColormap.from_list(
+    "custom_diverging_map",
+    [low_color, mid_color, high_color]
+)
+# Normalize so midpoint corresponds to 0
+norm = mc.TwoSlopeNorm(vmin=-0.0025, vcenter = 0, vmax=0.0025)
+mappable = ScalarMappable(norm=norm, cmap=cmap)
+mappable.set_array([])  # required for colorbar
+
+
+
+#make the figure axis
 fig, ax = plt.subplots()
 
 #list to keep track of final areas to find similar bootstraps
@@ -62,61 +82,53 @@ for i, cell in TotalFrame[TotalFrame.CellID.isin(cellpicks)].groupby('CellID'):
     cell = cell.sort_values('time').reset_index(drop=True)
     #get rid of NA in aer which will ruin cumulative sums etc.
     cellnona = cell[~cell.aer.isna()].copy()
-    #### weight the points near gaps more
-    diffs = cellnona.time.diff().values
-    #get the indicies of jumps
-    gaps = np.where(diffs>time_interval)[0]
-    #add the indices before jumps
-    gaps = np.concatenate((gaps,gaps-1))
-    w = np.ones(diffs.shape)
-    w[gaps] = 3
+    # #### weight the points near gaps more
+    # diffs = cellnona.time.diff().values
+    # #get the indicies of jumps
+    # gaps = np.where(diffs>time_interval)[0]
+    # #add the indices before jumps
+    # gaps = np.concatenate((gaps,gaps-1))
+    # w = np.ones(diffs.shape)
+    # w[gaps] = 3
 
     #interpolate for smoothening
     tck, u = interpolate.splprep(np.array((cellnona.time.values,
                                            cellnona.aer.cumsum().values)),
-                                 k=3, s = 1, w = w)#k=1, s=2, w = w)
+                                 k=3, s = 0.5)#, w = w)#k=1, s=2, w = w)
     x, y = interpolate.splev(u, tck, der=0)
     #get the derivative of the smoothened curve
-    deriv = np.gradient(y, x)
-    #threshold with np.select
-    threshs = [deriv>=derivthresh, deriv<=-derivthresh]
-    choices = ['increasing', 'decreasing']
-    statethresh = np.select(threshs, choices, default = 'unchanging')
+    dx, dy = interpolate.splev(u, tck, der=1)
+    deriv = dy/cellnona.time.max()
     #add new values to dataframe
     cell.loc[cellnona.index,'aer_deriv'] = deriv
-    cell.loc[cellnona.index,'aer_state'] = statethresh
     
     
-    
-    #get consecutive runs
+    #get consecutive runs so that gaps are properly plotted
     cell, runs = utils.get_consecutive_timepoints(cell, 'time', time_interval)
     #get absolute time max to normalize time windows
     tmax = cell.time.max()
     for r in runs:
         if len(r)>3:
             rc = cell.iloc[r]
-            curcell = rc[~rc.aer_state.isna()].copy()
+            curcell = rc[~rc.aer_deriv.isna()].copy()
             #smoothened aer for scatterplot
             x, y = interpolate.splev(np.linspace(curcell.time.min()/tmax,
                                                  curcell.time.max()/tmax,
                                                  int((curcell.time.max()-curcell.time.min())/pointspacing)),
                                      tck, der=0)
-            
-            #interpolate to get colors
-            threshs = [curcell.aer_state.values=='decreasing', curcell.aer_state.values=='unchanging', curcell.aer_state.values=='increasing']
-            choices = [1, 2, 3]
-            numbertransform = np.select(threshs, choices)
-            f = interpolate.interp1d(curcell.time.values,numbertransform)
-            colornums = f(np.arange(curcell.time.min(),curcell.time.max(), pointspacing))
-            threshs = [colornums<1.5, (colornums>=1.5) & (colornums<2.5), colornums>=2.5]
-            choices = ['#d14c45','#a8a8a8','#3e88ad'] # ['Decreasing', 'Unchanging', 'Increasing']
-            colors = np.select(threshs, choices)
-            
+            #get the interpolated derivative to color AER\
+            k = 3 if len(curcell)>3 else 1
+            dtck, du = interpolate.splprep(np.stack((curcell.time.values,
+                                                    curcell.aer_deriv.values)), k=1, s=0)
+            dx, dy = interpolate.splev(np.linspace(curcell.time.min()/tmax,
+                                                 curcell.time.max()/tmax,
+                                                 int((curcell.time.max()-curcell.time.min())/pointspacing)),
+                                       tck, der=1)
             #plot the smoothened curve snippet
-            ax.scatter(x/60, y, color = colors,s = 2, zorder=2)
+            ax.scatter(x/60, y, color = cmap(norm(dy/cellnona.time.max())) ,s = 1.75, zorder=2)
             
     #plot the original curve
-    ax.plot(cell.time.values/60, cell.aer.cumsum().values, color = '0.7', lw = 1, zorder = 1)
+    ax.plot(cell.time.values/60, cell.aer.cumsum().values, color = 'black', lw = 1, zorder = 1)
     
     finalareas.append(cell.aer.cumsum().values[-1])
 
@@ -140,7 +152,7 @@ fulliters = pd.merge(fulliters, fulliterscumsum.drop(columns = ['iter']), left_i
 
 #get the least differences between the real cell picks and the bs curves
 bestfits = []
-def myround(x, base=5):
+def myround(x, base=time_interval):
     return base * np.round(x/base)
 for n in nanless:
     n['aercumsum'] = n.aer.cumsum()
@@ -158,7 +170,7 @@ for n in nanless:
     #sum of squared differences    
     diffs = df_wide.apply(lambda x: ((x - n.aercumsum)**2).sum(), axis = 0)
     #sort the diffs and get iter numbers
-    bestfits.append(diffs.sort_values().index.to_list()[:10])
+    bestfits.append(diffs.sort_values().index.to_list()[:5])
 
 
 # #### get bs with closest area to real cells
@@ -169,7 +181,7 @@ for n in nanless:
 
 
 
-bspicks = [2597, 2562, 935]
+bspicks = [o for x in bestfits for o in x]
 bspointspacing = 0.5
 ######### also plot three example bootstrapped curves on the same plot
 for i in bspicks:
@@ -179,63 +191,31 @@ for i in bspicks:
     #get the aer state
     #get rid of NA in aer which will ruin cumulative sums etc.
     cellnona = cell[~cell.aer.isna()].copy()
-    #### weight the points near gaps more
-    diffs = cellnona.cumulative_time.diff().values
-    #get the indicies of jumps
-    gaps = np.where(diffs>time_interval)[0]
-    #add the indices before jumps
-    gaps = np.concatenate((gaps,gaps-1))
-    w = np.ones(diffs.shape)
-    w[gaps] = 3
+    # #### weight the points near gaps more
+    # diffs = cellnona.cumulative_time.diff().values
+    # #get the indicies of jumps
+    # gaps = np.where(diffs>time_interval)[0]
+    # #add the indices before jumps
+    # gaps = np.concatenate((gaps,gaps-1))
+    # w = np.ones(diffs.shape)
+    # w[gaps] = 3
 
-    # ####running mean method
-    # deriv = np.gradient(utils.running_mean_withna(cell.aer.cumsum(), 25), cell.time.values)
-    ####interpolation method
-    #interpolate for smoothening
-    tck, u = interpolate.splprep(np.array((cellnona.cumulative_time.values,
-                                           cellnona.aer.cumsum().values)),
-                                 k=3, s = 1, w = w)#k=1, s=2, w = w)
-    x, y = interpolate.splev(u, tck, der=0)
-    #get the derivative of the smoothened curve
-    deriv = np.gradient(y, x)
-    #threshold with np.select
-    threshs = [deriv>=derivthresh, deriv<=-derivthresh]
-    choices = ['increasing', 'decreasing']
-    statethresh = np.select(threshs, choices, default = 'unchanging')
-    #add new values to dataframe
-    cell.loc[cellnona.index,'aer_deriv'] = deriv
-    cell.loc[cellnona.index,'aer_state'] = statethresh
     
     # ####running mean method
     # deriv = np.gradient(utils.running_mean_withna(cell.aer.cumsum(), 25), cell.time.values)
     ####interpolation method
-    tck, u = interpolate.splprep(np.array((cellnona.cumulative_time.values, cellnona.aer.cumsum().values)), k=3, s=1, w = w)
+    tck, u = interpolate.splprep(np.array((cellnona.cumulative_time.values, cellnona.aer.cumsum().values)), k=3, s=0.5)#, w = w)
     x, y = interpolate.splev(u, tck, der=0)
     deriv = np.gradient(y, x)
-    threshs = [deriv>=derivthresh, deriv<=-derivthresh]
-    choices = ['up', 'down']
-    statethresh = np.select(threshs, choices, default = 'zero')
     cellnona.loc[:,'aer_deriv'] = deriv
-    cellnona.loc[:,'aer_state'] = statethresh
     
     #smoothened aer for scatterplot
     x, y = interpolate.splev(np.linspace(0,1,int((cellnona.cumulative_time.max()-cellnona.cumulative_time.min())/bspointspacing)), tck, der=0)
     
-    #interpolate to get colors
-    threshs = [cellnona.aer_state.values=='down', cellnona.aer_state.values=='zero', cellnona.aer_state.values=='up']
-    choices = [1, 2, 3]
-    numbertransform = np.select(threshs, choices)
-    f = interpolate.interp1d(cellnona.cumulative_time.values,numbertransform)
-    colornums = f(np.arange(cellnona.cumulative_time.min(),cellnona.cumulative_time.max(), bspointspacing))
-    threshs = [colornums<1.5, (colornums>=1.5) & (colornums<2.5), colornums>=2.5]
-    choices = ['#d14c45','#a8a8a8','#3e88ad'] # ['Decreasing', 'Unchanging', 'Increasing']
-    colors = np.select(threshs, choices)
-    
-    # #plot the original curve
-    # ax.plot(cellnona.cumulative_time.values/60, cellnona.aer.cumsum().values, color = 'black', alpha = 0.25, zorder = 1)
+
     #plot the smoothened curve
     ax.plot(x/60, y, color = '0.8', lw = 2, ls = 'dotted', zorder=0)
-    # sns.scatterplot(x = x/60, y = y, hue = colors,linewidth = 0,s = 7, ax =ax)
+
 
 
 
@@ -256,32 +236,31 @@ ax.spines['top'].set_visible(False)
 ax.spines['right'].set_visible(False)
 
 
-# Define aer state legend
-state_legend_handles = [
-    Line2D([0], [0], color='#d14c45', lw=2, label='Decreasing'),
-    Line2D([0], [0], color='#a8a8a8', lw=2, label='Unchanging'),
-    Line2D([0], [0], color='#3e88ad', lw=2, label='Increasing'),
-    # Line2D([0], [0], color='0.7', lw=1, label='Raw curve'),
-    # Line2D([0], [0], color='0.8', lw=2, ls = 'dotted', label='Bootstrapped'),
-    
-]
-state_legend = ax.legend(handles=state_legend_handles,
-                         loc=[0.02,0.77],
-                         title='AER state')
-
 
 # Define custom legend items
 type_legend_handles = [
-    Line2D([0], [0], color='0.7', lw=1, label='Raw curve'),
+    Line2D([0], [0], color='black', lw=1, label='Raw curve'),
+    Line2D([0], [0], color='0.7', lw=3, label='Smoothed curve'),
     Line2D([0], [0], color='0.8', lw=2, ls = 'dotted', label='Bootstrapped'), 
 ]
 
 # Add custom legend to this subplot
 type_legend = ax.legend(handles=type_legend_handles,
-                        loc=[0.02,0.58],
+                        loc=[0.02,0.65],
                         title='Data type')
 
-ax.add_artist(state_legend)
+ax.add_artist(type_legend)
+
+
+cbar_ax = fig.add_axes([0.99, 0.215, 0.02, 0.65]) 
+# Add the colorbar to the new axis
+cbar = fig.colorbar(mappable, cax=cbar_ax, orientation='vertical')
+cbar.set_label('Area Enclosing Rate (PC units²/sec)', fontsize=10, rotation = -90, labelpad = 13)
+cbar.ax.yaxis.set_label_position('right')
+cbar.ax.tick_params(labelsize=8)  
+# cbar.ax.set_yticklabels([str(x.get_position()[1]) for x in cbar.ax.get_yticklabels()],fontsize=12)
+
+
 
 
 plt.tight_layout()

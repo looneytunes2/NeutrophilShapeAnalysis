@@ -36,9 +36,9 @@ fig, ax = plt.subplots(figsize = (3,4))
 #histogram
 sns.histplot(y = allcounts, binwidth = 5, lw=2, color = '0.6', ax = ax)
 #### dashed line cutoff for average cells
-ax.plot([0,29.5],[10.625,10.625],ls='--',c='cyan')
+ax.plot([0,29.5],[10.625,10.625],ls='--',lw = 3,c='#1581b0')
 #### dashed line cutoff for cell stdev
-ax.plot([0,29.5],[25.625,25.625],ls='--',c='magenta')
+ax.plot([0,29.5],[25.625,25.625],ls='--',lw = 3,c='#821065')
 
 #axis labels
 ax.set_xlabel('Count', fontsize = 16)

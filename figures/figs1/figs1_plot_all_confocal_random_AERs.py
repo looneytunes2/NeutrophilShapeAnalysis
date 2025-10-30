@@ -28,15 +28,13 @@ centers = pd.read_csv(datadir+'PC_bin_centers.csv', index_col=0)
 nbins = np.max(FullFrame[[x for x in FullFrame.columns.to_list() if 'bin' in x]].to_numpy())
 
 #set the max average aer for the colorbar stuff
-aermax = 0.02588
+aermax = 0.025856
 ### restrict data to RANDOM
 treatments = ['Random']
 
 
 #restrict dataframe to only random experiments
 TotalFrame = FullFrame[FullFrame.Treatment=='Random'].copy()
-
-
 
 
 
@@ -69,14 +67,14 @@ for ycol, a in enumerate(binlist):
             for i, t in aerdf.groupby(['Treatment','iter']):
                 t = t.sort_values('cumulative_time').reset_index(drop=True)
                 t['cumulative_time_min'] = t.cumulative_time/60
-                aerreg = LinearRegression(fit_intercept = False).fit(np.insert(t.cumulative_time_min.values,0,0).reshape(-1, 1),
-                                                                     np.insert(t.aer.cumsum().values,0,0).reshape(-1, 1))
-                aerresid = aerreg.score(np.insert(t.cumulative_time_min.values,0,0).reshape(-1, 1),
-                                        np.insert(t.aer.cumsum().values,0,0).reshape(-1, 1))
-                cfreg = LinearRegression(fit_intercept = False).fit(np.insert(t.cumulative_time_min.values,0,0).reshape(-1, 1),
-                                                                     np.insert(t.angular_velocity.cumsum().values,0,0).reshape(-1, 1))
-                cfresid = aerreg.score(np.insert(t.cumulative_time_min.values,0,0).reshape(-1, 1),
-                                        np.insert(t.angular_velocity.cumsum().values,0,0).reshape(-1, 1))
+                aerreg = LinearRegression().fit(t.cumulative_time_min.values.reshape(-1, 1),
+                                                                     t.aer.cumsum().values.reshape(-1, 1))
+                aerresid = aerreg.score(t.cumulative_time_min.values.reshape(-1, 1),
+                                        t.aer.cumsum().values.reshape(-1, 1))
+                cfreg = LinearRegression().fit(t.cumulative_time_min.values.reshape(-1, 1),
+                                                                     t.angular_velocity.cumsum().values.reshape(-1, 1))
+                cfresid = aerreg.score(t.cumulative_time_min.values.reshape(-1, 1),
+                                        t.angular_velocity.cumsum().values.reshape(-1, 1))
                 dflist.append({'Treatment':i[0],'iter':i[1],
                                'aerresid':aerresid,'aercoef':aerreg.coef_[0][0],
                                'cfresid':aerresid,'cfcoef':aerreg.coef_[0][0]})
@@ -94,8 +92,12 @@ for ycol, a in enumerate(binlist):
             ### add average cycle period
             avgcf = aerdf.groupby('iter').angular_velocity.mean().mean() #degrees/sec
             cycle_period = abs(360/avgcf/60) #minutes/cycle
-            ax.text(0.05,0.8, str(round(cycle_period,1))+r' ($\frac{min}{cycle}$)',
-                    transform=ax.transAxes, fontsize = 20)
+            if (bin1 =='PC1') and (bin2 == 'PC2'):
+                cyclestring = str(round(cycle_period,1))+r' ($\frac{min}{cycle}$)'
+                print(bin1, bin2)
+            else:
+                cyclestring = str(round(cycle_period,1))
+            ax.text(0.05,0.8, cyclestring, transform=ax.transAxes, fontsize = 20)
 
             
             # #get average aer values

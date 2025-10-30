@@ -70,10 +70,10 @@ angframe = pd.concat((angframe, zerobin))
 
 
 metlist = ['Cell_Aspect_Ratio','Volume_Front_Ratio','directional_autocorrelation','speed',
-           'Cell_Volume','LengthAlongTrajectory','LengthAlongTrajectoryFront','LengthAlongTrajectoryRear']
+           'LengthAlongTrajectory','LengthAlongTrajectoryFront','LengthAlongTrajectoryRear','Cell_Volume']
 
 labelz = ['Aspect Ratio','Front-Rear\nVolume Ratio','Persistence','Instantaneous\nSpeed (µm/sec)',
-          'Cell Volume (µm$^3$)','Length Along\nTrajectory (µm)','Forward Length Along\nTrajectory (µm)','Rearward Length Along\nTrajectory (µm)']
+          'Length Along\nTrajectory (µm)','Forward Length Along\nTrajectory (µm)','Rearward Length Along\nTrajectory (µm)','Cell Volume (µm$^3$)']
 
 ##### get interpolated average line to plot continuous colormap along line
 avgmets = angframe.groupby(f'PC{whichpcs[0]}_PC{whichpcs[1]}_Continuous_Angular_Bins').mean()[metlist]
@@ -137,7 +137,7 @@ for i, ax in enumerate(axes.flatten()):
     
     
     #set the y limits of the front and rear lengths equally
-    if metlist[i] == metlist[-1] or metlist[i] == metlist[-2]:
+    if metlist[i] == 'LengthAlongTrajectoryFront' or metlist[i] == 'LengthAlongTrajectoryRear':
         ax.set_ylim(8.292890502364488, 13.866759448213358)
     
     

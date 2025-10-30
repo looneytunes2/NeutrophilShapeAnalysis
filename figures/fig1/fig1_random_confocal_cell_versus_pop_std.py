@@ -9,7 +9,7 @@ import os
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
-
+import matplotlib.lines as mlines
 
 
 #get directories and open separated datasets
@@ -68,14 +68,15 @@ for i, ax in enumerate(axes.flatten()):
                     },
                 showfliers=False, ax = ax, zorder=2)
     
-    #population std
-    allstd = TotalFrame_filtered[soi[i]].std()
-    allstdline = ax.plot([-0.25,0.25],[allstd, allstd], lw = 2, color = '#821065',
-                         label = 'Population Stdev', zorder = 3)
     #average of the cell stds
     allindstd = TotalFrame_filtered.groupby('CellID')[soi[i]].std().mean()
-    avgstdsline = ax.plot([-0.25,0.25],[allindstd, allindstd], lw = 2, color = 'magenta',
-                          label = 'Average Track Stdev', zorder = 3)
+    avgstdsline = ax.plot([-0.25,0.25],[allindstd, allindstd], lw = 2, color = '#821065',
+                          label = 'Average Track StDev', zorder = 3)
+    
+    #population std
+    allstd = TotalFrame_filtered[soi[i]].std()
+    allstdline = ax.plot([-0.25,0.25],[allstd, allstd], lw = 2, color = 'magenta',
+                         label = 'Population StDev', zorder = 3)
 
     #tick stuff
     ax.set_ylabel(ylabels[i], fontsize = 16)#, labelpad=-0.5)
@@ -87,11 +88,8 @@ for i, ax in enumerate(axes.flatten()):
     #set y limits
     ax.set_ylim(0, ax.get_ylim()[1])
 
-fig.suptitle('Cell Track Standard Deviations', fontsize=16)
-# #how many images unique cells (data points) are there
-# fig.text(0.5, 1, f'n = {len(TotalFrame_filtered.CellID.unique())} cells',
-#         va='center', ha='center', fontsize=14)
-
+#fig title
+fig.suptitle('Cell Track Standard Deviations', y = 1.04, fontsize=16)
 
 ### legend above plots
 handles, labels  = ax.get_legend_handles_labels()
@@ -99,8 +97,15 @@ legend = fig.legend(handles,
            labels,
            loc='upper center',
            ncol = 2,
-           bbox_to_anchor= (0.5,0.95),
+           bbox_to_anchor= (0.5,1.01),
            frameon = False)
+
+
+#how many images data points are there
+imnum = fig.text(0.5, 0.91, f'n = {TotalFrame_filtered.CellID.value_counts().shape[0]} cells',
+        va='center', ha='center', fontsize=10)
+
+
 
 plt.tight_layout()
 

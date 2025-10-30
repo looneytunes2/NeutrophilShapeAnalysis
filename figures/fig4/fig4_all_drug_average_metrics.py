@@ -176,6 +176,8 @@ for i, sig in enumerate(siglist):
 
     ###plot stars for DMSO-CK666
     row = starframe[starframe.Treatment=='CK666']
+    #print
+    print(f'CK666 pval for {ylabels[i]} is {pvdf[(pvdf.metric == sig) & (pvdf.Treatment =="CK666")].pvalue.iloc[0]}')
     xp = np.array([0,2])
     slv = 1
     starinc = (ymax-ymin)*0.001
@@ -187,6 +189,8 @@ for i, sig in enumerate(siglist):
 
     ### plot star or ns for DMSO-PNB
     row = starframe[starframe.Treatment=='Para-Nitro-Blebbistatin']
+    #print
+    print(f'Bleb pval for {ylabels[i]} is {pvdf[(pvdf.metric == sig) & (pvdf.Treatment =="Para-Nitro-Blebbistatin")].pvalue.iloc[0]}')
     pstar = 'n.s.' if row.empty else get_stars(row['pvcorr'].values)
     xp = np.array([0,1])
     slv = 0

@@ -10,7 +10,6 @@ import pandas as pd
 from CustomFunctions import utils
 import matplotlib.pyplot as plt
 import seaborn as sns
-from statsmodels.stats.anova import AnovaRM
 from statsmodels.stats.multitest import multipletests
 from scipy import stats
 
@@ -61,57 +60,34 @@ print(f'n = {df[df.lag_min==time_interval/60].groupby("Treatment").apply(lambda 
 print(f'n = {df[df.lag_min==maxlag*time_interval/60].groupby("Treatment").apply(lambda x: x.shape[0])} \
       track segments for time lag {maxlag*time_interval/60}')
 
-# # Run repeated measures ANOVA
-# aovrm = AnovaRM(data=df.groupby(['Treatment','lag_min']).mean().reset_index(), depvar='dot_prod', subject='Treatment', within=['lag_min'])
-# result = aovrm.fit()
-# print(result)
-
-### run kruskal wallace at each time point
-testlist = []
-for i, l in df.groupby('lag_min'):
-    if i != 0:
-        _,pval = stats.mannwhitneyu(*[d.to_list() for _,d in l.groupby('Treatment').dot_prod])
-        testlist.append({'lag':i,'pvalue':pval})
-kwdf = pd.DataFrame(testlist)
-#run BH multiple comparisons correction
-reject, pvcorr = multipletests(kwdf['pvalue'],method='fdr_bh')[:2]
-sigkw = kwdf[reject]
-
-
 
 
 
 #set color palette
-colorlist = ['#a244c9','#6cc46d']
+colorlist = ['0.4','#6cb875']
 sns.set_palette(palette=colorlist)
 
-#change the Treatments to 
 
 ##########  plot random versus galv
 fig, ax = plt.subplots()
 sns.lineplot(data = df, x = 'lag_min',y = 'dot_prod', hue = 'Treatment',
              lw = 3, ax = ax)
 
-
-# labels = ['Undirected','Electrotaxis'], 
-
-# ###stars
-# #calculate average line to use as reference
-# refline = df[df.Treatment=='Galvanotaxis'].groupby('lag_min').dot_prod.mean()
-# #list of heights to add
-# heights = [0.05,0.05,0.07,0.05,0.07,0.05,0.05,0.05,0.05,0.06,0.06,0.07,0.07,0.06]
-# for s, row in sigkw.reset_index(drop=True).iterrows():
-#     ax.text(row.lag, refline.loc[row.lag]+heights[s], get_stars(row.pvalue), fontsize = 10, ha = 'center')
-
-
 ax.set_ylabel('Directional Autocorrelation', fontsize = 18)
 ax.set_xlabel('Time lag (min)', fontsize = 18)
 
-handles, _ = ax.get_legend_handles_labels()
-ax.legend(labels = ['Undirected','Electrotaxis'],
-          handles = handles,
-          title = '',)
-          # loc = [])
+# handles, _ = ax.get_legend_handles_labels()
+# ax.legend(labels = ['Undirected','Electrotaxis'],
+#           handles = handles,
+#           title = '',)
+#           # loc = [])
+### make the legend larger
+leg = ax.legend(loc = [0.6, 0.8])
+for line in leg.get_lines():
+    line.set_linewidth(3)
+for t, text in enumerate(leg.get_texts()):
+    text.set_text(['Undirected','Electrotaxis'][t])
+    text.set_fontsize(14)
 
 
 ax.spines['top'].set_visible(False)

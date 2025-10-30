@@ -48,13 +48,13 @@ df['costheta'] = np.sum(unitvecs * [-1,0,0], axis=1)
 ##### make the plot
 fig, ax = plt.subplots()
 #plot first part as green
-sns.lineplot(x ='relative_time', y= 'costheta', data = df[df.relative_time<=0], color = '#a244c9', lw = 2,
+sns.lineplot(x ='relative_time', y= 'costheta', data = df[df.relative_time<=0], color = '0.4', lw = 2,
              label = 'Undirected', ax = ax, zorder = 2)
 #plot the initial EF exposure
-sns.lineplot(x ='relative_time', y= 'costheta', data = df[(df.relative_time>=0) & (df.relative_time<=1)], color = '0.7', lw = 2,
+sns.lineplot(x ='relative_time', y= 'costheta', data = df[(df.relative_time>=0) & (df.relative_time<=1)], color = '#c4d461', lw = 2,
              label = '0-1 min EF', ax = ax, zorder = 2)
 #plot second part as purple
-sns.lineplot(x ='relative_time', y= 'costheta', data = df[df.relative_time>=1], color = '#6cc46d', lw = 2,
+sns.lineplot(x ='relative_time', y= 'costheta', data = df[df.relative_time>=1], color = '#6cb875', lw = 2,
              label = '>1min EF', ax = ax, zorder = 2)
 
 
@@ -72,7 +72,14 @@ ax.spines['top'].set_visible(False)
 ax.spines['right'].set_visible(False)
 
 
-ax.legend(loc = [0.6,0.15])
+#legend stuff
+leg = ax.legend()
+leg.set_bbox_to_anchor([0.85,0.35]) 
+for line in leg.get_lines():
+    line.set_linewidth(3)
+for t, text in enumerate(leg.get_texts()):
+    text.set_fontsize(14)
+
 
 plt.tight_layout()
 

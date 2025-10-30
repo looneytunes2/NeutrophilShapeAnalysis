@@ -57,27 +57,38 @@ angframe =  linear_cycle_utils.bin_angular_coord(
         binrange,
         )
 
+histdf = angframe[f'PC{whichpcs[0]}_PC{whichpcs[1]}_Continuous_Angular_Bins'].value_counts().sort_index().reset_index()
+histdf = histdf.rename(columns = {'index': 'angbins'})
+
 #get colors based on linear CGPS radial graphic
 cmap = cm.get_cmap('twilight', int(360/binrange+1))
 discrete_colors = cmap(np.linspace(0,1,int(360/binrange+1))[:-1])
 
-fig, ax = plt.subplots(1, 1, figsize=(5,5))#, sharex=True)
+fig, ax = plt.subplots(1, 1, figsize=(5,5))
 
-sns.histplot(data = angframe, x=f'PC{whichpcs[0]}_PC{whichpcs[1]}_Continuous_Angular_Coord',
-              bins = np.sort(angframe[f'PC{whichpcs[0]}_PC{whichpcs[1]}_Continuous_Angular_Bins'].unique()),
-             lw = 2, ax = ax)
-#change bar color based on bin #
+sns.barplot(data = histdf, x = 'angbins', y=f'PC{whichpcs[0]}_PC{whichpcs[1]}_Continuous_Angular_Bins',
+            edgecolor = 'black', lw = 2, ax = ax)
+
+## change bar color based on bin 
 for i, p in enumerate(ax.patches):
     p.set_facecolor(discrete_colors[i,:])
+    p.set_width(1.0)
+    
 
 #axis stuff
 ax.legend_ = None
 ax.set_ylabel('Image Count', fontsize = 22)
 ax.set_xlabel('Angular Bin (°)', fontsize = 22)
+ax.set_xlim(-1,18)
+ax.set_xticks(np.arange(0,histdf.shape[0],60/binrange)+0.1)
+ax.set_xticklabels(np.arange(0,360,60))
 ax.tick_params('x',labelsize = 12)
 ax.tick_params('y',labelsize = 12)
 ax.spines['top'].set_visible(False)
 ax.spines['right'].set_visible(False)
 
 plt.tight_layout()
+
+
+
 plt.savefig(__file__.split('.')[0]+'.png', bbox_inches='tight', dpi = 500)

@@ -77,22 +77,29 @@ for i, ax in enumerate(axes.flatten()):
     #remove x tick
     ax.set_xticks([])
     
-    #go all the way to zero
-    ax.set_ylim(min(0, ax.get_ylim()[0]), ax.get_ylim()[1])
+    #go all the way to zero and set speed at max 0.6
+    if soi[i] == 'speed':
+        ax.set_ylim(min(0, ax.get_ylim()[0]), 0.6)
+    else:
+        ax.set_ylim(min(0, ax.get_ylim()[0]), ax.get_ylim()[1])
+    
+#fig title
+fig.suptitle('Instantaneous Measurements', y = 1.0, fontsize=16)
+
     
 #how many images data points are there
-imnum = fig.text(1.28/len(soi), 1, f'n = {len(TotalFrame)} images',
-        va='center', ha='center', fontsize=14)
+imnum = fig.text(1.28/len(soi), 0.92, f'n = {len(TotalFrame)} images',
+        va='center', ha='center', fontsize=10)
 imnum_xpos = imnum.get_position()[0]
-imline = mlines.Line2D([imnum_xpos-0.18, imnum_xpos+0.18], [0.98, 0.98], color='black', lw=1,)
+imline = mlines.Line2D([imnum_xpos-0.22, imnum_xpos+0.22], [0.9, 0.9], color='black', lw=1,)
 fig.add_artist(imline)
 
 
 #how many images data points are there
-intnum = fig.text(2.65/len(soi), 1, f'n = {len(TotalFrame.speed.dropna())} intervals',
-        va='center', ha='center', fontsize=14)
+intnum = fig.text(2.5/len(soi), 0.92, f'n = {len(TotalFrame.speed.dropna())} intervals',
+        va='center', ha='center', fontsize=10)
 intnum_xpos = intnum.get_position()[0]
-intline = mlines.Line2D([intnum_xpos-0.1, intnum_xpos+0.1], [0.98, 0.98], color='black', lw=1,)
+intline = mlines.Line2D([intnum_xpos-0.13, intnum_xpos+0.13], [0.9, 0.9], color='black', lw=1,)
 
 fig.add_artist(intline)
 

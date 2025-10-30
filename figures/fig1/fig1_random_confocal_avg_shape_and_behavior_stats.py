@@ -67,13 +67,15 @@ for i, ax in enumerate(axes.flatten()):
                     },
                 showfliers=False, ax = ax, zorder=2)
     
-    #draw the average line
-    allavg = TotalFrame[soi[i]].mean()
-    allavgline = ax.plot([-0.35,0.35],[allavg,allavg], lw = linewid, color = '#1581b0', label = 'Population Mean', zorder = 3)
+    
     #average of averages
     avgavg = TotalFrame.groupby('CellID')[soi[i]].mean().mean()
-    avgavgline = ax.plot([-0.35,0.35],[avgavg,avgavg], lw = linewid, color = '#44e3d6', label = 'Average Track Mean', zorder = 3)
+    avgavgline = ax.plot([-0.35,0.35],[avgavg,avgavg], lw = linewid, color = '#1581b0', label = 'Average Track Mean', zorder = 3)
     
+    #draw the average line
+    allavg = TotalFrame[soi[i]].mean()
+    allavgline = ax.plot([-0.35,0.35],[allavg,allavg], lw = linewid, color = '#44e3d6', label = 'Population Mean', zorder = 3)
+
 
 
     #tick stuff
@@ -91,17 +93,23 @@ for i, ax in enumerate(axes.flatten()):
 #         va='center', ha='center', fontsize=10)
     # ax.get_legend_handles_labels()
 
+#fig title
+fig.suptitle('Cell Track Means', y = 1.04, fontsize=16)
+
 ### legend above plots
 handles, labels  = ax.get_legend_handles_labels()
 legend = fig.legend(handles,
            labels,
            loc='upper center',
            ncol = 2,
-            bbox_to_anchor= (0.5,0.95),
+            bbox_to_anchor= (0.5,1.01),
            frameon = False)
 
 
-fig.suptitle('Cell Track Means', fontsize=16)
+#how many images data points are there
+imnum = fig.text(0.5, 0.91, f'n = {TotalFrame_filtered.CellID.value_counts().shape[0]} cells',
+        va='center', ha='center', fontsize=10)
+
 
 
 plt.tight_layout()

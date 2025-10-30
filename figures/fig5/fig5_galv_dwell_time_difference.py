@@ -129,72 +129,6 @@ plt.savefig(__file__.split('.')[0] + '.png', dpi = 500, bbox_inches='tight')
 
 
 
-####### Get the quadrant info
-ori_adj = np.array(origin) - bintrim
-
-d = differences.copy()
-c = countmap[1]
-orix = ori_adj[0]
-oriy = ori_adj[1]
-
-#empty dataframe
-quad = []
-quad.append({'quadrant':['upperleft']*(len(d[oriy:,:orix].flatten())),
-              'diffs': d[oriy:,:orix].flatten(),
-              'counts': c[oriy:,:orix].flatten()})
-quad.append({'quadrant':['upperright']*(len(d[oriy:,orix:].flatten())),
-              'diffs': d[oriy:,orix:].flatten(),
-              'counts': c[oriy:,orix:].flatten()})
-quad.append({'quadrant':['lowerright']*(len(d[:oriy,orix:].flatten())),
-              'diffs': d[:oriy,orix:].flatten(),
-              'counts': c[:oriy,orix:].flatten()})
-quad.append({'quadrant':['lowerleft']*(len(d[:oriy,:orix].flatten())),
-              'diffs': d[:oriy,:orix].flatten(),
-              'counts': c[:oriy,:orix].flatten()})
-quaddf = pd.concat([pd.DataFrame(x) for x in quad])
-
-print(stats.f_oneway(*[q.diffs.to_list() for _, q in quaddf.groupby('quadrant')]))
-tukey = pairwise_tukeyhsd(endog=quaddf.diffs.values, groups=quaddf.quadrant.values, alpha=0.05)
-tukey_df = pd.DataFrame(
-    data=tukey._results_table.data[1:], 
-    columns=tukey._results_table.data[0] 
-)
-
-
-# #### start building the figure
-# fig, ax = plt.subplots(1,1,figsize=(3,5))
-# sns.stripplot(data = quaddf, x = 'quadrant', y = 'diffs', ax = ax)
-
-# #set title
-# ax.set_title([x[:11]+'\n'+x[11:] if x == 'Para-Nitro-Blebbistatin' else x for x in treatments][int(i+1)])#, fontsize = 32)
-
-
-# #plot significance stars
-# ticklabels = [x.get_text() for x in ax.xaxis.get_ticklabels()]
-# slv = 0 #star level
-# ymin, ymax = ax.get_ylim()
-# for r, row in tukey_df[tukey_df.reject].iterrows():
-#     print('star')
-#     pstar = get_stars(row['p-adj'])
-#     xp = np.sort(np.array([ticklabels.index(row.group1),ticklabels.index(row.group2)]))
-#     starinc = (ymax-ymin)*0.02 if pstar == 'n.s.' else (ymax-ymin)*0.001
-#     barinc = (ymax-ymin)*0.08
-#     #star
-#     nsfs = 10 if pstar=='n.s.' else 12
-#     # ax.text(xp.mean(), ymax+starinc, pstar, fontsize = nsfs, ha='center')
-#     ax.text(xp.mean(), ymax+(barinc*slv), pstar, fontsize = nsfs, ha='center')
-#     #bar
-#     ax.plot([xp[0]+0.1,xp[1]-0.1], [ymax+(barinc*slv),ymax+(barinc*slv)], color = 'black')
-
-#     slv = slv+1
-
-# plt.tight_layout()
-
-# plt.savefig(__file__.split('.')[0] + '_quadrants.png', dpi = 500, bbox_inches='tight')
-
-
-
-
 
 ############## DOT PLOT VERSION ###################
 
@@ -210,7 +144,7 @@ sig = stats.ttest_1samp(differences.flatten(), popmean=0)[1]
 
 
 #set the color palette
-colors = ['#6cc46d']*len(diffdf)
+colors = ['#6cb875']*len(diffdf)
 
 
 #### start building the figure

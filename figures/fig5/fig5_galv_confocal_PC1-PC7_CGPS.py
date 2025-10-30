@@ -65,7 +65,7 @@ elldf = bsfield_sep.merge(trans_rate_df_sep,left_on = ['x','y'], right_on = ['x'
 
 fig, ax = plt.subplots(figsize=(10,10))
 #single colorbar axis
-cbar_ax = fig.add_axes([.92, .1135, .042, .7545])
+cbar_ax = fig.add_axes([.92, .082, .042, .784])
 
 ttot = transdf_sep.time_elapsed.sum()
 #make numpy array with heatmap data
@@ -137,11 +137,11 @@ for x in range(1,nbins+1):
 # axis label stuff
 ax.set_xlabel('PC1', fontsize = 45)
 ax.set_ylabel('PC7', fontsize = 45)
-ax.xaxis.set_label_coords(0.46,-0.05)
-ax.set_xticks(np.arange(0.5,nbins+0.5))
-ax.set_xticklabels([round(x,1) for x in centers.PC1.to_list()], fontsize = 17)
-ax.set_yticks(np.arange(0.5,nbins+0.5))
-ax.set_yticklabels([round(x,1) for x in centers.PC7.to_list()], fontsize = 17)
+ax.xaxis.set_label_coords(0.47,-0.01)
+ax.set_xticks([])
+ax.set_xticklabels([])
+ax.set_yticks([])
+ax.set_yticklabels([])
 ax.set_xlim(0,nbins+1)
 ax.set_ylim(0,nbins+1)
 ax.set_title('Electrotaxis', fontsize = 50, loc = 'center')#,pad = -100)
@@ -154,24 +154,22 @@ cbar_ax.set_ylabel('Probability', fontsize = 32, rotation = -90, labelpad = 33)
 
 ########## add scale for the vectors ##########
 #legend background
-lxp = 0.215
-lyp = 0.215
-rect = Rectangle((lxp, lyp), 2.3, 2.3, linewidth=1, edgecolor='black', facecolor='#80858a')
+lxp = 0.35
+lyp = 0.35
+legh = 1.4
+legw = 4.4
+rect = Rectangle((lxp, lyp), legw, legh, linewidth=1, edgecolor='black', facecolor='#80858a')
 ax.add_patch(rect)
 rect.set_zorder(4 * 5)
+scalevalue = 0.0017
 #x-axis legend arrow
-ax.quiver(lxp+0.7,lyp+0.7,1*scale,0,angles = 'xy',scale_units = 'xy',scale = scale,color = "white",zorder = 4 * 5)
+#position of arrow in middle of box
+arrxp = lxp + legw/2 - (scalevalue/scale)/2 
+ax.quiver(arrxp,lyp+1.05,scalevalue,0,angles = 'xy',scale_units = 'xy',scale = scale,color = "white",zorder = 4 * 5)
 #x-axis legend text
-xsc = f'{(np.diff(centers.PC1.to_list()).mean()/time_interval)*scale:.1e}'
+xsc = f'{scalevalue:.1e}'
 xsc = xsc.split('e')[0] + 'x10$^{' +  str(int(xsc.split('e')[1])) + '}$'
-ax.text(lxp+0.37,lyp+0.05,xsc+' $s^{-1}$', color = 'white', fontsize = 9.5, fontweight = 'bold',zorder = 4 * 5)
-#y-axis legend arrow
-ax.quiver(lxp+0.7,lyp+0.7,0,1*scale,angles = 'xy',scale_units = 'xy',scale = scale,color = 'white',zorder = 4 * 5)
-#y-axis legend text
-ysc = f'{(np.diff(centers.PC7.to_list()).mean()/time_interval)*scale:.1e}'
-ysc = ysc.split('e')[0] + 'x10$^{' +  str(int(ysc.split('e')[1])) + '}$'
-ax.text(lxp+0.11,lyp+0.36,ysc+' $s^{-1}$', rotation = 'vertical', color = 'white', fontsize = 9.5, fontweight = 'bold',zorder = 4 * 5)
-
+ax.text(lxp+0.18,lyp+0.15,xsc+' $s^{-1}$', color = 'white', fontsize = 22, fontweight = 'bold',zorder = 4 * 5)
 
 plt.tight_layout()
 

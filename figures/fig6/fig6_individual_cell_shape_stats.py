@@ -54,6 +54,10 @@ for i, ax in enumerate(axes.flatten()):
     sns.stripplot(data = FullFrame, x = 'CellID', y = metrics[i], jitter = False, color = 'gray',
                   s = 1.2, alpha = 0.7, zorder = 1, ax = ax)
     
+    ### set the y limit to zero
+    ymin, ymax = ax.get_ylim()
+    ax.set_ylim(0, ymax)
+    
     ax.legend_ = None
     ax.set_xlabel('')
     ax.set_xticks([])
@@ -64,6 +68,7 @@ for i, ax in enumerate(axes.flatten()):
     avgs = FullFrame[['CellID',metrics[i]]].groupby('CellID').median()
     avgavg = avgs[metrics[i]].median()
     ax.axhline(avgavg, ls = '--', color = 'black', alpha = 0.4)
+    
     
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
