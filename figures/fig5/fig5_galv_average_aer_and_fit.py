@@ -9,8 +9,7 @@ Created on Wed Apr 16 12:52:22 2025
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
-from sklearn.linear_model import LinearRegression
-import numpy as np
+from CustomFunctions import utils
 from CustomFunctions.shapePCAtools import filter_extremes_based_on_percentile
 from scipy import stats
 
@@ -29,6 +28,7 @@ def get_stars(pv):
 
 ntrans = 1
 whichpcs = [1,7]
+time_interval = 10
 treatments = ['Random','Galvanotaxis']
 xlabels = ['Undirected', 'Electrotaxis']
 basedir = 'E:/Aaron/Combined_37C_Confocal_PCA_s5/'
@@ -44,13 +44,11 @@ df.loc[:,'Treatment'] = pd.Categorical(df.Treatment.to_list(), categories=treatm
 
 dflist = []
 for i, t in df.groupby(['Treatment','iter']):
-    t = t.sort_values('cumulative_time').reset_index(drop=True)
-    t['cumulative_time_min'] = t.cumulative_time/60
-    aerreg = LinearRegression().fit(t.cumulative_time_min.values.reshape(-1, 1),
-                                    t.aer.cumsum().values.reshape(-1, 1))
-    aerresid = aerreg.score(t.cumulative_time_min.values.reshape(-1, 1),
-                            t.aer.cumsum().values.reshape(-1, 1))
-    dflist.append({'Treatment':i[0],'iter':i[1],'aerresid':aerresid,'aercoef':aerreg.coef_[0][0]})
+    t = t.rename(columns = {'cumulative_time':'time'})
+    t = t.sort_values('time').reset_index(drop=True)
+    #fit aer
+    aerresid, aercoef = utils.fit_AER(t,time_interval,'aer')
+    dflist.append({'Treatment':i[0],'iter':i[1],'aerresid':aerresid,'aercoef':aercoef})
 avgdf = pd.DataFrame(dflist)
 
 
@@ -101,7 +99,7 @@ sns.boxplot(x = 'Treatment', y='aercoef', data = avgdf, width = 0.15, color = 'w
                 },
             ax=ax)
 
-ax.text(0.5,0.055,get_stars(pval), fontsize=12, ha='center')
+ax.text(0.5,0.009,get_stars(pval), fontsize=12, ha='center')
 # ax.set_ylim(0,0.042)
 ax.set_xlabel('', fontsize=20)
 ax.tick_params('y', labelsize=10)
@@ -158,7 +156,7 @@ sns.boxplot(x = 'Treatment', y='aerresid', data = avgdf, width = 0.15, color = '
                 },
             ax=ax)
 
-ax.text(0.5,1.02, get_stars(pval), fontsize=12, ha='center')
+ax.text(0.5,1.01, get_stars(pval), fontsize=12, ha='center')
 # ax.set_ylim(0,1.05)
 ax.set_xlabel('', fontsize=20)
 ax.tick_params('y', labelsize=10)

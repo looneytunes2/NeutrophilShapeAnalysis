@@ -9,15 +9,9 @@ Created on Wed Apr 16 12:52:22 2025
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
-from sklearn.linear_model import LinearRegression
-import numpy as np
+from CustomFunctions import utils
 from CustomFunctions.shapePCAtools import filter_extremes_based_on_percentile
 from scipy import stats
-from statsmodels.stats.multicomp import pairwise_tukeyhsd
-from statsmodels.stats.multitest import multipletests
-import statsmodels.api as sm 
-from statsmodels.formula.api import ols 
-import scikit_posthocs as sp
 
 
 def get_stars(pv):
@@ -34,6 +28,7 @@ def get_stars(pv):
 
 ntrans = 1
 whichpcs = [1,7]
+time_interval = 10
 treatments = ['DMSO','Para-Nitro-Blebbistatin','CK666']
 basedir = 'E:/Aaron/Combined_37C_Confocal_PCA_s5/'
 datadir = basedir + 'Data_and_Figs/'
@@ -45,13 +40,12 @@ df['Treatment'] = pd.Categorical(df.Treatment.to_list(), categories=treatments, 
 
 dflist = []
 for i, t in df.groupby(['Treatment','iter']):
-    t = t.sort_values('cumulative_time').reset_index(drop=True)
-    t['cumulative_time_min'] = t.cumulative_time/60
-    aerreg = LinearRegression().fit(t.cumulative_time_min.values.reshape(-1, 1),
-                                    t.aer.cumsum().values.reshape(-1, 1))
-    aerresid = aerreg.score(t.cumulative_time_min.values.reshape(-1, 1),
-                            t.aer.cumsum().values.reshape(-1, 1))
-    dflist.append({'Treatment':i[0],'iter':i[1],'aerresid':aerresid,'aercoef':aerreg.coef_[0][0]})
+    t = t.rename(columns = {'cumulative_time':'time'})
+    t = t.sort_values('time').reset_index(drop=True)
+    #fit aer
+    aerresid, aercoef = utils.fit_AER(t,time_interval,'aer')
+    
+    dflist.append({'Treatment':i[0],'iter':i[1],'aerresid':aerresid,'aercoef':aercoef})
 avgdf = pd.DataFrame(dflist)
 
 
@@ -109,14 +103,11 @@ sns.boxplot(x = 'Treatment', y='aercoef', data = avgdf_filtered, width = 0.15, c
                 },
             ax=ax)
 #dmso to bleb
-ax.text(0.5,0.0409,get_stars(pnbpval), fontsize=12, ha='center')
-ax.plot([0.1,0.9],[0.0408,0.0408], color = 'black')
-# #bleb to ck666
-# ax.text(1.5,0.0315,'***', fontsize=12, ha='center')
-# ax.plot([1.1,1.9],[0.0314,0.0314], color = 'black')
+ax.text(0.5,0.00688,get_stars(pnbpval), fontsize=12, ha='center')
+ax.plot([0.1,0.9],[0.0069,0.0069], color = 'black')
 #dmso to ck666
-ax.text(1,0.0431,get_stars(ck666pval), fontsize=12, ha='center')
-ax.plot([0.1,1.9],[0.043,0.043], color = 'black')
+ax.text(1,0.00718,get_stars(ck666pval), fontsize=12, ha='center')
+ax.plot([0.1,1.9],[0.0072,0.0072], color = 'black')
 # ax.set_ylim(-5,60)
 ax.set_xlabel('', fontsize=20)
 ax.tick_params('y', labelsize=10)
@@ -176,11 +167,11 @@ sns.boxplot(x = 'Treatment', y='aerresid', data = avgdf_filtered, width = 0.15, 
             ax=ax)
 
 #DMSO to bleb
-ax.text(0.5,1.102,get_stars(pnbpval), fontsize=12, ha ='center')
-ax.plot([0,1],[1.1,1.1], color = 'black')
+ax.text(0.5,1.057,get_stars(pnbpval), fontsize=12, ha ='center')
+ax.plot([0,1],[1.06,1.06], color = 'black')
 #DMSO to CK666
-ax.text(1,1.172,get_stars(ck666pval), fontsize=12, ha ='center')
-ax.plot([0,2],[1.17,1.17], color = 'black')
+ax.text(1,1.107,get_stars(ck666pval), fontsize=12, ha ='center')
+ax.plot([0,2],[1.11,1.11], color = 'black')
 
 #ditch x axis label
 ax.set_xlabel('', fontsize=20)

@@ -9,10 +9,9 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from CustomFunctions import utils
-from scipy import interpolate, stats
+from scipy import stats
 import seaborn as sns
 import matplotlib
-from sklearn.linear_model import LinearRegression
 
 whichpcs = [1,7]
 time_interval = 5
@@ -33,18 +32,20 @@ TotalFrame = TotalFrame.sort_values(['CellID','time'])
 
 #open all the bootstrapped realizations
 bsaers = pd.read_csv(randir+f'PC{whichpcs[0]}-PC{whichpcs[1]}_{ntrans}_transition_Area_Enclosing_Rates.csv', index_col = 0)
+bsgaps = pd.read_csv(randir+f'PC{whichpcs[0]}-PC{whichpcs[1]}_{ntrans}_transition_Area_Enclosing_Rates_gaps.csv', index_col = 0)
+bsaers_gaps = bsaers.merge(bsgaps, on = ['iter','real_time'])
 
 #only use aers that are within the range of observed time of the real cells
 minmaxtime = TotalFrame.groupby('CellID').time.max().min()
-itertime = bsaers.groupby('iter').cumulative_time.max()
-longiters = itertime[itertime>=minmaxtime]
-bsaers_long = bsaers[bsaers.iter.isin(longiters.index.to_list())].copy()
-
+itertime = bsaers_gaps.groupby('iter').cumulative_time.max()
+longiters = itertime[itertime>=minmaxtime].index.to_list()
+bsaers_long = bsaers_gaps[bsaers_gaps.iter.isin(longiters)].copy()
 
 ###### get smoothened aer
 allcells = []
 for i, cell in TotalFrame.groupby('CellID'):
-    cell, tck , w = utils.get_aer_state(cell, time_interval)
+    ### smoothen bootstrapped AE curve
+    cell,_,_ = utils.get_aer_state(cell, time_interval)
     #append that cell
     allcells.append(cell)
     
@@ -53,7 +54,7 @@ derivframe = pd.concat(allcells).reset_index(drop=True)
 
 
 ###### label snippets of the specified length and get snippet measurements
-runlengthlist = [13,25,37] #number of frames in each snippet
+runlengthlist = [12,24,36] #number of frames in each snippet
 aerrunlist = [] #list to append different snippet IDs to
 snippetmetrics = [] #list to append snippet metrics to
 for rl in runlengthlist:
@@ -81,22 +82,16 @@ for rl in runlengthlist:
                     #measure snippet metrics
                     persistence = tempc.persistence.mean()
                     speed = tempc.speed.mean()
-                    euclid = np.sqrt((tempc.iloc[-1].x - tempc.iloc[0].x)**2+
-                                    (tempc.iloc[-1].y - tempc.iloc[0].y)**2+
-                                    (tempc.iloc[-1].z - tempc.iloc[0].z)**2)
+
                     #fit aer
-                    
-                    aerreg = LinearRegression().fit(aertime.reshape(-1, 1),
-                                                    tempc.aer_deriv[1:].cumsum().values.reshape(-1, 1))
-                    aerresid = aerreg.score(aertime.reshape(-1, 1),
-                                           tempc.aer_deriv[1:].cumsum().values.reshape(-1, 1))
+                    aerresid, aercoef = utils.fit_AER(tempc,time_interval,'aer_smooth')
+
                     
                     snippetmetrics.append({
                         'CellID':tempc.iloc[0].CellID,
                         'speed':speed,
                         'persistence':persistence,
-                        'euclid':euclid,
-                        'aercoef':aerreg.coef_[0][0],
+                        'aercoef':aercoef,
                         'aerresid':aerresid,
                         'aerrun':label+'_'+str(srcount)})
                     
@@ -124,31 +119,12 @@ snippetframe = pd.DataFrame(snippetmetrics)
 
 bscells = []
 for i, cell in bsaers_long.groupby('iter'):
-    #get rid of NA in aer which will ruin cumulative sums etc.
-    cellnona = cell[~cell.aer.isna()].copy()
-    #### weight the points near gaps more
-    diffs = cellnona.cumulative_time.diff().values
-    #get the indicies of jumps
-    gaps = np.where(diffs>time_interval)[0]
-    #add the indices before jumps
-    gaps = np.concatenate((gaps,gaps-1))
-    w = np.ones(diffs.shape)
-    w[gaps] = 3
+    cell = cell.rename(columns = {'real_time':'time'})
+    ### smoothen bootstrapped AE curve
+    cell,_,_ = utils.get_aer_state(cell, time_interval)
 
-
-    #interpolate for smoothening
-    tck, u = interpolate.splprep(np.array((cellnona.cumulative_time.values,
-                                            cellnona.aer.cumsum().values)),
-                                  k=3, s = 1, w = w)#k=1, s=2, w = w)
-    x, y = interpolate.splev(u, tck, der=0)
-    #get the derivative of the smoothened curve
-    # deriv = np.gradient(y, x)
-    _, deriv = interpolate.splev(u, tck, der=1) 
-    #add smoothened derivative of aer
-    cellnona['aer_deriv'] = deriv/cellnona.cumulative_time.max()
-    
     #append that bootstrap
-    bscells.append(cellnona)
+    bscells.append(cell)
    
 bsderivframe = pd.concat(bscells).reset_index(drop=True)
 
@@ -162,38 +138,42 @@ for rl in runlengthlist:
     aertime = np.arange(1,rl)*time_interval
     cellstateruns = []
     for i, cell in bsderivframe.groupby('iter'):
-    
-        allshifts = np.arange(0,len(cell),rl)
-        stateruns = []
-        for n in range(len(allshifts)):
-            if n!= len(allshifts)-1:
-                tempc = cell.iloc[allshifts[n]:allshifts[n+1]].copy()
-                tempc.loc[:,label] = srcount
-                cellstateruns.append(tempc[['iter','real_time',label]])
-                
-                #fit aer            
-                aerreg = LinearRegression().fit(aertime.reshape(-1, 1),
-                                                tempc.aer_deriv[1:].cumsum().values.reshape(-1, 1))
-                aerresid = aerreg.score(aertime.reshape(-1, 1),
-                                        tempc.aer_deriv[1:].cumsum().values.reshape(-1, 1))
-                
-                bssnippetmetrics.append({
-                    'iter':i,
-                    'aercoef':aerreg.coef_[0][0],
-                    'aerresid':aerresid,
-                    'aerrun':label+'_'+str(srcount)})
-                
-                srcount = srcount + 1
-            else:
-                tempc = cell.iloc[allshifts[n]:len(cell)].copy()
-                tempc.loc[:,label] = np.nan
-                cellstateruns.append(tempc[['iter','real_time',label]])      
+        ##### identify consecutive runs of different aer states
+        cs, runs = utils.get_consecutive_timepoints(cell, 'time', time_interval)
+        for r in runs:
+            c = cs.iloc[r].copy()
+            allshifts = np.arange(0,len(c),rl)
+            stateruns = []
+            for n in range(len(allshifts)):
+                #treat all equally sized snippets normally
+                #the last snippet will almost never be of the right length
+                if n!= len(allshifts)-1:
+                    #get snippet
+                    tempc = c.iloc[allshifts[n]:allshifts[n+1]].copy()
+                    tempc.loc[:,label] = srcount
+                    cellstateruns.append(tempc[['iter',label,'cumulative_time']])
+
+                    #fit aer
+                    aerresid, aercoef = utils.fit_AER(tempc,time_interval,'aer_smooth')
+
+                    
+                    bssnippetmetrics.append({
+                        'iter':tempc.iloc[0].iter,
+                        'aercoef':aercoef,
+                        'aerresid':aerresid,
+                        'aerrun':label+'_'+str(srcount)})
+                    
+                    srcount = srcount + 1
+                else:
+                    tempc = c.iloc[allshifts[n]:len(c)].copy()
+                    tempc.loc[:,label] = np.nan
+                    cellstateruns.append(tempc[['iter',label,'cumulative_time']])
     bsaerrunlist.append(pd.concat(cellstateruns))
     
 #combine and merge with other data
 bsaerrunframe = bsderivframe.copy()
 for b in bsaerrunlist:
-    bsaerrunframe = bsaerrunframe.merge(b, on=['iter','real_time'])
+    bsaerrunframe = bsaerrunframe.merge(b, on=['iter','cumulative_time'])
 
 #combine bootstrapped snippet aers
 bssnippetframe = pd.DataFrame(bssnippetmetrics)
@@ -201,11 +181,7 @@ bssnippetframe = pd.DataFrame(bssnippetmetrics)
 
 
 
-#metrics to plot
-minute_labels = [str(int((x-1)*time_interval/60))+[' minute',' minutes',' minutes'][i] for i,x in enumerate(runlengthlist)]
-
-  
-    
+############# run ttests between the real and bs populations at the different intervals
 for r, rl in enumerate(runlengthlist):
 
     #get data and combine sources
@@ -242,8 +218,8 @@ for r, rl in enumerate(runlengthlist):
     tempbsstds = tempbs.groupby('iter').std().reset_index()
     
     #plot the dots from real cells
-    sns.swarmplot(x = 'dummy', y = 'aercoef', data = temprealmeans, hue = 'CellID', palette = cmap.colors, size = 5, #marker = 'o',
-                   linewidth=0, edgecolor = None, ax = meanax, zorder = 2,)
+    sns.swarmplot(x = 'dummy', y = 'aercoef', data = temprealmeans, hue = 'CellID', palette = cmap.colors, size = 5.5, #marker = 'o',
+                   linewidth=0.5, edgecolor = '0.4', ax = meanax, zorder = 2,)
 
     #plot bootstrapped distribution
     sns.violinplot(data = tempbsstds, y = 'aercoef', linewidth = 0, color = '0.85', inner=None,
@@ -251,8 +227,8 @@ for r, rl in enumerate(runlengthlist):
     
     
     #plot the dots from real cells
-    sns.swarmplot(x = 'dummy', y = 'aercoef', data = temprealstds, hue = 'CellID', palette = cmap.colors, size = 5, marker = 'o',
-                   linewidth=0, edgecolor = None, ax = stdax, zorder = 2,)
+    sns.swarmplot(x = 'dummy', y = 'aercoef', data = temprealstds, hue = 'CellID', palette = cmap.colors, size = 5.5,
+                   linewidth=0.5, edgecolor = '0.4', ax = stdax, zorder = 2,)
 
     #plot bootstrapped distribution
     sns.violinplot(data = tempbs, y = 'aercoef', linewidth = 0, color = '0.85', inner=None,
@@ -265,8 +241,8 @@ for r, rl in enumerate(runlengthlist):
     
     
     ###set limits
-    meanax.set_ylim(0, 0.0006)
-    stdax.set_ylim(0, 0.0015)
+    meanax.set_ylim(0, 0.017)
+    stdax.set_ylim(0, 0.07)
     
     
     #label stuff
@@ -283,7 +259,7 @@ for r, rl in enumerate(runlengthlist):
         stdax.set_yticklabels([])
         
         
-    stdax.set_xlabel(minute_labels[r], fontsize = 10)
+    stdax.set_xlabel(minute_labels[r], fontsize = 11)
     meanax.set_xlabel('')
     meanax.set_xticks([])
     stdax.set_xticks([])
@@ -296,6 +272,9 @@ for r, rl in enumerate(runlengthlist):
     stdax.spines['right'].set_visible(False)    
     
 plt.tight_layout()
+
+
+
 
 plt.savefig(__file__.split('.')[0] + '_real_vs_bs_mean_std_aer.png', dpi = 500, bbox_inches='tight')    
 

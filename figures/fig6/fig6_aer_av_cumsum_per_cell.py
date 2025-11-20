@@ -34,20 +34,13 @@ TotalFrame = TotalFrame.sort_values(['CellID','time'])
 #get cumulative sums
 csframe = []
 for c, t in TotalFrame.groupby('CellID'):
-    t['aer_cumsum'] = t.aer.cumsum().copy()
-    
-    replacelist = []
-    for i in t[t.aer_cumsum.isna()].index:
-        if i!=t.iloc[0].name:
-            curna = t.loc[i].copy()
-            #replace the nan with the previous value
-            t.loc[i,'aer_cumsum'] = t.loc[int(i-1)].aer_cumsum
-            #add new nan 5sec before previous
-            curna.time = curna.time-time_interval
-            
-            replacelist.append(curna.to_dict())
-    t = pd.concat((t, pd.DataFrame(replacelist))).sort_values('time')
+    t = t.sort_values('time').reset_index(drop = True)
+    ## get area enclosed
+    t['area_enclosed'] = t.aer * time_interval
+    ## get cumulative sum of area enclosed
+    t['ae_cumsum'] = t.area_enclosed.cumsum().copy()
     csframe.append(t)
+    
 csframe = pd.concat(csframe, ignore_index = True)
 csframe['timemin'] = csframe.time.values/60
 
@@ -63,7 +56,7 @@ sns.set_palette(cmap.colors)
 fig, ax = plt.subplots()
 #plot lines with matplotlib so they show the nan breaks correctly
 for ii, (i, c) in enumerate(csframe.groupby('CellID')):
-    ax.plot(c.timemin, c.aer_cumsum, c = cmap.colors[ii], lw = 2)
+    ax.plot(c.timemin, c.ae_cumsum, c = cmap.colors[ii], lw = 2)
 ax.set_xlabel('Time (min)', fontsize =18)
 ax.set_ylabel('Area Enclosed (PC units²)', fontsize =18)
 ax.spines['top'].set_visible(False)

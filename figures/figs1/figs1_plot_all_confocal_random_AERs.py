@@ -11,6 +11,7 @@ import numpy as np
 import os
 import matplotlib.pyplot as plt
 import seaborn as sns
+from CustomFunctions import utils
 from CustomFunctions.shapePCAtools import filter_extremes_based_on_percentile
 from matplotlib import cm
 from matplotlib.colors import Normalize
@@ -28,7 +29,7 @@ centers = pd.read_csv(datadir+'PC_bin_centers.csv', index_col=0)
 nbins = np.max(FullFrame[[x for x in FullFrame.columns.to_list() if 'bin' in x]].to_numpy())
 
 #set the max average aer for the colorbar stuff
-aermax = 0.025856
+aermax = 0.00431
 ### restrict data to RANDOM
 treatments = ['Random']
 
@@ -65,19 +66,23 @@ for ycol, a in enumerate(binlist):
             #fit lines to get aer and cf
             dflist = []
             for i, t in aerdf.groupby(['Treatment','iter']):
-                t = t.sort_values('cumulative_time').reset_index(drop=True)
-                t['cumulative_time_min'] = t.cumulative_time/60
-                aerreg = LinearRegression().fit(t.cumulative_time_min.values.reshape(-1, 1),
-                                                                     t.aer.cumsum().values.reshape(-1, 1))
-                aerresid = aerreg.score(t.cumulative_time_min.values.reshape(-1, 1),
-                                        t.aer.cumsum().values.reshape(-1, 1))
-                cfreg = LinearRegression().fit(t.cumulative_time_min.values.reshape(-1, 1),
-                                                                     t.angular_velocity.cumsum().values.reshape(-1, 1))
-                cfresid = aerreg.score(t.cumulative_time_min.values.reshape(-1, 1),
-                                        t.angular_velocity.cumsum().values.reshape(-1, 1))
+                t = t.rename(columns = {'cumulative_time':'time'})
+                t = t.sort_values('time').reset_index(drop=True)
+                #fit aer
+                aerresid, aercoef = utils.fit_AER(t,time_interval,'aer')
+                dflist.append({'Treatment':i[0],'iter':i[1],'aerresid':aerresid,'aercoef':aercoef})
+                
+                ###### fit angular velocity
+                ##add angle
+                t['angle'] = t.angular_velocity*time_interval
+                ## fit a line to av over time
+                cfreg = LinearRegression().fit(t.time.values.reshape(-1, 1),
+                                               t.angle.cumsum().values.reshape(-1, 1))
+                cfresid = cfreg.score(t.time.values.reshape(-1, 1),
+                                        t.angle.cumsum().values.reshape(-1, 1))
                 dflist.append({'Treatment':i[0],'iter':i[1],
-                               'aerresid':aerresid,'aercoef':aerreg.coef_[0][0],
-                               'cfresid':aerresid,'cfcoef':aerreg.coef_[0][0]})
+                               'aerresid':aerresid,'aercoef':aercoef,
+                               'cfresid':cfresid,'cfcoef':cfreg.coef_[0][0]})
             avgdf = pd.DataFrame(dflist)
 
 

@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from CustomFunctions import utils
-from scipy import interpolate, stats
+from scipy import stats
 import seaborn as sns
 import matplotlib
 from sklearn.linear_model import LinearRegression
@@ -34,7 +34,7 @@ TotalFrame = TotalFrame.sort_values(['CellID','time'])
 
 
 ###### label snippets of the specified length and get snippet measurements
-runlengthlist = [13,25,37] #number of frames in each snippet
+runlengthlist = [12,24,36] #number of frames in each snippet
 aerrunlist = [] #list to append different snippet IDs to
 snippetmetrics = [] #list to append snippet metrics to
 for rl in runlengthlist:
@@ -62,22 +62,16 @@ for rl in runlengthlist:
                     #measure snippet metrics
                     persistence = tempc.persistence.mean()
                     speed = tempc.speed.mean()
-                    euclid = np.sqrt((tempc.iloc[-1].x - tempc.iloc[0].x)**2+
-                                    (tempc.iloc[-1].y - tempc.iloc[0].y)**2+
-                                    (tempc.iloc[-1].z - tempc.iloc[0].z)**2)
+
                     #fit aer
-                    
-                    aerreg = LinearRegression().fit(aertime.reshape(-1, 1),
-                                                    tempc.aer[1:].cumsum().values.reshape(-1, 1))
-                    aerresid = aerreg.score(aertime.reshape(-1, 1),
-                                           tempc.aer[1:].cumsum().values.reshape(-1, 1))
+                    aerresid, aercoef = utils.fit_AER(tempc,time_interval,'aer')
+
                     
                     snippetmetrics.append({
                         'CellID':tempc.iloc[0].CellID,
                         'speed':speed,
                         'persistence':persistence,
-                        'euclid':euclid,
-                        'aercoef':aerreg.coef_[0][0],
+                        'aercoef':aercoef,
                         'aerresid':aerresid,
                         'aerrun':label+'_'+str(srcount)})
                     
@@ -131,7 +125,7 @@ for mm, met in enumerate(metrics):
        
         #set y limits the same for each metric
         if met == 'speed':
-            ax.set_ylim(0.024,0.560)
+            ax.set_ylim(0.024,0.575)
         elif met == 'persistence':
             ax.set_ylim(0.168,1.074)
         #regression line
@@ -141,7 +135,7 @@ for mm, met in enumerate(metrics):
         ax.plot([xmin,xmax],[fp,lp], c = 'black')
         #pearson coef label
         p_corr, pval = stats.pearsonr(x,y)
-        txx = 0.0118
+        txx = 0.052
         txy = 0.18 if met == 'speed' else 0.5
         ax.text(txx,txy,str(np.around(p_corr, decimals=2)))
         
@@ -162,7 +156,7 @@ for mm, met in enumerate(metrics):
             
         #titles
         if met == metrics[0]:
-            tmin = int((rl-1)*time_interval/60)
+            tmin = int(rl*time_interval/60)
             justmin = ' minute' if tmin == 1 else ' minutes'
             ax.set_title(str(tmin)+justmin, fontsize = 18)
             

@@ -62,6 +62,7 @@ for xrow, a in enumerate(binlist):
         bin1 = a.split('bin')[0]
         bin2 = b.split('bin')[0]
 
+            
         ax = axes[int(bin1.split('PC')[-1])-1,int(bin2.split('PC')[-1])-1]
 
         if os.path.exists(savedir+ f'{bin1}-{bin2}_binned_transition_rates_separated.csv'):
@@ -203,19 +204,19 @@ for xrow, a in enumerate(binlist):
 #legend background
 lxp = 0.35
 lyp = 0.35
-legh = 1.7
-legw = 7.8
+legh = 1.9
+legw = 8.2
 rect = Rectangle((lxp, lyp), legw, legh, linewidth=1, edgecolor='black', facecolor='#80858a')
 axes[0,1].add_patch(rect)
 rect.set_zorder(4 * 5)
 scalevalue = 0.0017
 #x-axis legend arrow
 arrxp = lxp + legw/2 - (scalevalue/scale)/2 
-axes[0,1].quiver(arrxp,lyp+1.25,scalevalue,0,angles = 'xy',scale_units = 'xy',scale = scale,color = "white",zorder = 4 * 5)
+axes[0,1].quiver(arrxp,lyp+1.55,scalevalue,0,angles = 'xy',scale_units = 'xy',scale = scale,color = "white",zorder = 4 * 5)
 #x-axis legend text
 xsc = f'{scalevalue:.1e}'
 xsc = xsc.split('e')[0] + 'x10$^{' +  str(int(xsc.split('e')[1])) + '}$'
-axes[0,1].text(lxp+0.1,lyp+0.15,xsc+' $s^{-1}$', color = 'white', fontsize = 20, fontweight = 'bold',zorder = 4 * 5)
+axes[0,1].text(lxp+0.1,lyp+0.25,xsc+' $s^{-1}$', color = 'white', fontsize = 20, fontweight = 'bold',zorder = 4 * 5)
 
 
 #remove box around upper right plot

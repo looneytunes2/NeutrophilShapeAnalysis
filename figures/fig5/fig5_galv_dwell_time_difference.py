@@ -195,7 +195,7 @@ ax.set_xlabel('Relative Dwell Time (s)', fontsize = 14)
 #legend sizes for the biggest and smallest dots on plot
 legend_sizes = [diffdf[(diffdf.diffs>-3) & (diffdf.diffs<3)].counts.max()/3,
                 diffdf[(diffdf.diffs>-3) & (diffdf.diffs<3)].counts.min()/3]
-legend_labels = [str(int(s*3))+' samples' if int(s*3)>1 else str(int(s*3))+' sample' for s in legend_sizes]
+legend_labels = [str(int(s*3)) if int(s*3)>1 else str(int(s*3))+' sample' for s in legend_sizes]
 handles = [
     Line2D([], [], marker='o', linestyle='None',
            markersize=np.sqrt(s), label=label, color='gray', alpha=0.6)
@@ -203,7 +203,7 @@ handles = [
 ]
 
 ax.legend(handles=handles,
-          title='Dot Size',
+          title='Sample Size',
           loc=[1.05,0.25],
           title_fontsize = 12,
           labelspacing=1,)

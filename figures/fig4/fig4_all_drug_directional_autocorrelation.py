@@ -82,15 +82,15 @@ fig, ax = plt.subplots()
 sns.lineplot(data = df, x = 'lag_min',y = 'dot_prod', hue = 'Treatment',  lw = 3, ax = ax)
 
 
-ax.set_ylabel('Directional Autocorrelation', fontsize = 18)
-ax.set_xlabel('Time lag (min)', fontsize = 18)
+ax.set_ylabel('Directional Autocorrelation', fontsize = 22)
+ax.set_xlabel('Time lag (min)', fontsize = 22)
 
 ### make the legend larger
 leg = ax.legend(loc = [0.4, 0.7])
 for line in leg.get_lines():
     line.set_linewidth(3)
 for text in leg.get_texts():
-    text.set_fontsize(14)
+    text.set_fontsize(16)
     
 
 ax.spines['top'].set_visible(False)

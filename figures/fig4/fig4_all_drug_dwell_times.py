@@ -163,9 +163,9 @@ for i, ax in enumerate(axes):
 axes[0].set_ylabel(f'PC{whichpcs[1]}', fontsize = 24)
 
 # adjust colorbar tick label size
-cbar_ax.set_yticklabels(cbar_ax.get_yticklabels(),fontsize=12)
-cbar_ax.get_yaxis().labelpad = 18
-cbar_ax.set_ylabel('Relative Dwell Time (sec)', fontsize = 16, rotation=270)
+cbar_ax.set_yticklabels(cbar_ax.get_yticklabels(),fontsize=14)
+cbar_ax.get_yaxis().labelpad = 22
+cbar_ax.set_ylabel('Relative Dwell Time (sec)', fontsize = 20, rotation=270)
 
 
 plt.tight_layout()
@@ -271,20 +271,20 @@ ax.set_ylabel('Relative Dwell Time (s)', fontsize = 18)
 #legend sizes for the biggest and smallest dots on plot
 legend_sizes = [diffdf[(diffdf.diffs>-3) & (diffdf.diffs<3)].counts.max()/3,
                 diffdf[(diffdf.diffs>-3) & (diffdf.diffs<3)].counts.min()/3]
-legend_labels = [str(int(s*3))+' samples' for s in legend_sizes]
+legend_labels = [str(int(s*3)) for s in legend_sizes]
 handles = [
     Line2D([], [], marker='o', linestyle='None',
            markersize=np.sqrt(s), label=label, color='gray', alpha=0.6)
     for s, label in zip(legend_sizes, legend_labels)
 ]
 ax.legend(handles=handles,
-          title='Dot Size',
+          title='Sample Size',
           bbox_to_anchor=[0.5,0.9],
           loc = 'center',
           borderpad=0.25,
-          title_fontsize = 14,
-          fontsize = 12,
-          labelspacing=1.5,)
+          title_fontsize = 16,
+          fontsize = 14,
+          labelspacing=0.75,)
 
 #remove box lines
 ax.spines['right'].set_visible(False)

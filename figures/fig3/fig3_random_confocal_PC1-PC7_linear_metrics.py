@@ -169,12 +169,23 @@ for i, ax in enumerate(axes.flatten()):
     ax.spines['right'].set_visible(False)
     ax.legend_ = None
     
+    
+# fig.text(0.5,0.01,'Angular Bins ()', fontsize = 18)
+    
 plt.tight_layout()
 
 
 plt.savefig(__file__.split('.')[0]+'.png', bbox_inches='tight', dpi = 500)
 
 
+
+
+fig, ax = plt.subplots()
+ax.text(0.5,0.5, 'Angular Bin (°)', fontsize = 24)
+ax.axis('off')
+plt.savefig(__file__.split('.')[0] + '_label.png', dpi = 500, bbox_inches='tight')
+
+     
 
 # ###### make a custom legend
 # from matplotlib.collections import LineCollection

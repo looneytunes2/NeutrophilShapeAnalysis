@@ -4,7 +4,7 @@ import pandas as pd
 import numpy as np
 import re
 from scipy import interpolate
-
+from sklearn.linear_model import LinearRegression
 
 def running_mean_withna(x, N):
     means = []
@@ -135,6 +135,8 @@ def get_aer_state(
     cell = cell.sort_values('time').reset_index(drop=True)
     #get rid of NA in aer which will ruin cumulative sums etc.
     cellnona = cell[~cell.aer.isna()].copy()
+    #get area enclosed from aer
+    cellnona['area_enclosed'] = cellnona.aer*time_interval
     #### weight the points near gaps more
     diffs = cellnona.time.diff().values
     #get the indicies of jumps
@@ -144,27 +146,49 @@ def get_aer_state(
     w = np.ones(diffs.shape)
     w[gaps] = 3
 
-    # ####running mean method
-    # deriv = np.gradient(utils.running_mean_withna(cell.aer.cumsum(), 25), cell.time.values)
+
     ####interpolation method
     #interpolate for smoothening
     tck, u = interpolate.splprep(np.array((cellnona.time.values,
-                                           cellnona.aer.cumsum().values)),
-                                 k=3, s = 1, w = w)#k=1, s=2, w = w)
-    x, y = interpolate.splev(u, tck, der=0)
+                                           cellnona.area_enclosed.cumsum().values)),
+                                 k=3, s = 15, w = w)#k=1, s=2, w = w)
     #get the derivative of the smoothened curve
     dx, dy = interpolate.splev(u, tck, der=1)
-    deriv = dy/cellnona.time.max()
+    #get derivative in correct units of time (area enclosed / sec)
+    deriv = dy/(cellnona.time.max() - cellnona.time.min())
 
     #threshold with np.select
-    threshs = [deriv>=derivthresh, deriv<=-derivthresh]
+    threshs = [dy>=derivthresh, dy<=-derivthresh]
     choices = ['increasing', 'decreasing']
     statethresh = np.select(threshs, choices, default = 'unchanging')
     #add new values to dataframe
-    cell.loc[cellnona.index,'aer_deriv'] = deriv
+    cell.loc[cellnona.index,'aer_smooth'] = deriv
     cell.loc[cellnona.index,'aer_state'] = statethresh
 
     return cell, tck, w
+
+
+
+######## perform regression on AE over time in minutes
+def fit_AER(
+        df, # dataframe with 'time' in seconds
+        time_interval, #frame rate of 'time' data in df
+        aercol = 'aer', #what is the name of the aer column
+        ):
+    #make sure data is sorted by time
+    df = df.sort_values('time').reset_index(drop=True)
+    #drop na
+    df = df[~df[aercol].isna()]
+    #get area enclosed from aer
+    df['area_enclosed'] = df[aercol]*time_interval
+    #linear regression
+    aerreg = LinearRegression().fit(df.time.values.reshape(-1, 1),
+                                    df.area_enclosed.cumsum().values.reshape(-1, 1))
+    aerresid = aerreg.score(df.time.values.reshape(-1, 1),
+                            df.area_enclosed.cumsum().values.reshape(-1, 1))
+    
+    return aerresid, aerreg.coef_[0][0] #residuals and coefficient 
+
 
 
 #### bootstrap a confidence interval similar to seaborn

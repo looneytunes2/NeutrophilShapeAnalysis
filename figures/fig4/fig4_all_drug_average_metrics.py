@@ -70,7 +70,7 @@ avgdf_filtered.loc[:,'LengthAlongTrajectoryRear'] = avgdf_filtered.LengthAlongTr
 ############### get list of metrics that are significant ttest of CELL AVERAGES ############
 metriclist = ['Treatment','Cell_Volume','Volume_Front_Ratio','Cell_SurfaceArea','Cell_Sphericity','Cell_Aspect_Ratio',
                'LengthAlongTrajectory','LengthAlongTrajectoryFront','LengthAlongTrajectoryRear','WidthAlongTrajectory',
-               'speed','protrusion_speed','retraction_speed','directional_autocorrelation'] #'Turn_Angle',
+               'speed','protrusion_speed','retraction_speed'] #'Turn_Angle',
 pclist = [x for x in TotalFrame.columns.to_list() if 'PC' in x and 'bin' not in x]
 includelist = metriclist + pclist
 
@@ -85,15 +85,27 @@ for col in includelist:
                 tempframe.loc[tempframe.Treatment==t, col].values
                 )
             reslist.append({'metric': col, 'Treatment': t, 'pvalue': pval})
-pvdf = pd.DataFrame(reslist)
-#correct pvalues for metrics
-metric_reject, metrics_pvcorr = multipletests(pvdf[pvdf.metric.isin(metriclist)]['pvalue'],method='fdr_bh')[:2]
-#correct pvalues for PCs
-PC_reject, PC_pvcorr = multipletests(pvdf[pvdf.metric.isin(pclist)]['pvalue'],method='fdr_bh')[:2]
-#combine rejected hypotheses
-sigframe = pvdf.iloc[np.concatenate((metric_reject, PC_reject))]
-#add corrected PCs
-sigframe['pvcorr'] = np.concatenate((metrics_pvcorr[metric_reject], PC_pvcorr[PC_reject]))
+pvdf = pd.DataFrame(reslist).sort_values('Treatment')
+
+
+#separately test statistics by treatment and metrics vs PCs
+bothtreatsig = []
+for tr in treatments[1:]:
+    tpvdf = pvdf[pvdf.Treatment == tr].copy().reset_index(drop=True)
+    metricdf = tpvdf[tpvdf.metric.isin(metriclist)].copy()
+    pcdf = tpvdf[tpvdf.metric.isin(pclist)].copy()
+    #correct pvalues for metrics
+    metric_reject, metrics_pvcorr = multipletests(metricdf['pvalue'],method='fdr_bh')[:2]
+    #correct pvalues for PCs
+    PC_reject, PC_pvcorr = multipletests(pcdf['pvalue'],method='fdr_bh')[:2]
+    #combine rejected hypotheses
+    tempsigframe = pd.concat((metricdf[metric_reject], pcdf[PC_reject]), ignore_index=True)
+    #add corrected PCs
+    tempsigframe['pvcorr'] = np.concatenate((metrics_pvcorr[metric_reject], PC_pvcorr[PC_reject]))
+    bothtreatsig.append(tempsigframe)
+## combine treatments
+sigframe = pd.concat(bothtreatsig, ignore_index=True)
+
 #all significant comparisons
 allsiglist = sigframe.metric.unique()
 

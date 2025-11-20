@@ -16,7 +16,6 @@ from aicsimageio.readers.tiff_reader import TiffReader
 from CustomFunctions import utils
 import skimage.measure
 from pathlib import Path
-from sklearn.linear_model import LinearRegression
 
 ### angle between two vectors in degrees
 def angle3D(a1, b1, c1, a2, b2, c2):
@@ -53,21 +52,13 @@ allaers = pd.read_csv(randir+f'PC{whichpcs[0]}-PC{whichpcs[1]}_raw_transition_ae
 TotalFrame = FullFrame.merge(allaers[['aer','angular_velocity','cell']],left_on='cell',right_on='cell')
 TotalFrame = TotalFrame.sort_values(['CellID','time'])
 
-allcells = []
-for i, cell in TotalFrame.groupby('CellID'):
-    cell, tck , w = utils.get_aer_state(cell, time_interval)
-    #append that cell
-    allcells.append(cell)
-    
-derivframe = pd.concat(allcells).reset_index(drop=True)
-
 
 
 ############ find top 5 minutes with positive and negative AER for each unique cell
 topruns = []
 bottomruns = []
 aertime = np.arange(1,runlength)*time_interval #constant time range based on time window for AER fit
-for i, cell in derivframe.groupby('CellID'):
+for i, cell in TotalFrame.groupby('CellID'):
     aerruns = [] #list to append dicts
     ######### get AER for every window of the specified length
     cs, runs = utils.get_consecutive_timepoints(cell, 'time', time_interval)
@@ -81,14 +72,13 @@ for i, cell in derivframe.groupby('CellID'):
                 #get snippet
                 tempc = c.iloc[n:int(n+runlength)].copy()
                 #find fit
-                aerfit = LinearRegression().fit(aertime.reshape(-1, 1),
-                                                tempc.aer_deriv[1:].cumsum().values.reshape(-1, 1))
+                aerresid, aercoef = utils.fit_AER(tempc[1:],time_interval,'aer')
                 #get relevant info for this stretch
                 aerdict = {
                     'CellID':tempc.CellID.iloc[0],
                     'cell':tempc.cell.values,
                     'time_range': tempc.time.values,
-                    'aer': aerfit.coef_[0][0],
+                    'aer': aercoef,
                     }
                 aerruns.append(aerdict)
     #make dataframe from this cell
@@ -135,7 +125,7 @@ toprunframe['topbottom'] = 'top'
 bottomrunframe = pd.concat(bottomruns).sort_values('aer')[:chunksq].reset_index(drop = True)
 bottomrunframe['topbottom'] = 'bottom'
 
-#combine the dataframes
+### combine the dataframes, but keep duplicated indexes for building the image arrays below
 topbotframe = pd.concat((toprunframe,bottomrunframe))
 
 ######### if you haven't already, build the image arrays of movie snippets
@@ -237,7 +227,7 @@ else:
                 bottomchunks[row.Index] = empty
 
             
-            print(f'finished chunk {row.Index}')
+            print(f'finished {row.topbottom} chunk {row.Index}')
         print('finished cell '+ i)
 
         
@@ -255,7 +245,7 @@ flips = {int(i+1): x for i,x in enumerate(np.arange(-2,3))}
 
 
 #add aer derivative to the runs
-merged = df.merge(derivframe[['cell','speed']], on = 'cell')
+merged = df.merge(TotalFrame[['cell','speed']], on = 'cell')
 
 
 ######### loop through each state and make the movies
@@ -266,16 +256,16 @@ for tp in ['top','bottom']:
         curchunks = topchunks.copy()
         ast = 'Highest AER'
         views = ['xz','xy','xz','xy',
-                 'xy','xz','xz','xy',
-                 'xz','xz','xz','xz',
-                 'xz','xz','xy','xz']
+                 'xy','xy','xz','xy',
+                 'yz','xz','xz','xy',
+                 'xy','xz','yz','xy']
     elif tp == 'bottom':
         curchunks = bottomchunks.copy()
         ast = 'Lowest AER'
-        views = ['xz','xy','xz','xy',
-                 'xy','xz','xz','xy',
-                 'xz','xy','xz','xy',
-                 'xy','xz','xy','xz']
+        views = ['yz','xy','yz','yz',
+                 'xy','xy','yz','yz',
+                 'xy','xy','yz','yz',
+                 'xz','xy','xy','xz']
 
 
 
@@ -329,12 +319,18 @@ for tp in ['top','bottom']:
         elif abs(xzflips)>abs(xyflips):
             rotim = np.rot90(image, xzflips, axes = (1,3))
             rotim = np.rot90(rotim, xyflips, axes = (2,3))
-        elif (tp == 'top') and (i == 12):
-            rotim = np.rot90(image, xyflips, axes = (2,3))
         else:
             rotim = np.rot90(image, xyflips, axes = (2,3))
             rotim = np.rot90(rotim, xzflips, axes = (1,3))
         
+        
+        ### extra rotations to fix ones that don't work well automatically
+        if (tp == 'top') and (i == 2):
+            rotim = np.rot90(rotim, -1, axes = (1,3))
+        elif (tp == 'top') and (i == 14):
+            rotim = np.rot90(rotim, 1, axes = (1,2))
+        elif (tp == 'top') and (i == 8):
+            rotim = np.rot90(rotim, -1, axes = (1,2))
         
         #make the max projection
         proj = np.max(rotim, axis = axproj)
@@ -342,7 +338,7 @@ for tp in ['top','bottom']:
         #get the axis
         ax = axes.flatten()[i]
         
-        #bleaching correction
+        #bleaching correction/brightness adjustment
         proj_bc = np.zeros(proj.shape)
         if np.max(proj)/np.mean(proj[proj>100])>4.5:
             corrval = np.percentile(proj[proj<np.percentile(proj, 99.5)],99.9)
@@ -436,7 +432,7 @@ for tp in ['top','bottom']:
         # plt.show()
         
         
-        writer = FFMpegWriter(fps=2) #, codec="libx264", extra_args=["-pix_fmt", "yuv420p"])
+        writer = FFMpegWriter(fps=4) #, codec="libx264", extra_args=["-pix_fmt", "yuv420p"])
         ani.save(__file__.split('.')[0] + f'_{ast}_animated.mp4', writer = writer, dpi = 200)#, extra_args=['-vcodec', 'libx264'])
         
         # plt.close()

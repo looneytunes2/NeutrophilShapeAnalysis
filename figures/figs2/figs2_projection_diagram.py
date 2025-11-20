@@ -36,7 +36,7 @@ mesh = clean1.GetOutput()
 
 
 
-
+##### FROM ALLEN INSTITUTE
 def find_plane_mesh_intersection(mesh, proj, use_vtk_for_intersection=True):
 
     # Find axis orthogonal to the projection of interest
@@ -200,16 +200,16 @@ ax.add_patch(proj_rear)
 
 
 #arrow properties
-arrowdict = dict(facecolor=point_colors[0], arrowstyle="simple, tail_width = 0.5, head_length=1.25, head_width=1.25", linewidth=1.5)
+arrowdict = dict(facecolor=point_colors[0], arrowstyle="simple, tail_width = 0.5, head_length=1.25, head_width=1.25", linewidth=1)
 #centroid arrow
 ax.annotate("", xy=(np.mean(coords,axis = 0)[0],0),xytext = np.mean(coords,axis=0),
             arrowprops=arrowdict, zorder = 5)
 #rear arrow
-arrowdict = dict(facecolor=point_colors[2], arrowstyle="simple, tail_width = 0.5, head_length=1.25, head_width=1.25", linewidth=1.5)
+arrowdict = dict(facecolor=point_colors[2], arrowstyle="simple, tail_width = 0.5, head_length=1.25, head_width=1.25", linewidth=1)
 ax.annotate("", xy=(coords[np.argmin(coords[:,0])][0], 0),xytext =(coords[np.argmin(coords[:,0])][0],coords[np.argmin(coords[:,0])][1]),
             arrowprops=arrowdict, zorder = 5)
 #front arrow
-arrowdict = dict(facecolor=point_colors[1], arrowstyle="simple, tail_width = 0.5,  head_length=1.25, head_width=1.25", linewidth=1.5)
+arrowdict = dict(facecolor=point_colors[1], arrowstyle="simple, tail_width = 0.5,  head_length=1.25, head_width=1.25", linewidth=1)
 ax.annotate("", xy=(coords[np.argmax(coords[:,0])][0], 0),xytext =(coords[np.argmax(coords[:,0])][0],coords[np.argmax(coords[:,0])][1]),
             arrowprops=arrowdict, zorder = 5)
 

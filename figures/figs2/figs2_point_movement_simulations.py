@@ -144,56 +144,6 @@ larr = np.array(coordlist)
 line_colors = plt.cm.Dark2.colors[:3]
 
 
-# ############## what do front and back do when centroid moves as it actually moves
-# avgbinspeeds = TotalFrame.groupby(f'PC{whichpcs[0]}_PC{whichpcs[1]}_Continuous_Angular_Bins').speed.mean().values
-# #combine speeds with times
-# avgbindis = avgbinspeeds*avgtime
-# cumbindis = np.cumsum(avgbindis)#*16
-# ########### moving the back
-# blarr = larr.copy()
-# for i,l in enumerate(blarr):
-#     #start by aligning the back at 0
-#     blarr[i,:,0] = l[:,0] - l[-1,0]
-#     #then add displacement to each
-#     blarr[i,:,0] = blarr[i,:,0] + cumbindis[i]
-# ############ moving the centroid
-# clarr = larr.copy()
-# for i,l in enumerate(clarr):
-#     clarr[i,:,0] = l[:,0] + cumbindis[i] - l[0,0]
-# #shift back to 0 start
-# clarr[:,:,0] = clarr[:,:,0] - clarr[0,-1,0]
-# ############ moving the front
-# flarr = larr.copy()
-# for i,l in enumerate(flarr):
-#     flarr[i,:,0] = l[:,0] + cumbindis[i] - l[1,0]
-# #shift back to 0 start
-# flarr[:,:,0] = flarr[:,:,0] - flarr[0,-1,0]
-
-
-
-
-# #plot
-# fig, axes = plt.subplots(1, 3, figsize=(15, 5), sharey = True)
-# label = ['Back','Center','Front']
-# for i, l in enumerate([blarr, clarr, flarr]): 
-#     for j, y in enumerate(l[:,:,0].T):
-#         sns.lineplot(x = np.array(range(len(y)))*(360/len(y)), y = y, color = line_colors[j], lw=2.5, ci='none',ax = axes[i], label = label[j])
-#         axes[i].set_title(f'{label[i]} Displacement', fontsize = 20)
-#         if i != 0:
-#             axes[i].get_legend().remove()
-#         else:
-#             axes[i].set_ylabel('X Position (μm)', fontsize = 20)
-#         if i == 1:
-#             axes[i].set_xlabel('Angular Cycle Position (°)', fontsize = 20)
-#         axes[i].spines['top'].set_visible(False)
-#         axes[i].spines['right'].set_visible(False)
-# plt.tight_layout()
-
-
-# plt.savefig(__file__.split('.')[0] + '_actual_displacements.png', dpi = 500, bbox_inches='tight')
-
-
-
 
 ############## what do the positions of the front and rear look like with realistic centroid movement
 avgbinspeeds = TotalFrame.groupby(f'PC{whichpcs[0]}_PC{whichpcs[1]}_Continuous_Angular_Bins').speed.mean().values
@@ -223,6 +173,10 @@ ax.set_xlabel('Angular Cycle Position (°)', fontsize = 20)
 ax.spines['top'].set_visible(False)
 ax.spines['right'].set_visible(False)
 ax.legend().set_visible(False)
+
+
+#make the line at the middle of the cycle
+ax.axvline(180,color = 'black', linestyle = '--',linewidth=1, alpha = 0.3, zorder=3)
 
 plt.tight_layout()
     
@@ -257,59 +211,12 @@ ax.spines['top'].set_visible(False)
 ax.spines['right'].set_visible(False)
 ax.legend().set_visible(False)
 
+#make the line at the middle of the cycle
+ax.axvline(180,color = 'black', linestyle = '--',linewidth=1, alpha = 0.3, zorder=3)
+
 plt.tight_layout()
     
 plt.savefig(__file__.split('.')[0] + '_meshavg_positions_real_centroid_displacement.png', dpi = 500, bbox_inches='tight')
-
-
-# ############ displacements based on constant approximate average speed and volume scaling
-# avgspeed = TotalFrame.speed.mean()
-# displacements = np.array(range(len(larr)))*avgspeed
-
-# ########### moving the back
-# blarr = larr.copy()
-# for i,l in enumerate(blarr):
-#     #start by aligning the back at 0
-#     blarr[i,:,0] = l[:,0] - l[-1,0]
-#     #then add displacement to each
-#     blarr[i,:,0] = blarr[i,:,0] + displacements[i]
-# ############ moving the centroid
-# clarr = larr.copy()
-# for i,l in enumerate(clarr):
-#     clarr[i,:,0] = l[:,0] + displacements[i] - l[0,0]
-# #shift back to 0 start
-# clarr[:,:,0] = clarr[:,:,0] - clarr[0,-1,0]
-# ############ moving the front
-# flarr = larr.copy()
-# for i,l in enumerate(flarr):
-#     flarr[i,:,0] = l[:,0] + displacements[i] - l[1,0]
-# #shift back to 0 start
-# flarr[:,:,0] = flarr[:,:,0] - flarr[0,-1,0]
-
-
-# ##### colors
-# line_colors = plt.cm.Dark2.colors[:3]
-
-
-# #plot
-# fig, axes = plt.subplots(1, 3, figsize=(15, 5), sharey = True)
-# label = ['Back','Center','Front']
-# for i, l in enumerate([blarr, clarr, flarr]): 
-#     for j, y in enumerate(l[:,:,0].T):
-#         sns.lineplot(x = np.array(range(len(y)))*(360/len(y)), y = y, color = line_colors[j], lw=2.5, ci='none',ax = axes[i], label = label[j])
-#         axes[i].set_title(f'{label[i]} Displacement', fontsize = 20)
-#         if i != 0:
-#             axes[i].get_legend().remove()
-#         else:
-#             axes[i].set_ylabel('X Position (μm)', fontsize = 20)
-#         if i == 1:
-#             axes[i].set_xlabel('Angular Cycle Position (°)', fontsize = 20)
-#         axes[i].spines['top'].set_visible(False)
-#         axes[i].spines['right'].set_visible(False)
-# plt.tight_layout()
-
-
-# plt.savefig(__file__.split('.')[0] + '_constant_displacements.png', dpi = 500, bbox_inches='tight')
 
 
 

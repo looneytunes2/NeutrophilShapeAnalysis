@@ -685,7 +685,7 @@ def get_area_enclosing_rate(
     #cell dataframe with the consecutive CGPS transitions
     #nbins, #number of bins in the CGPS
     #xyscaling = list, # list of the PC factors by which to scale the x and y coordinates of the CGPS in [x,y] format
-    #center = 'center',
+    #center = 'center', or coordinates of origin
     cell, nbins, xyscaling, center = args
     
     #get values to shift coordinates to the origin of the current
