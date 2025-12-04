@@ -17,8 +17,6 @@ from scipy import interpolate
 from scipy.spatial import KDTree
 from matplotlib.colors import Normalize
 from matplotlib.animation import FuncAnimation
-from aicssegmentation.core import pre_processing_utils
-import matplotlib.gridspec as gridspec
 import multiprocessing
 
 def format_seconds(seconds):
@@ -47,7 +45,9 @@ rp['z'] = rp.z/xyres[2]
 kd = KDTree(rp[['frame','x','y','z']].to_numpy())
 dd, ii = kd.query(df[['FRAME','POSITION_X','POSITION_Y','POSITION_Z']])
 df = pd.concat([df,rp.iloc[ii].drop(columns=['frame','x','y','z', 'cell']).reset_index(drop=True)], axis=1)
-
+### exclude really short tracks
+valcounts = df.TRACK_ID.value_counts()
+longdf = df[df.TRACK_ID.isin(valcounts[valcounts>10].index.to_list())]
 
 
         
@@ -110,7 +110,7 @@ norm = Normalize(vmin=0, vmax=frame_range)
 wormlist = []
 for pf, f in enumerate(range(endframe)):
     frame_window = np.arange(max(f-frame_range, 0), f+1)
-    fdf = df.loc[df.FRAME.isin(frame_window)]
+    fdf = longdf.loc[longdf.FRAME.isin(frame_window)]
     for i, cell in fdf.groupby('TRACK_ID'):
         cell = cell.sort_values('FRAME').reset_index(drop=True)
         frames = cell.FRAME.values
@@ -142,7 +142,7 @@ for pf, f in enumerate(range(endframe)):
 wormdf = pd.DataFrame(wormlist)
 wormdf = wormdf.explode(wormdf.columns.to_list()).reset_index(drop = True)
 
-
+## identify and exclude cells below an intensity threshold
 intsorted = wormdf.groupby('TRACK_ID').intensity.mean().sort_values()
 dimcells = intsorted[intsorted<540].index.to_list()
 wormdflim = wormdf[~wormdf.TRACK_ID.isin(dimcells)]
@@ -159,8 +159,8 @@ imsh = ax.imshow(invert[0], cmap='gray', zorder = 0)
 times = wormdflim.frame.sort_values().unique()*time_interval
 mstimes = [format_seconds(0)]+[format_seconds(x) for x in times]
 timer = ax.text(3,40,format_seconds(0), color = 'black', fontdict = {'fontsize': 24})
-#also label how I'm indicating time
-timeindlabel = ax.text(0,-5,'MM:SS', color = 'black', fontdict = {'fontsize': 19})
+# #also label how I'm indicating time
+# timeindlabel = ax.text(0,-5,'MM:SS', color = 'black', fontdict = {'fontsize': 19})
 
 
 #plot tracks

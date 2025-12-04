@@ -66,7 +66,7 @@ def find_normal_width_peaks(
 
     
     #get cell name from impath
-    cell_name = impath.split('/')[-1].split('_segmented')[0]
+    cell_name = impath.name.split('/')[-1].split('_segmented')[0]
     #read image
     im = TiffReader(impath)
     
@@ -639,7 +639,7 @@ def shcoeffs_and_PILR_nonuc(
     """
         Parameters
         ----------
-        impath : str
+        impath : Path
             Input image path. Expected to have shape CZYX. Channel order must be Membrane, Nucleus, Structure
         savedir : str
             Directory that will contain the Mesh and PILR folders
@@ -691,12 +691,12 @@ def shcoeffs_and_PILR_nonuc(
             """
     
     #get cell name from impath
-    cell_name = impath.split('/')[-1].split('_segmented')[0]
+    cell_name = impath.name.split('/')[-1].split('_segmented')[0]
     #read image
     im = TiffReader(impath)
     
     #read euler angles for alignment
-    infopath = savedir + 'processed_data/' + cell_name + '_cell_info.csv'
+    infopath = savedir.joinpath('processed_data', cell_name + '_cell_info.csv')
     #if align_method is a numpy array, use that as the vector to align to
     if type(align_method) == np.ndarray:
         vec = align_method.copy()
@@ -844,7 +844,7 @@ def shcoeffs_and_PILR_nonuc(
 
                     #save str mesh
                     writer = vtk.vtkXMLPolyDataWriter()
-                    writer.SetFileName(meshf + cell_name + f'_str_mesh_{levels[n]}.vtp')
+                    writer.SetFileName(meshf.joinpath(cell_name + f'_str_mesh_{levels[n]}.vtp'))
                     writer.SetInputData(str_mesh)
                     writer.Write()
                     
@@ -858,10 +858,10 @@ def shcoeffs_and_PILR_nonuc(
                 images_to_probe = images_to_probe,
                 )
             #Save PILR
-            pilrf = savedir+'PILRs/'
-            if os.path.exists(pilrf+cell_name+'_PILR.ome.tiff'):
-                os.remove(pilrf+cell_name+'_PILR.ome.tiff')
-            OmeTiffWriter.save(aicstif.get_image_data('CZYX', S=0, T=0), pilrf+cell_name+'_PILR.ome.tiff', dim_order='CZYX', channel_names=aicstif.channel_names)
+            pilrf = savedir.joinpath('PILRs')
+            if pilrf.joinpath(cell_name+'_PILR.ome.tiff').exists():
+                pilrf.joinpath(cell_name+'_PILR.ome.tiff').unlink()
+            OmeTiffWriter.save(aicstif.get_image_data('CZYX', S=0, T=0), pilrf.joinpath(cell_name+'_PILR.ome.tiff'), dim_order='CZYX', channel_names=aicstif.channel_names)
             
             # since threshold is used for discrete structures, get the centroid
             # of that structure in an aligned cell
@@ -871,7 +871,7 @@ def shcoeffs_and_PILR_nonuc(
         elif pilr_method == 'raw':
             ######### translate coordinates to membrane centroid
             #open the raw data
-            rawpath = impath.split('_segmented')[0] + '_raw.tiff'
+            rawpath = impath.parent.absolute().joinpath(impath.name.split('_segmented')[0] + '_raw.tiff')
             #read image
             raw = TiffReader(rawpath).data
             memseg = np.where(ci>0)
@@ -925,10 +925,10 @@ def shcoeffs_and_PILR_nonuc(
                 )
                   
             #Save PILR
-            pilrf = savedir+'PILRs/'
-            if os.path.exists(pilrf+cell_name+'_PILR.ome.tiff'):
-                os.remove(pilrf+cell_name+'_PILR.ome.tiff')
-            OmeTiffWriter.save(aicstif.get_image_data('CZYX', S=0, T=0), pilrf+cell_name+'_PILR.ome.tiff', dim_order='CZYX', channel_names=aicstif.channel_names)
+            pilrf = savedir.joinpath('PILRs')
+            if pilrf.joinpath(cell_name+'_PILR.ome.tiff').exists():
+                pilrf.joinpath(cell_name+'_PILR.ome.tiff').unlink()
+            OmeTiffWriter.save(aicstif.get_image_data('CZYX', S=0, T=0), pilrf.joinpath(cell_name+'_PILR.ome.tiff'), dim_order='CZYX', channel_names=aicstif.channel_names)
             
     
                 
@@ -972,10 +972,10 @@ def shcoeffs_and_PILR_nonuc(
     
     
     # remove file if it already exists
-    meshf = savedir + 'meshes/'
+    meshf = savedir.joinpath('meshes')
     #save cell mesh
     writer = vtk.vtkXMLPolyDataWriter()
-    writer.SetFileName(meshf + cell_name + '_cell_mesh.vtp')
+    writer.SetFileName(meshf.joinpath(cell_name + '_cell_mesh.vtp'))
     writer.SetInputData(cell_mesh)
     writer.Write()
     

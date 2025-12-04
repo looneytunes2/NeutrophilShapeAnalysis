@@ -7,7 +7,6 @@ Created on Thu Jul 18 14:58:51 2024
 
 import os
 import re
-import math
 import multiprocessing
 import pandas as pd
 import numpy as np
@@ -17,14 +16,16 @@ import skimage.measure
 import skimage.segmentation
 from skimage.morphology import remove_small_objects
 from aicssegmentation.core.MO_threshold import MO
-from aicssegmentation.core.utils import hole_filling
 from aicssegmentation.core import vessel
 from aicssegmentation.core.pre_processing_utils import intensity_normalization, image_smoothing_gaussian_3d
 from scipy.spatial import distance
 from CustomFunctions.MO_Threshold import MO_ma
+from CustomFunctions.utils import twodholefill, get_intensity_features
 
 
 
+######### function to calculate the image bounds in a deskewed image
+######### (since they will be in the middle of the image)
 def detect_skewed_image_bounds(
         im, #image in question
         ):
@@ -69,55 +70,6 @@ def detect_skewed_image_bounds(
     return start_normal, start_point, end_normal, end_point
 
 
-
-
-# Function to find Angle
-def angle_distance(a1, b1, c1, a2, b2, c2):
-    a1,b1,c1 = [a1,b1,c1]/np.linalg.norm([a1,b1,c1])
-    a2,b2,c2 = [a2,b2,c2]/np.linalg.norm([a2,b2,c2])
-    d = ( a1 * a2 + b1 * b2 + c1 * c2 )
-    e1 = math.sqrt( a1 * a1 + b1 * b1 + c1 * c1)
-    e2 = math.sqrt( a2 * a2 + b2 * b2 + c2 * c2)
-    d = d / (e1 * e2)
-    A = math.degrees(math.acos(d))
-    return A
-
-
-
-def get_intensity_features(img, seg):
-    features = {}
-    input_seg = seg.copy()
-    input_seg = (input_seg>0).astype(np.uint8)
-    input_seg_lcc = skimage.measure.label(input_seg)
-    for mask, suffix in zip([input_seg, input_seg_lcc], ['', '_lcc']):
-        values = img[mask>0].flatten()
-        if values.size:
-            features[f'intensity_mean{suffix}'] = values.mean()
-            features[f'intensity_std{suffix}'] = values.std()
-            features[f'intensity_1pct{suffix}'] = np.percentile(values, 1)
-            features[f'intensity_99pct{suffix}'] = np.percentile(values, 99)
-            features[f'intensity_max{suffix}'] = values.max()
-            features[f'intensity_min{suffix}'] = values.min()
-        else:
-            features[f'intensity_mean{suffix}'] = np.nan
-            features[f'intensity_std{suffix}'] = np.nan
-            features[f'intensity_1pct{suffix}'] = np.nan
-            features[f'intensity_99pct{suffix}'] = np.nan
-            features[f'intensity_max{suffix}'] = np.nan
-            features[f'intensity_min{suffix}'] = np.nan
-    return features
-
-
-
-def twodholefill(thresh, hole_min, hole_max):
-    YZ = thresh.swapaxes(0,2)
-    YZ_fill = hole_filling(YZ, hole_min, hole_max, fill_2d=True)
-    YZrev = YZ_fill.swapaxes(2,0)
-    XZ = YZrev.swapaxes(0,1)
-    XZ_fill = hole_filling(XZ, hole_min, hole_max, fill_2d=True)
-    XZrev = XZ_fill.swapaxes(1, 0)
-    XY = hole_filling(XZrev, hole_min, hole_max, fill_2d=True)
-    return XY
 
 
 

@@ -227,8 +227,10 @@ ani = FuncAnimation(fig, animate, interval=10, blit=True, repeat=True,
 plt.show()
 
 
+plt.close()
+
 #save the animation
-ani.save(__file__.split('.')[0]  + '.mp4', fps=10, dpi = 300)#, extra_args=['-vcodec', 'libx264'])
+ani.save(__file__.split('.')[0]  + '.mp4', fps=6, dpi = 300)#, extra_args=['-vcodec', 'libx264'])
 
 
 plt.close(fig)

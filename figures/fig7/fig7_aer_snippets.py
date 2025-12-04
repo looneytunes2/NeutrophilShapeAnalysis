@@ -200,7 +200,7 @@ set3 = plt.cm.Set3
 cmap = matplotlib.colors.ListedColormap(list(set3.colors)+[set2.colors[-2]] + [set1.colors[-1]])
 
 
-minute_labels = [str(int((x-1)*time_interval/60))+[' minute',' minutes',' minutes'][i] for i,x in enumerate(runlengthlist)]
+minute_labels = [str(int(x*time_interval/60))+[' minute',' minutes',' minutes'][i] for i,x in enumerate(runlengthlist)]
 fig, axes = plt.subplots(2, len(runlengthlist), figsize = (2*len(runlengthlist),5))
 for r, rl in enumerate(runlengthlist):
     meanax = axes[0,r]

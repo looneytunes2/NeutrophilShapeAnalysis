@@ -8,7 +8,6 @@ Created on Tue Jan 28 14:39:57 2025
 import numpy as np
 import os
 import pandas as pd
-import math
 import re
 import multiprocessing
 from aicsimageio.writers.ome_tiff_writer import OmeTiffWriter
@@ -19,22 +18,10 @@ from CustomFunctions.segment_cells2short import seg_confocal_40x_memonly_fromsli
 from CustomFunctions.persistance_activity import get_pa, DA_3D
 from CustomFunctions import shparam_mod, metadata_funcs, segment_LLS
 from CustomFunctions.track_functions import segment_caax_tracks_confocal_40x_fromsingle
-from CustomFunctions.file_management import multicsv
 from CustomFunctions.PILRagg import read_pilr_regions
-from CustomFunctions.utils import get_consecutive_timepoints
+from CustomFunctions.utils import get_consecutive_timepoints, angle_distance
 from tqdm import tqdm
 
-
-# Function to find Angle
-def angle_distance(a1, b1, c1, a2, b2, c2):
-    a1,b1,c1 = [a1,b1,c1]/np.linalg.norm([a1,b1,c1])
-    a2,b2,c2 = [a2,b2,c2]/np.linalg.norm([a2,b2,c2])
-    d = ( a1 * a2 + b1 * b2 + c1 * c2 )
-    e1 = math.sqrt( a1 * a1 + b1 * b1 + c1 * c1)
-    e2 = math.sqrt( a2 * a2 + b2 * b2 + c2 * c2)
-    d = d / (e1 * e2)
-    A = math.degrees(math.acos(d))
-    return A
 
 
 
@@ -50,25 +37,20 @@ def segment_whole_images(
 
     
     for f in foldlist:
-        ims = [o for o in os.listdir(raw_dir+f+'/')]
+        ims = [o for o in raw_dir.joinpath(f).glob('*') if o.is_dir()]
         ## create the actual list of image directories including if there is
         ## multiple positions
-        imagedirs = []
-        for i in ims:
-            #get all the folders in the experiment directory
-            tempdir = raw_dir+f+'/'+i
-            imagedirs.extend([tempdir + '/' + fo + '/' for fo in os.listdir(tempdir) if os.path.isdir(os.path.join(tempdir, fo))])
+        imagedirs = [x for i in ims for x in i.glob('*') if x.is_dir()]
         for imdir in imagedirs:
-            #define the name of the acquisition
-            imsplit = imdir.split('/')
-            i = imsplit[-3]+'_'+imsplit[-2]
-            
+            ## define the name of the acquisition based on whether there are
+            ## multiple positions
+            imagename = imdir.parent.name
             #make the trackdir if it doesn't exist
-            if not os.path.exists(trackdir+i+'/'):
-                os.makedirs(trackdir+i+'/')
+            if not trackdir.joinpath(imagename).exists():
+                trackdir.joinpath(imagename).mkdir(parents=True)
     
             ## automatically detec image shape based on slice names
-            shapestring = sorted([x for x in os.listdir(imdir) if x.endswith('.tif')])[-1]
+            shapestring = sorted(imdir.glob('*.tif'))[-1].name
             shapetime = int(re.findall(r'(?<=time)\d+', shapestring)[0])
             shapez = int(re.findall(r'(?<=_z)\d+', shapestring)[0])
             ## combine and add 1 because of zero index
@@ -76,17 +58,7 @@ def segment_whole_images(
                            int(shapez+1),
                            1024,
                            1024]
-            
-            ##### automatically detect image size
-            #         #sort the list of images and get the last one
-            #         last = sorted([o for o in os.listdir(imdir) if o.endswith('tif')])[-1]
-            #         #get stats about acquisition
-            #         cc,pos,maxtime,maxslices = [x for x in re.findall('\d*', last) if len(x)>1]
-            #         maxtime = int(maxtime)+1
-            #         maxslices = int(maxslices)+1
-            #         #open that image to get x,y size
-            #         shape = tiff_reader.TiffReader(imdir+last).shape
-    
+
             results = []
             # use multiprocessing to perform segmentation and x,y,z determination
             pool = multiprocessing.Pool(processes=60)
@@ -116,7 +88,9 @@ def segment_whole_images(
             segmented_img = segmented_img.astype(np.uint8)
     
             #save the segmented image
-            OmeTiffWriter.save(segmented_img, trackdir+i+'/'+i+'_segmented.ome.tiff', dim_order = "TZYX", overwrite_file=True)
+            OmeTiffWriter.save(segmented_img,
+                               trackdir.joinpath(imagename,imagename+'_segmented.ome.tiff'),
+                               dim_order = "TZYX", overwrite_file=True)
     
     
             #save the skimage region props
@@ -130,41 +104,42 @@ def segment_whole_images(
                            'minor_axis_length', 'major_axis_length',
                             'intensity_avg', 'intensity_max', 'intensity_std']))
             df = df.sort_values(by = ['frame','cell'])
-            df.to_csv(trackdir+i+'/'+i+'_region_props.csv')
+            df.to_csv(trackdir.joinpath(imagename, imagename+'_region_props.csv'))
     
-            print(f'Finished processing {i}')
+            print(f'Finished processing {imagename}')
 
 
 
 ############### SEGMENT AND SAVE CELLS ################################
 def segment_and_crop(
-        mindir,
+        mindir, #directory to access tracking data and where processed data will be saved
         raw_dir, #directory with original images (saved as individual slices)
         xyres, #xy resolution of images
         zstep, #z resolution of images
         xy_buffer, #amount to buffer cropped images in xy
         z_buffer, #amount to buffer cropped images in z
         stackshape, #shape of one z stack in pixels (z,y,x) format
+        whatseg, #what segmentation function to use for which cells
         ):
 
-    folder_fl = mindir + 'Tracking_Images/'
-    filelist_fl = [f for f in os.listdir(folder_fl)]
-    savedir = mindir + 'processed_images/'
-    posdir = mindir + 'position_info/'
+    folder_fl = mindir.joinpath('Tracking_Images')
+    filelist_fl = [f for f in folder_fl.glob('*') if f.is_dir()]
+    savedir = mindir.joinpath('processed_images')
+    posdir = mindir.joinpath('position_info')
     #make the savedir if it doesn't exist
-    if not os.path.exists(savedir):
-        os.makedirs(savedir)
-    if not os.path.exists(posdir):
-        os.makedirs(posdir)
+    if not savedir.exists():
+        savedir.mkdir(parents = True)
+    if not posdir.exists():
+        posdir.mkdir(parents = True)
     
 
     for u in filelist_fl:
     
         ################## align trackmate data with region props data ################
-        rpcsv = [x for x in os.listdir(folder_fl + u) if x.endswith("region_props.csv")][0]
-        rp = pd.read_csv(folder_fl + u + '/' + rpcsv, index_col = 0)
-        tmcsv = [x for x in os.listdir(folder_fl + u) if x.endswith("TrackMateLog.csv")][0]
-        tm = pd.read_csv(folder_fl + u+ '/' + tmcsv)
+        rpcsv = next(folder_fl.joinpath(u).glob('*region_props.csv'))
+        rp = pd.read_csv(folder_fl.joinpath(u, rpcsv), index_col = 0)
+        tmcsv = next(folder_fl.joinpath(u).glob('*TrackMateLog.csv'))
+        tm = pd.read_csv(folder_fl.joinpath(u,tmcsv))
         #fix trackmate columns to get names right and units in microns
         tm['x'] = tm.POSITION_X*xyres
         tm['y'] = tm.POSITION_Y*xyres
@@ -174,33 +149,21 @@ def segment_and_crop(
         dd, ii = kd.query(tm[['FRAME','x','y','z']])
         df_track = pd.concat([tm.drop(columns=['POSITION_X','POSITION_Y','POSITION_Z']), 
                             rp.iloc[ii].drop(columns=['frame','x','y','z', 'cell']).reset_index(drop=True)], axis=1)
-        df_track = df_track.rename(columns={'TRACK_ID':'cell', 'FRAME':'frame'})
-    
-        
-        ###### get distance travelled
-        #sort by cell and frame
-        df_track = df_track.sort_values(['cell','frame'])
-        #calculate distance
-        posdiff = df_track[['x','y','z']].diff()
-        df_track['dist'] = np.sqrt(posdiff.x**2 + posdiff.y**2 + posdiff.x**2)    
-        #reset distances for any frame gaps
-        df_track.loc[df_track.frame.diff()!=1,'dist'] = 0
-    
-    
-        ############ replace unrealistic jumps in distance so
-        ############ they don't throw off the euclidean filter too badly
-        ############ speed jumps will be filtered later
-        for x in df_track[df_track.dist>4].index.values:
-            df_track.loc[x,'dist'] = df_track.dist.mean()
+        ### add some identifiers and rename FRAME
+        df_track = df_track.rename(columns={'FRAME':'frame'})
+        df_track['CellID'] = u.name + '_cell_' + df_track.TRACK_ID.astype(str)
+        df_track['cell'] = df_track.CellID + '_frame_' + df_track.frame.astype(int).astype(str)
+        df_track.drop(columns = ['TRACK_ID'], inplace = True)
     
         ############## find euclidean distance #############
         euclid = pd.DataFrame([])
-        for i, cell in df_track.groupby('cell'):
+        for i, cell in df_track.groupby('CellID'):
+            cell = cell.sort_values('frame').reset_index(drop = True)
             FL = cell.iloc[[0,-1]]
             euc_dist = distance.pdist(FL[['x','y','z']])
-            euclid = euclid.append({'cell':cell.cell.iloc[0], 'euc_dist':euc_dist[0]}, ignore_index = True)
-        cellsmorethan = euclid.loc[euclid['euc_dist']>10, 'cell']
-        df_track = df_track[df_track.cell.isin(cellsmorethan)]
+            euclid = euclid.append({'CellID':cell.CellID.iloc[0], 'euc_dist':euc_dist[0]}, ignore_index = True)
+        cellsmorethan = euclid.loc[euclid['euc_dist']>10, 'CellID']
+        df_track = df_track[df_track.CellID.isin(cellsmorethan)]
     
     
     
@@ -215,22 +178,28 @@ def segment_and_crop(
         df_track = df_track.loc[df_track['z_max'] != (df_track['z_range'])]
     
     
-        ##########remove small things that are likely dead cells or parts of cells###########
-        df_track = df_track[df_track['area'] > 4000 ]
+        ##########remove small things that are likely dead cells or duplicate cells###########
+        if whatseg == 'hl60':
+            df_track = df_track[df_track['area'] > 4000 ]
+        elif whatseg == 'el4':
+            sizemeans = df_track.groupby('CellID').area.mean().reset_index()
+            smallorbig = sizemeans[(sizemeans['area'] < 9000) | (sizemeans['area']>50000)].CellID.to_list()
+            df_track = df_track[~df_track.CellID.isin(smallorbig)]
+            
         #reset index after dropping all the rows
         df_track = df_track.reset_index(drop = True)
     
     
     
         if df_track.empty == False:
-            for i, cells in df_track.groupby('cell'):
+            for i, cells in df_track.groupby('CellID'):
                 cell = cells.reset_index(drop = True)
                 # use multiprocessing to perform segmentation and x,y,z determination
                 pool = multiprocessing.Pool(processes=60)
                 results = []
                 for t, row in cell.iterrows():
 
-                    tdir = raw_dir +u.split('_')[0]+'/' +u+'/Default/'
+                    tdir = raw_dir.joinpath(u.name.split('_')[0], u.name, 'Default')
 
                     xmincrop = int(max(0, row.x_min-xy_buffer))
                     ymincrop = int(max(0, row.y_min-xy_buffer))
@@ -247,17 +216,17 @@ def segment_and_crop(
                         tdir,
                         stackshape,
                         row,
-                        u,
                         savedir,
                         xyres,
                         zstep,
-                        croparr, 
+                        croparr,
+                        whatseg,
                         ))
                     results.append(result)
                 pool.close()
                 pool.join()
 
-                print(f'Done segmenting {u} cell {cell.cell.iloc[0]}')
+                print(f'Done segmenting {cell.CellID.iloc[0]}')
                 
                 #get results
                 results = [r.get() for r in results]
@@ -266,9 +235,10 @@ def segment_and_crop(
                 if len(results)>0:
                     #aggregate the dataframe
                     df = pd.DataFrame(results).sort_values(by = 'frame').reset_index(drop=True)
-                    #add cell ID before saving
-                    df['CellID'] = [df.cell.iloc[0].split('_frame')[0]]*len(df)
-                    df.to_csv(posdir+df.cell.iloc[0].split('_frame')[0]+'_cellpos.csv')
+                    ## save
+                    df.to_csv(posdir.joinpath(df.CellID.iloc[0]+'_cellpos.csv'))
+
+
 
 
 
@@ -281,21 +251,22 @@ def get_smooth_trajectories(
         ):
     
     #define directory stuff
-    datadir = mindir + 'Data_and_Figs/'
-    csvdir = savedir + 'processed_data/'
-    posdir = mindir + 'position_info/'
-    if not os.path.exists(datadir):
-        os.makedirs(datadir)
-    if not os.path.exists(csvdir):
-        os.makedirs(csvdir)
+    datadir = mindir.joinpath('Data_and_Figs')
+    csvdir = savedir.joinpath('processed_data')
+    posdir = mindir.joinpath('position_info')
+    if not datadir.exists():
+        datadir.mkdir(parents = True)
+    if not csvdir.exists():
+        csvdir.mkdir(parents = True)
     
         
     #combine all of the cell csvs into one dataframe
-    fileslist = [x for x in os.listdir(posdir) if x.endswith('.csv')]
-    csvlist = [posdir+i for i in fileslist]
-    with multiprocessing.Pool(processes=60) as pool:
-        celllist = pool.map(multicsv, csvlist)
+    csvlist = [posdir.joinpath(x) for x in posdir.glob('*.csv')]
+    celllist = []
+    for c in csvlist:
+        celllist.append(pd.read_csv(c, index_col = 0))
     cellinfo = pd.concat(celllist).reset_index(drop=True)
+
     #add time to the confocal data
     if 'time' not in cellinfo.columns.to_list():
         cellinfo['time'] = cellinfo['frame'].values * time_interval
@@ -383,7 +354,7 @@ def get_smooth_trajectories(
                         row['Trajectory_Y'] = traj[v,1]
                         row['Trajectory_Z'] = traj[v,2]
                         row['Turn_Angle'] = np.nan
-                        pd.DataFrame(row.to_dict(),index=[0]).to_csv(csvdir + row.cell + '_cell_info.csv')
+                        pd.DataFrame(row.to_dict(),index=[0]).to_csv(csvdir.joinpath(row.cell + '_cell_info.csv'))
     
                     if v>0:
                         row['Prev_Trajectory_X'] = traj[v-1,0]
@@ -396,7 +367,7 @@ def get_smooth_trajectories(
                             row['Turn_Angle'] = 0
                         else:
                             row['Turn_Angle'] = angle_distance(traj[v-1,0], traj[v-1,1], traj[v-1,2], traj[v,0], traj[v,1], traj[v,2])
-                        pd.DataFrame(row.to_dict(),index=[0]).to_csv(csvdir + row.cell + '_cell_info.csv')
+                        pd.DataFrame(row.to_dict(),index=[0]).to_csv(csvdir.joinpath(row.cell + '_cell_info.csv'))
             
         print(f'Finished tracking cell {i}')
     
@@ -415,11 +386,11 @@ def get_normal_rotations(
         ):
     
     
-    imdir = mindir + 'processed_images/'
-    datadir = savedir + 'Data_and_Figs/'
-    csvdir = savedir + 'processed_data/'
-    if not os.path.exists(datadir):
-        os.makedirs(datadir)
+    imdir = mindir.joinpath('processed_images')
+    datadir = savedir.joinpath('Data_and_Figs')
+    csvdir = savedir.joinpath('processed_data')
+    if not datadir.exists():
+        datadir.mkdir(parents = True)
 
     ### get the list of unique cells that we have trajectory info for
     imlist = []
@@ -431,17 +402,19 @@ def get_normal_rotations(
     ### loop through the unique cells and open the segmented images to rotate
     ### each mesh until you find the rotation angle for the widest axis perpendicular
     ### to the trajectory
-    trajinfolist = os.listdir(csvdir)
-    segimlist = [x for x in os.listdir(imdir) if 'segmented' in x]
+    trajinfolist = [x.name for x in csvdir.glob('*cell_info.csv')]
+    segimlist = [x.name for x in imdir.glob('*_segmented*')]
     allresults = []
     for i in imlist:
+        ### get list of all frames I have trajectory info on with this cell
         cellframelist = [u.split('_cell_info')[0] for u in trajinfolist if u.split('_frame')[0] == i]
+        ### get all segmented images of this cell that I have trajectory info on
         cellseglist = [j for j in segimlist if j.split('_segmented')[0] in cellframelist]
         results = []
         pool = multiprocessing.Pool(processes=60)
         for y in cellseglist:
             #get path to segmented image
-            impath = imdir + y
+            impath = imdir.joinpath(y)
             #put in the pool
             result = pool.apply_async(shparam_mod.find_normal_width_peaks, args = (
                 impath,
@@ -494,7 +467,7 @@ def get_normal_rotations(
     
     #save the shape metrics dataframe
     bigdf = pd.concat(allresults)
-    bigdf.to_csv(datadir + f'Closest_Width_Peaks_{mindir.split("/")[-2]}.csv')
+    bigdf.to_csv(datadir.joinpath(f'Closest_Width_Peaks_{mindir.split("/")[-2]}.csv'))
 
 
 
@@ -513,24 +486,24 @@ def seg_to_mesh(
         ):
 
     #make dirs if it doesn't exist
-    datadir = savedir + 'Data_and_Figs/'
-    csvdir = savedir + 'processed_data/'
-    imdir = mindir + 'processed_images/'
+    datadir = savedir.joinpath('Data_and_Figs')
+    csvdir = savedir.joinpath('processed_data')
+    imdir = mindir.joinpath('processed_images')
     #make dirs if it doesn't exist
-    meshf = savedir+'Meshes/'  
-    if not os.path.exists(meshf):
-        os.makedirs(meshf)
-    pilrf = savedir+'PILRs/'
-    if not os.path.exists(pilrf):
-        os.makedirs(pilrf)
+    meshf = savedir.joinpath('Meshes')  
+    if not meshf.exists():
+        meshf.mkdir(parents = True)
+    pilrf = savedir.joinpath('PILRs')
+    if not pilrf.exists():
+        pilrf.mkdir(parents = True)
 
     
     if norm_rot == 'provided':
-        widthpeaks = pd.read_csv(datadir + f'Closest_Width_Peaks_{mindir.split("/")[-2]}.csv', index_col = 0)
+        widthpeaks = pd.read_csv(datadir.joinpath(f'Closest_Width_Peaks_{mindir.split("/")[-2]}.csv'), index_col = 0)
         
     #get all segmented images that were analyzed
-    datalist = [x.split('_cell_info.csv')[0] for x in os.listdir(csvdir)]
-    imlist = [x for x in os.listdir(imdir) if x.endswith('segmented.tiff') and x.split('_segmented.tiff')[0] in datalist]
+    datalist = [x.name.split('_cell_info.csv')[0] for x in csvdir.glob('*_cell_info.csv')]
+    imlist = [x for x in imdir.glob('*_segmented.tiff') if x.split('_segmented.tiff')[0] in datalist]
     
     mapargs = []
     for i in imlist:
@@ -555,7 +528,7 @@ def seg_to_mesh(
                 
         #append unique args to list
         mapargs.append((
-            imdir+i,
+            imdir.joinpath(i),
             savedir,
             xyres,
             zstep,
@@ -584,11 +557,11 @@ def seg_to_mesh(
     
     #save the shape metrics dataframe
     bigdf = pd.DataFrame(dflist)
-    bigdf.to_csv(datadir + f'Shape_Metrics_{mindir.split("/")[-2]}.csv')
+    bigdf.to_csv(datadir.joinpath(f'Shape_Metrics_{mindir.split("/")[-2]}.csv'))
     
     #save list of cells that don't have centroid in shape
     errordf = pd.DataFrame(errorlist, columns = ['reason','cell'])
-    errordf.to_csv(datadir + f'ListToExclude_{mindir.split("/")[-2]}.csv')
+    errordf.to_csv(datadir.joinpath(f'ListToExclude_{mindir.split("/")[-2]}.csv'))
 
     
 
@@ -607,16 +580,16 @@ def segment_and_crop_LLS_manual(
         hilo = True, #whether or not to do multiple thresholds for segmenting secondary signals
         ):
     
-    savedir = mindir + 'processed_images/'
-    posdir = mindir + 'position_info/'
+    savedir = mindir.joinpath('processed_images')
+    posdir = mindir.joinpath('position_info')
     #make the savedir if it doesn't exist
-    if not os.path.exists(savedir):
-        os.makedirs(savedir)
-    if not os.path.exists(posdir):
-        os.makedirs(posdir)
+    if not savedir.exists():
+        savedir.mkdir(parents = True)
+    if not posdir.exists():
+        posdir.mkdir(parents = True)
     
     #get all of the images from a particular cell I was following
-    curimlist = [x for x in os.listdir(raw_dir) if cellstr in x]
+    curimlist = [x.name for x in raw_dir.glob(f'*{cellstr}*')]
     #find the total number of cells I cropped while following the cell of interest
     cellnums = list(set([re.findall(r'Subset-(\d+)',x)[0] for x in curimlist]))
     cellnums.sort()
@@ -628,7 +601,7 @@ def segment_and_crop_LLS_manual(
         #sort the current cell to be in chronological order
         curcell.sort(key=lambda x: float(re.findall(r'(\d+)-Subset', x)[0]))
         for n, c in enumerate(curcell):
-            celldir = raw_dir + c
+            celldir = raw_dir.joinpath(c)
             #open the image
             czi = CziReader(celldir)
             imdata = czi.data
@@ -645,7 +618,7 @@ def segment_and_crop_LLS_manual(
 
             #segment the cells and return the position info
             #get the file name
-            image_name = os.path.basename(celldir).split('.')[0]
+            image_name = celldir.name.split('.')[0]
 
             #choose structure name based on file name
             if 'actin' in image_name:
@@ -727,7 +700,7 @@ def segment_and_crop_LLS_manual(
             #combine all of the subset dataframes and save
             fulldf = pd.concat(dflist).reset_index(drop=True)
             fulldf['CellID'] = [cellstr+f'_{s}']*len(fulldf)
-            fulldf.to_csv(posdir + cellstr + f'_{s}_cellpos.csv')
+            fulldf.to_csv(posdir.joinpath(cellstr + f'_{s}_cellpos.csv'))
         else:
             print('No images were recovered of cell '+ re.split('-\d*-Subset', curcell[0])[0] + '-' + s)
 
@@ -736,14 +709,14 @@ def get_pilr_regions(
         ):
     
     #make dirs if it doesn't exist
-    datadir = mindir + 'Data_and_Figs/'
-    pilrf = mindir+'PILRs/'
+    datadir = mindir.joinpath('Data_and_Figs')
+    pilrf = mindir.joinpath('PILRs')
     
     #get a list of all of the PILR images
-    pilrlist = [pilrf+x for x in os.listdir(pilrf) if '_PILR' in x]
+    pilrlist = [x for x in pilrf.glob('*_PILR*')]
     with multiprocessing.Pool(processes=60) as pool:
         results = pool.map(read_pilr_regions, pilrlist)
     
     pilrframe = pd.DataFrame(results).reset_index(drop = True)
-    pilrframe.to_csv(datadir + 'PILR_regions.csv')
+    pilrframe.to_csv(datadir.joinpath('PILR_regions.csv'))
     
