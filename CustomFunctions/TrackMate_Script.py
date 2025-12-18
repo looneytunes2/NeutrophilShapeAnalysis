@@ -24,13 +24,13 @@ from fiji.plugin.trackmate.gui.displaysettings import DisplaySettingsIO
 from fiji.plugin.trackmate.visualization.hyperstack import HyperStackDisplayer
 
 #directory of directories with the images to be tracked
-direct = 'E:/Aaron/CK666_37C/Tracking_Images/'
+direct = 'E:/Aaron/EL4_electrotaxis/Tracking_Images/'
 #scale of the tracked image relative to the orignal
 image_scale = 0.5
 
 #need windowless bioformats opening
 
-for fi in os.listdir(direct):
+for fi in os.listdir(direct)[6:7]:
 	#fi = os.listdir(direct)[0]
 	imm = [x for x in os.listdir(direct + fi) if '.tif' in x][0]
 	path = direct+fi+'/'+imm
@@ -162,3 +162,4 @@ for fi in os.listdir(direct):
 	IJ.saveAs("Text", filename)
 	imp.close()
 	IJ.log("\\Clear")
+	print('Finished image ', fi)

@@ -6,14 +6,10 @@ Created on Sun Jun  1 16:05:31 2025
 """
 
 
-################ smaller PC vs metric plots for CICON ################
 import numpy as np
 import pandas as pd
 import re
 import matplotlib.pyplot as plt
-import matplotlib
-from matplotlib.colors import LinearSegmentedColormap
-from matplotlib.cm import ScalarMappable
 import seaborn as sns
 
 def closest(lst, K):  

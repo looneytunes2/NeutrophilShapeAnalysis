@@ -4,7 +4,6 @@ Modified from Allen Cell aicsshparam
 """
 
 import re
-import os
 import vtk
 import warnings
 import pyshtools
@@ -16,9 +15,10 @@ from scipy import signal
 from scipy import interpolate as spinterp
 from scipy.spatial import KDTree
 from scipy.spatial.transform import Rotation as R
-import math
+from pathlib import Path
 
 from . import shtools_mod, cytoparam_mod
+from CustomFunctions.utils import align_vec_to_xaxis_euler, angle3D
 
 from aicsimageio.writers.ome_tiff_writer import OmeTiffWriter
 from aicsimageio.readers.tiff_reader import TiffReader
@@ -40,18 +40,7 @@ def get_sphericity(
     return (np.pi**(1/3)*(6*vol)**(2/3))/surf #SA/surf
 
 
-### angle between two vectors in degrees
-def angle3D(a1, b1, c1, a2, b2, c2):
-    d = ( a1 * a2 + b1 * b2 + c1 * c2 )
-    e1 = math.sqrt( a1 * a1 + b1 * b1 + c1 * c1)
-    e2 = math.sqrt( a2 * a2 + b2 * b2 + c2 * c2)
-    d = d / (e1 * e2)
-    if d>1:
-        d = 1
-    elif d<-1:
-        d = -1
-    A = math.degrees(math.acos(d))
-    return A
+
 
 
 # find the widest part of the cell relative to the x axis
@@ -74,40 +63,15 @@ def find_normal_width_peaks(
     #if align_method is a numpy array, use that as the vector to align to
     if type(align_method) == np.ndarray:
         vec = align_method.copy()
-        #align current vector with x axis and get euler angles of resulting rotation matrix https://docs.scipy.org/doc/scipy/reference/generated/scipy.spatial.transform.Rotation.html
-        xaxis = np.array([[1,0,0],[0,1,0], [0,0,1]]).astype('float64')
-        upnorm = np.cross(vec,[1,0,0])
-        # if upnorm[2]<0:
-        #     upnorm = upnorm.copy() * -1
-        sidenorm = np.cross(vec,upnorm)
-        current_vec = np.stack((vec, sidenorm, upnorm), axis = 0)
-        # current_vec = np.concatenate((current_vec,[5*vec]), axis = 0)
-        rotationthing = R.align_vectors(xaxis, current_vec)
-        #below is actual rotation matrix if needed
-        #rot_mat = rotationthing[0].as_matrix()
-        rotthing_euler = rotationthing[0].as_euler('xyz', degrees = True)
-        Euler_Angles = np.array([rotthing_euler[0], rotthing_euler[1], rotthing_euler[2]])
     elif align_method == 'trajectory':
         #if the csvdir is a string read the csv file, if it's a dict turn it into a DataFrame
-        if type(csvdir)==str:
-            infopath = csvdir + cell_name + '_cell_info.csv'
+        if isinstance(csvdir, Path):
+            infopath = csvdir.joinpath(cell_name + '_cell_info.csv')
             info = pd.read_csv(infopath, index_col=0)
         elif type(csvdir)==dict:
             info = pd.DataFrame(csvdir, index=[0])
         vec = np.array([info.Trajectory_X[0], info.Trajectory_Y[0], info.Trajectory_Z[0]])
-        #align current vector with x axis and get euler angles of resulting rotation matrix https://docs.scipy.org/doc/scipy/reference/generated/scipy.spatial.transform.Rotation.html
-        xaxis = np.array([[1,0,0],[0,1,0], [0,0,1]]).astype('float64')
-        upnorm = np.cross(vec,[1,0,0])
-        # if upnorm[2]<0:
-        #     upnorm = upnorm.copy() * -1
-        sidenorm = np.cross(vec,upnorm)
-        current_vec = np.stack((vec, sidenorm, upnorm), axis = 0)
-        # current_vec = np.concatenate((current_vec,[5*vec]), axis = 0)
-        rotationthing = R.align_vectors(xaxis, current_vec)
-        #below is actual rotation matrix if needed
-        #rot_mat = rotationthing[0].as_matrix()
-        rotthing_euler = rotationthing[0].as_euler('xyz', degrees = True)
-        Euler_Angles = np.array([rotthing_euler[0], rotthing_euler[1], rotthing_euler[2]])
+    Euler_Angles = align_vec_to_xaxis_euler(vec)
         
     if len(im.shape)>3:
         image = im.data[0,:,:,:]
@@ -700,36 +664,10 @@ def shcoeffs_and_PILR_nonuc(
     #if align_method is a numpy array, use that as the vector to align to
     if type(align_method) == np.ndarray:
         vec = align_method.copy()
-        #align current vector with x axis and get euler angles of resulting rotation matrix https://docs.scipy.org/doc/scipy/reference/generated/scipy.spatial.transform.Rotation.html
-        xaxis = np.array([[1,0,0], [0,1,0], [0,0,1]]).astype('float64')
-        upnorm = np.cross(vec,[1,0,0])
-        # if upnorm[2]<0:
-        #     upnorm = upnorm.copy() * -1
-        sidenorm = np.cross(vec,upnorm)
-        current_vec = np.stack((vec, sidenorm, upnorm), axis = 0)
-        # current_vec = np.concatenate((current_vec,[5*vec]), axis = 0)
-        rotationthing = R.align_vectors(xaxis, current_vec)
-        #below is actual rotation matrix if needed
-        #rot_mat = rotationthing[0].as_matrix()
-        rotthing_euler = rotationthing[0].as_euler('xyz', degrees = True)
-        euler_angles = np.array([rotthing_euler[0], rotthing_euler[1], rotthing_euler[2]])
     elif align_method == 'trajectory':
         info = pd.read_csv(infopath, index_col=0)
         vec = np.array([info.Trajectory_X[0], info.Trajectory_Y[0], info.Trajectory_Z[0]])
-        #align current vector with x axis and get euler angles of resulting rotation matrix https://docs.scipy.org/doc/scipy/reference/generated/scipy.spatial.transform.Rotation.html
-        xaxis = np.array([[1,0,0], [0,1,0], [0,0,1]]).astype('float64')
-        upnorm = np.cross(vec,[1,0,0])
-        # if upnorm[2]<0:
-        #     upnorm = upnorm.copy() * -1
-        sidenorm = np.cross(vec,upnorm)
-        current_vec = np.stack((vec, sidenorm, upnorm), axis = 0)
-        # current_vec = np.concatenate((current_vec,[5*vec]), axis = 0)
-        rotationthing = R.align_vectors(xaxis, current_vec)
-        #below is actual rotation matrix if needed
-        #rot_mat = rotationthing[0].as_matrix()
-        rotthing_euler = rotationthing[0].as_euler('xyz', degrees = True)
-        euler_angles = np.array([rotthing_euler[0], rotthing_euler[1], rotthing_euler[2]])
-        
+    euler_angles = align_vec_to_xaxis_euler(vec) 
         
         
     #determind image dimensions and whether there is a non-membrane channel

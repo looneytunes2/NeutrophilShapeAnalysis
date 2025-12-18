@@ -6,7 +6,7 @@ import skimage.measure
 from scipy import interpolate
 from sklearn.linear_model import LinearRegression
 from aicssegmentation.core.utils import hole_filling
-
+from scipy.spatial.transform import Rotation as R
 
 def running_mean_withna(x, N):
     means = []
@@ -256,14 +256,33 @@ def twodholefill(thresh, hole_min, hole_max):
 
 
 
-# Function to find 3D Angle
-def angle_distance(a1, b1, c1, a2, b2, c2):
-    a1,b1,c1 = [a1,b1,c1]/np.linalg.norm([a1,b1,c1])
-    a2,b2,c2 = [a2,b2,c2]/np.linalg.norm([a2,b2,c2])
+### angle between two vectors in degrees
+def angle3D(a1, b1, c1, a2, b2, c2):
     d = ( a1 * a2 + b1 * b2 + c1 * c2 )
     e1 = math.sqrt( a1 * a1 + b1 * b1 + c1 * c1)
     e2 = math.sqrt( a2 * a2 + b2 * b2 + c2 * c2)
     d = d / (e1 * e2)
+    if d>1:
+        d = 1
+    elif d<-1:
+        d = -1
     A = math.degrees(math.acos(d))
     return A
 
+
+
+### align a vector to the x axis and get the euler rotations to do so
+def align_vec_to_xaxis_euler(
+        vec, #iterable in XYZ order
+        ):
+    #align current vector with x axis and get euler angles of resulting rotation matrix https://docs.scipy.org/doc/scipy/reference/generated/scipy.spatial.transform.Rotation.html
+    xaxis = np.array([[1,0,0], [0,1,0], [0,0,1]]).astype('float64')
+    upnorm = np.cross(vec,[1,0,0])
+    sidenorm = np.cross(vec,upnorm)
+    current_vec = np.stack((vec, sidenorm, upnorm), axis = 0)
+    rotationthing = R.align_vectors(xaxis, current_vec)
+    #below is actual rotation matrix if needed
+    #rot_mat = rotationthing[0].as_matrix()
+    rotthing_euler = rotationthing[0].as_euler('xyz', degrees = True)
+    euler_angles = np.array([rotthing_euler[0], rotthing_euler[1], rotthing_euler[2]])
+    return euler_angles

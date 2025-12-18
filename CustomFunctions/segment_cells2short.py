@@ -183,7 +183,10 @@ def segment_caax_el4(img):
     gaussian_smoothing_sigma = 1.5
     ################################
     # normalize by percentiles
-    struct_img = int_min_max(img, np.percentile(img,99.5), np.percentile(img, 2))
+    #find noise peak by histograme
+    counts, vals = np.histogram(img, int((img.max()-img.min())/10))
+    noise = vals[np.argmax(counts)]
+    struct_img = int_min_max(img, np.percentile(img,99.5), noise)# np.percentile(img, 2))
     # 3d gaussian smoothening
     structure_img_smooth = image_smoothing_gaussian_3d(struct_img, sigma=gaussian_smoothing_sigma)
     
@@ -225,25 +228,26 @@ def segment_caax_el4(img):
     ### combine the filament filtered images
     seg = fil_img + np.rot90(rotfil_img, k=-1, axes = (0,1)) 
     
-    #### 2D hole filling from every orientation
+    #### 2D hole filling from every orientation twice
     hole_max = 3000
     hole_min = 1
+    seg = twodholefill(seg, hole_min, hole_max)
     seg = twodholefill(seg, hole_min, hole_max)
     
     # set minimum area to just less that largest object
     im_labeled, n_labels = skimage.measure.label(
                               seg, background=0, return_num=True)
-    if n_labels > 1:
-        im_props = skimage.measure.regionprops(im_labeled)
-        tempdf = pd.DataFrame([])
-        for count, prop in enumerate(im_props):
-            area = prop.area
-            tempdata = {'cell':count, 'area':area}
-            tempdf = tempdf.append(tempdata, ignore_index=True)
-        minArea = int(tempdf.area.max()-2)
-        # create segmentation mask               
-        seg = remove_small_objects(im_labeled, min_size=minArea, connectivity=1, in_place=False)
     
+    if n_labels > 1:
+        #get the label of the biggest thing
+        im_props = skimage.measure.regionprops(im_labeled)
+        areadict = [{'cell':count+1, 'area':prop.area} for count, prop in enumerate(im_props)]
+        tempdf = pd.DataFrame(areadict)
+        biggest = tempdf.sort_values('area').iloc[-1].cell
+        #clear everything not with that label
+        seg[im_labeled!=biggest] = 0
+
+        
     ## get image in 8-bit binary
     seg = seg.astype(np.uint8)
     seg[seg > 0] = 255
@@ -388,22 +392,5 @@ def seg_confocal_40x_memonly_fromslices(
 
 
 
-def get_euler_angles(
-        vec,
-        ):
-    
-    #align current vector with x axis and get euler angles of resulting rotation matrix https://docs.scipy.org/doc/scipy/reference/generated/scipy.spatial.transform.Rotation.html
-    xaxis = np.array([[0,0,0],[1,0,0], [5,0,0]]).astype('float64')
-    current_vec = np.stack(([0,0,0],vec), axis = 0)
-    current_vec = np.concatenate((current_vec,[5*vec]), axis = 0)
-    rotationthing = R.align_vectors(xaxis, current_vec)
-    #below is actual rotation matrix if needed
-    #rot_mat = rotationthing[0].as_matrix()
-    rotthing_euler = rotationthing[0].as_euler('xyz', degrees = True)
-    euler_angles = np.array([rotthing_euler[0], rotthing_euler[1], rotthing_euler[2]])
-
-    return euler_angles
-    
-    
     
 

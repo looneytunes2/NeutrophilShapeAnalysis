@@ -7,11 +7,8 @@ Created on Mon Jul 24 12:15:45 2023
 
 
 import os 
-import re
 import numpy as np
 import pandas as pd
-import vtk
-from vtk.util import numpy_support
 from CustomFunctions import linear_cycle_utils
 
 #get directories and open separated datasets

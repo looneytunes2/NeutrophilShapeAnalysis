@@ -18,7 +18,7 @@ from matplotlib import cm
 curdir = os.path.dirname(os.path.abspath(__file__))
 
 ##### load all of the data to get average speeds
-whichpcs = [2,5]
+whichpcs = [1,7]
 treatments = ['Random']
 binrange = 20
 #get directories and open separated datasets
@@ -35,7 +35,7 @@ aerdf = pd.read_csv(aerdir + f'PC{whichpcs[0]}-PC{whichpcs[1]}_raw_transition_ae
 TotalFrame = TotalFrame.merge(aerdf, on = 'cell')
 
 #average degrees per second in each bin
-avgcf = TotalFrame.angular_velocity.mean()
+avgcf = abs(TotalFrame.angular_velocity.mean())
 #average number of seconds spent in each bin
 avgtime = binrange / avgcf
 
