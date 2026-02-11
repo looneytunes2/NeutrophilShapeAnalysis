@@ -11,6 +11,7 @@ import re
 import multiprocessing
 from aicsimageio.writers.ome_tiff_writer import OmeTiffWriter
 from aicsimageio.readers.czi_reader import CziReader
+from aicsimageio.readers.tiff_reader import TiffReader
 from scipy.spatial import KDTree, distance
 from scipy.spatial.transform import Rotation as R
 from scipy import interpolate
@@ -491,18 +492,57 @@ def get_normal_rotations(
                 #get the actual rotation angles around the x-axis needed to align
                 #the next trajectory with the y-axis
                 theta = np.arctan2(next_traj_rotated[:,2],next_traj_rotated[:,1])
+                #ensure negative y direction
+                theta += np.pi
+                #convert to degrees
                 deg = -np.rad2deg(theta)
+                
                 ### assemble dataframe to match the 'width' normal_method
                 tempframe = chunk[['cell','frame']].copy()
                 tempframe['Width_Peaks'] = np.nan
-                tempframe['Closest_minimums'] = np.insert(deg, 0, np.nan)
+                tempframe['Closest_minimums'] = np.append(deg, np.nan)
 
+                allresults.append(tempframe)
+                
+        ### rotate to somewhat preserve original frame
+        elif normal_method == 'original':
+            for c in cellframelist:
+                ## open the current segmented image
+                im = TiffReader(imdir.joinpath(c+'_segmented.tiff'))
+                
+                if len(im.shape)>3:
+                    ci = im.data[0,:,:,:]
+                else:
+                    ci = im.data
+                    
+                ## rotate to align to long axis
+                eulers = shparam_mod.get_long_axis_eulers(ci, xyres, zstep)
+                    
+                #apply euler to the original negative y direction
+                ro = R.from_euler('xyz', eulers, degrees = True)
+                next_traj_rotated = ro.apply([0,-1,0])
+                #get the actual rotation angles around the x-axis needed to align
+                #the next trajectory with the y-axis
+                theta = np.arctan2(next_traj_rotated[2],next_traj_rotated[1])
+                #apply these rotations and if y is positive, flip it
+                theta += np.pi
+                #convert to degrees
+                deg = -np.rad2deg(theta)
+                    
+                ### assemble dataframe to match the 'width' normal_method
+                tempframe = pd.DataFrame({
+                    'cell': c,
+                    'frame': int(c.split('_')[-1]),
+                    'Width_Peaks': np.nan,
+                    'Closest_minimums': deg,
+                    }, index = [0])
+    
                 allresults.append(tempframe)
 
         print('Finished ' + u)
 
     # save the shape metrics dataframe
-    bigdf = pd.concat(allresults)
+    bigdf = pd.concat(allresults, ignore_index = True)
     bigdf.to_csv(datadir.joinpath(f'Closest_Width_Peaks_{mindir.name}.csv'))
 
 

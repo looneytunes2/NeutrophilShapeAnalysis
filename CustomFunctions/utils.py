@@ -50,9 +50,24 @@ def get_consecutive_timepoints(
         difflist.append(len(df_sorted))
     #make a list of lists with the indices of consecutive time points
     runs = [list(range(difflist[x], difflist[x+1])) for x in range(len(difflist)-1)]
-    
     return df_sorted, runs
     
+
+def get_consecutive_transitions(
+        cell, #a dataframe with info for a single cell including a "real_time" column
+        ):
+    #sort data and get continuous transitions in order
+    cell = cell.sort_values('real_time').reset_index(drop = True)
+    ### identify indicies where the time_elapsed doesn't match the
+    ### change in cumulative time, these are data gaps
+    gap_mask = cell.cumulative_time.diff() != cell.time_elapsed
+    gaps_inds = cell[gap_mask].index.to_list()
+    if gaps_inds[-1] < len(cell):
+        gaps_inds.append(len(cell))
+    #make a list of lists with the indices of consecutive time points
+    runs = [list(range(gaps_inds[x], gaps_inds[x+1])) for x in range(len(gaps_inds)-1)]
+    return cell, runs
+
 
 #get distance between two points in 3d
 def dist_3d(p1,p2):
@@ -140,12 +155,11 @@ def get_aer_state(
     #get area enclosed from aer
     cellnona['area_enclosed'] = cellnona.aer*time_interval
     #### weight the points near gaps more
-    diffs = cellnona.time.diff().values
-    #get the indicies of jumps
-    gaps = np.where(diffs>time_interval)[0]
-    #add the indices before jumps
-    gaps = np.concatenate((gaps,gaps-1))
-    w = np.ones(diffs.shape)
+    _, runs = get_consecutive_transitions(cellnona)
+    #get the indicies before and after jumps
+    gaps = np.array([[r[0],r[-1]] for r in runs]).flatten()
+    #add the weights
+    w = np.ones(cellnona.shape[0])
     w[gaps] = 3
 
 
@@ -274,6 +288,7 @@ def angle3D(a1, b1, c1, a2, b2, c2):
 ### align a vector to the x axis and get the euler rotations to do so
 def align_vec_to_xaxis_euler(
         vec, #iterable in XYZ order
+        return_rotation_object:bool = False, #whether to return the scipy rotation object
         ):
     #align current vector with x axis and get euler angles of resulting rotation matrix https://docs.scipy.org/doc/scipy/reference/generated/scipy.spatial.transform.Rotation.html
     xaxis = np.array([[1,0,0], [0,1,0], [0,0,1]]).astype('float64')
@@ -285,4 +300,5 @@ def align_vec_to_xaxis_euler(
     #rot_mat = rotationthing[0].as_matrix()
     rotthing_euler = rotationthing[0].as_euler('xyz', degrees = True)
     euler_angles = np.array([rotthing_euler[0], rotthing_euler[1], rotthing_euler[2]])
-    return euler_angles
+    
+    return (euler_angles, rotationthing) if return_rotation_object else euler_angles 

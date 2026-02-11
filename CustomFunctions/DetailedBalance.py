@@ -6,7 +6,6 @@ Created on Wed Jun 14 14:52:46 2023
 """
 
 from scipy import interpolate
-from scipy.spatial import distance
 import pandas as pd
 import numpy as np
 from random import shuffle
@@ -16,7 +15,7 @@ import itertools
 import math
 import tqdm
 import random
-
+from scipy.stats import gaussian_kde
 
 
 def signed_angle(u,v):
@@ -73,146 +72,50 @@ def raw_transitions(
         ):
     #how many dimensions is the space
     dims = len(whichpcs)
+    froms = [f'from_{["x","y","z"][i]}' for i in range(dims)]
+    tos = [f'to_{["x","y","z"][i]}' for i in range(dims)]
+    
     
     #### get coordinates
-    alltrans = df[[f'PC{w}bins' for w in whichpcs]].copy()
-    alltrans.columns = [f'from_{["x","y","z"][i]}' for i in range(dims)]
+    alltrans = df[[f'PC{w}bins' for w in whichpcs]].copy().reset_index(drop = True)
+    alltrans.columns = froms
     #### get transitions
-    alltrans[[f'to_{["x","y","z"][i]}' for i in range(dims)]] = alltrans.shift(-1)
+    alltrans[tos] = alltrans.shift(-1)
     alltrans = alltrans.dropna()
     
     ##### add a bunch of other info
     #frame will reference the timepoint at the end of the transition
     alltrans['real_time'] = df[1:].time.values
     alltrans['frame'] = df[1:].frame.values
-    #add the time elapsed in each transition (imaging interval)
-    alltrans['time_elapsed'] = time_interval
+    #add the cumulative time based on the imaging interval 
     alltrans['cumulative_time'] = np.arange(time_interval, len(df)*time_interval, time_interval)
     #add cell identification
     alltrans['CellID'] = df.CellID.to_list()[:-1]
     # 'cell' will reference the cell/frame at the end of the transition
     alltrans['cell'] = df.cell.to_list()[1:]
     
-    return alltrans
-
-
-
-
-def interpolate_2dtrajectory(
-        t_int, # time interval between frames in seconds
-        rawtrans, # continuous-time dataframe with transitions sorted by frame # 
-        ):
-
-    
-    cellname = rawtrans.CellID.iloc[0]
-    frames = rawtrans.frame.to_list()
-    #get the CGPS POSITIONS for this trajectory segment
-    traj = np.vstack((rawtrans[['from_x','from_y']].values,
-                      rawtrans[['to_x','to_y']].iloc[-1].values))
-    
-    
-    #remove duplicate coordinates
-    #which breaks the interpolation function
-    #first make sure numpy array dtype is correct
-    traj = traj.astype(np.float32)
-    #find the indicies of the duplicates
-    duplicates = [i for i,w in enumerate(traj) if all(w==traj[i-1])]
-    #add a small number to the duplicates so they're not the same, but not meaningfully different
-    for d in duplicates:
-        traj[d,:] = traj[d,:]+0.001
-    
-    #interpolate based on path
-    tck, b = interpolate.splprep(traj.T, u=range(len(traj)),k=1, s=0)
-    
-    #measure the trajectory and interpolate evenly by distance
-    interlist = []
-    
-    for t in range(len(traj)-1):
-        di = distance.pdist([traj[t,:],traj[t+1,:]])[0]
-        intt = round(di/0.1)
-        #if there's at least one bin position change during this frame, interpolate to find when it happens
-        if intt>0:
-            interpoints = np.linspace(start=t, stop = t+1, num = intt, endpoint = False)
-            x, y = interpolate.splev(interpoints,tck)
-            x = [round(i) for i in x]
-            y = [round(i) for i in y]
-            fr = [frames[t]]*len(interpoints)
-            interlist.append(np.stack([fr,x,y,interpoints]).T)
-        #if the cell doesn't actually change bin positions in this frame, just add it's info
-        else:
-            fr = frames[t]
-            interlist.append(np.array([[fr,traj[t][0],traj[t][1],t]]))
-    
-    #add last position
-    interlist.append(np.array([[frames[-1], traj[-1,0], traj[-1,1], len(rawtrans)]]))
-    #concatenate all
-    fulltr = pd.DataFrame(np.concatenate(interlist), columns=['frame','x','y','t'])
-    
-    #find all single move transitions
-    trans = []
-    prev = pd.Series([frames[0],traj[0,0],traj[0,1],0], index=['frame','x','y','t'])
-    for i, g in fulltr.diff().iterrows():
-        ### provide an escape if the interpolation is still not good enough and there
-        ### is a >1 jump in the trajectory
-        if (abs(g.x)>=1) and (abs(g.y)>=1):
-            extra = np.linspace(prev.t,fulltr.iloc[i].t,30)
-            ex, ey = interpolate.splev(extra,tck)
-            ex = [round(i) for i in ex]
-            ey = [round(i) for i in ey]
-            ef = [fulltr.iloc[i].frame]*len(extra)
-            exdf = pd.DataFrame(np.stack([ef,ex,ey,extra]).T, columns=['frame','x','y','t'])
-            for h, j in exdf.diff().iterrows():
-                ### if there's STILL a transition by more than a single move
-                ### then it means the slope of the transition is 1 and needs to
-                ### have the transitions to adjacent boxes decided randomly
-                if (abs(j.x)>=1) and (abs(j.y)>=1):
-                    cur = exdf.iloc[h]
-                    possible = ['x','y']
-                    shuffle(possible)
-                    if possible[0]=='x':
-                        trans.append([cur.frame, prev.x, prev.y, cur.x, prev.y, (cur.t-prev.t)/2, cur.t])
-                        trans.append([cur.frame, cur.x, prev.y, cur.x, cur.y, (cur.t-prev.t)/2, cur.t+(cur.t-prev.t)/2])
-                        prev = cur.copy()
-                    else:
-                        trans.append([cur.frame, prev.x, prev.y, prev.x, cur.y, (cur.t-prev.t)/2, cur.t])
-                        trans.append([cur.frame, prev.x, cur.y, cur.x, cur.y, (cur.t-prev.t)/2, cur.t+(cur.t-prev.t)/2])
-                        prev = cur.copy()
-                elif (abs(j.x)==1) or (abs(j.y)==1):
-                    cur = exdf.iloc[h]
-                    trans.append([cur.frame, prev.x, prev.y, cur.x, cur.y, cur.t-prev.t, cur.t])
-                    prev = cur.copy()
-        #collect all of the 1 moves
-        elif (abs(g.x)==1) or (abs(g.y)==1):
-            cur = fulltr.iloc[i]
-            trans.append([cur.frame, prev.x, prev.y, cur.x, cur.y, cur.t-prev.t, cur.t])
-            prev = cur.copy()
-        #ignore timepoints that don't transition
-        else:
-            pass
-
+    #drop stalled "transitions" so that only true transitions are counted
+    stallmask = (alltrans[froms].values == alltrans[tos].values).all(axis = 1)
+    alltrans = alltrans[~stallmask]
+    #if there's still transitions to write after dropping the stalls
+    if not alltrans.empty:
+        #now that stalls are dropped calculated the time elapsed for each transition
+        alltrans['time_elapsed'] = alltrans.cumulative_time.diff()
+        #fill the time_elapsed nan accounting for possible stalls in the first transition
+        alltrans.at[alltrans.index[0],'time_elapsed'] = (alltrans.index[0] + 1) * time_interval
         
-    #combine the data
-    alltrans = pd.DataFrame(trans, columns=['frame', 'from_x', 'from_y', 'to_x', 'to_y', 'time_elapsed','cumulative_time'])
-    #add cell name
-    alltrans['CellID'] = cellname
-    #also add the frame identifier just in case
-    celllist = rawtrans.cell.to_list()
-    alltrans['cell'] = [celllist[frames.index(x)] for x in alltrans.frame.to_list()]
-    #adjust time elapsed and cumulative time to real time
-    alltrans['time_elapsed'] = alltrans['time_elapsed']*t_int
-    alltrans['cumulative_time'] = alltrans['cumulative_time']*t_int
-    #add real image time so that data can be sorted even if it's not
-    #from the same video
-    alltrans['real_time'] = alltrans.cumulative_time + rawtrans.real_time.iloc[0]
-    
-    return alltrans.to_dict('records')
+        return alltrans
+
+
 
 
 
 def interpolate_trajectory(
-        t_int, # time interval between frames in seconds
         rawtrans, # continuous-time dataframe with transitions sorted by frame # 
         ):
+    
+    #reset index just in case
+    rawtrans = rawtrans.reset_index(drop = True)
     
     #how many dimensions is the space
     dims = len([x for x in rawtrans.columns.to_list() if 'from_' in x])
@@ -224,42 +127,65 @@ def interpolate_trajectory(
     traj = np.vstack((rawtrans[[x for x in rawtrans.columns.to_list() if 'from_' in x]].values,
                       rawtrans[[x for x in rawtrans.columns.to_list() if 'to_' in x]].iloc[-1].values))
     
-    #remove duplicate coordinates
-    #which breaks the interpolation function
-    #first make sure numpy array dtype is correct
-    traj = traj.astype(np.float32)
-    #find the indicies of the duplicates
-    duplicates = [i for i,w in enumerate(traj) if all(w==traj[i-1])]
-    #add a small number to the duplicates so they're not the same, but not meaningfully different
-    for d in duplicates:
-        traj[d,:] = traj[d,:]+0.001
-    
     #interpolate based on path based on real time
-    maxtime = len(traj)*t_int
-    time_units = np.arange(0,maxtime, t_int)
-    tck, b = interpolate.splprep(traj.T, u=time_units ,k=1, s=0)
+    time_units = rawtrans.time_elapsed.cumsum().values
+    time_units = np.insert(time_units, 0,0)
+    tck, b = interpolate.splprep(traj.T.astype(float), u=time_units.astype(float), k=1, s=0)
     
     
     #start the transition list with a dummy transition that will be dropped later
     trans = [ [frames[0]] + list(traj[0]) + list(traj[0]) + [0,0] ]
     for t in range(len(traj)-1):
+        if t == 35:
+            break
         #determine if there's a transition in this frame
-        frame_to_frame_diff = traj[t+1]-traj[t]
-        statechange = abs(frame_to_frame_diff).sum()
+        frame_to_frame_diff = abs(traj[t+1]-traj[t])
+        statechange = frame_to_frame_diff.sum()
         #if there's a single bin change add the transition
         if statechange == 1:
             current_coord = traj[t+1]
             ###determine the current time
             ##round up to when this transition "started" 
-            current_time = t*t_int + t_int/2 #single transitions always take t_int/2
+            current_time = time_units[t:t+2].mean() #single transitions take half the time since the last transition
             trans.append([frames[t]] + trans[-1][int(1+dims):int(1+2*dims)] + list(current_coord) + [current_time-trans[-1][-1], current_time])
+        #manually handle direct diagonal transitions because they interpolate weirdly
+        elif np.all(frame_to_frame_diff == frame_to_frame_diff[0]):
+            
+            #how many diagonal crossing are there
+            diag_num = int(frame_to_frame_diff[0])
+            #what's the direction of single diagonal transitions
+            trans_template = (traj[t+1]-traj[t])/diag_num
+            #total transition time
+            diag_trans_time_total = np.diff(time_units[t:t+2])[0]
+            ## define time elapsed in each interpolated step
+            te = (diag_trans_time_total/diag_num) / len(trans_template)
+            # print('diagonal', diag_num)
+            
+            #loop random transition selection for each diagonal cross
+            for d in range(diag_num):
+                #get the current coordinate and time
+                current_coord = traj[t] + trans_template * (d + 1)
+                current_time = time_units[t] + (diag_trans_time_total/diag_num) * (d+1)
+                #get the randomized transition list
+                multi_cross = list(range(len(trans_template)))
+                shuffle(multi_cross)
+                #make a temporary coordinate to update as transitions happen randomly
+                tempcur = trans[-1][int(1+dims):int(1+2*dims)]
+                for m, mc in enumerate(multi_cross):
+                    #define cumulative time, including "remaining" time from the previous frame's transitions
+                    ct = trans[-1][-1] + te + (time_units[t]-trans[-1][-1]) if (d==0) and (m==0) else trans[-1][-1] + te
+                    #get current coordinate and replace elements for each step of the "multi cross"
+                    tempcur[mc] = current_coord[mc]
+                    time_elapsed = ct - trans[-1][-1]
+                    trans.append([frames[t]] + trans[-1][int(1+dims):int(1+2*dims)] + tempcur + [time_elapsed, round(ct, 10)])
+                    
         #if there's more than one bin position change during this frame, interpolate to find when it happens
         elif statechange>1:
             #measure the trajectory and interpolate evenly by distance
             di = np.sqrt(np.sum(frame_to_frame_diff**2))
-            intt = round(di/0.01)
+            intt = round(di/0.001)
             #get interpolated coordinates
-            interpoints = np.linspace(start=t*t_int, stop = (t+1)*t_int, num = intt, endpoint = False)
+            interpoints = np.linspace(start=time_units[t], stop = time_units[t+1], num = intt, endpoint = False)
             splev_coords = interpolate.splev(interpoints,tck)
             interp_coords = np.round(splev_coords).T
             #get all the spatial differences between the interpolated coordinates
@@ -267,12 +193,12 @@ def interpolate_trajectory(
             interp_diff_ind = np.where(np.sum(interp_diffs, axis = 1)>0)[0]
             
             #loop to find single transitions or deal with multi transitions
-            for i in interp_diff_ind:
+            for i, idi in enumerate(interp_diff_ind):
                 #absolute value of transitions
-                ai_d = interp_diffs[i]
+                ai_d = interp_diffs[idi]
                 #update current time and position
-                current_coord = interp_coords[i+1]
-                current_time = interpoints[i]#round(interpoints[i]) if interpoints[i]%5-5>-0.01 else interpoints[i]
+                current_coord = interp_coords[idi+1]
+                current_time = interpoints[idi]#round(interpoints[i]) if interpoints[i]%5-5>-0.01 else interpoints[i]
                 # if i == interp_diff_ind[2]:
                 #     break
                 #collect all of the single moves
@@ -286,6 +212,7 @@ def interpolate_trajectory(
                     multi_cross = False
                     if ai_d.sum() == 3:
                         multi_cross = [0,1,2]
+                        # print('triple cross', interp_coords[interp_diff_ind])
                     #check x and y first to allow for 2d cases
                     elif ai_d[0]>=1 and ai_d[1]>=1:
                         multi_cross = [0,1]
@@ -295,38 +222,38 @@ def interpolate_trajectory(
                         multi_cross = [1,2]
                     #### handle the diagonal border crossing
                     if multi_cross:
-                        #randomize` transition order
+                        #randomize transition order
                         shuffle(multi_cross)
                         ## define time elapsed in each interpolated step
-                        te = (current_time-trans[-1][-1])/len(multi_cross) if len(multi_cross)!=dims else t_int/len(multi_cross)
+                        te = (current_time-time_units[t])/len(multi_cross) if i == 0 else (current_time-trans[-1][-1])/len(multi_cross)
+                        #make a temporary coordinate to update as transitions happen randomly
+                        tempcur = trans[-1][int(1+dims):int(1+2*dims)]
                         for m, mc in enumerate(multi_cross):
-                            #define cumulative time
-                            ct = trans[-1][-1] + te
+                            #define cumulative time, including "remaining" time from the previous frame's transitions
+                            ct = trans[-1][-1] + te + (time_units[t]-trans[-1][-1]) if (i==0) and (m==0) else trans[-1][-1] + te
                             #get current coordinate and replace elements for each step of the "multi cross"
-                            tempcur = trans[-1][int(1+dims):int(1+2*dims)]
                             tempcur[mc] = current_coord[mc]
-                            trans.append([frames[t]] + trans[-1][int(1+dims):int(1+2*dims)] + tempcur + [te, ct])
+                            time_elapsed = ct - trans[-1][-1]
+                            trans.append([frames[t]] + trans[-1][int(1+dims):int(1+2*dims)] + tempcur + [time_elapsed, round(ct, 10)])
     
-        
+    
     #drop the dummy first "transition"
     trans = trans[1:]
-    #add the final transition
     
-    #combine the data
+    #convert to dataframe and name columns
     alltrans = pd.DataFrame(trans, columns=['frame'] +
                             [x for x in rawtrans.columns.to_list() if 'from_' in x] +
                             [x for x in rawtrans.columns.to_list() if 'to_' in x] +
                             ['time_elapsed','cumulative_time'])
-    
+    #add real image time so that data can be sorted even if it's not
+    #from the same video
+    alltrans['real_time'] = alltrans.cumulative_time + rawtrans.real_time.iloc[0] - rawtrans.time_elapsed.iloc[0]
     #add cell name
     alltrans['CellID'] = rawtrans.CellID.iloc[0]
     #also add the frame identifier just in case
     celllist = rawtrans.cell.to_list()
     alltrans['cell'] = [celllist[frames.index(x)] for x in alltrans.frame.to_list()]
-    #add real image time so that data can be sorted even if it's not
-    #from the same video
-    alltrans['real_time'] = alltrans.cumulative_time + rawtrans.real_time.iloc[0]
-
+    
     return alltrans
 
 
@@ -698,30 +625,22 @@ def get_raw_cgps_trajectories(
 def get_interpolated_cgps_trajectories(
         rawtrans, #pandas dataframe with raw transitions from get_raw_cgps_trajectories
         whichpcs, #which two PCs to use in the cgps [x,y]
-        time_interval, #real time between datapoints
         savedir, #where to save the aggregated trajectories
         group_factor = 'Treatment', #column with factor to separate the data on
         ):
     migresults = []
     for m, Mig in rawtrans.groupby(group_factor):
-        results = []
+        mapargs = []
+        for i, cell in Mig.groupby('CellID'):
+            cell, runs = utils.get_consecutive_transitions(cell)
+            for r in runs:
+                #skip runs less than 2 frames long
+                if len(r)>1:
+                    mapargs.append(cell.iloc[r])
+
         with multiprocessing.Pool(processes=60) as pool:
-            for i, cells in Mig.groupby('CellID'):
-                cells, runs = utils.get_consecutive_timepoints(cells, 'real_time', time_interval)
-                for r in runs:
-                    #skip runs less than 2 frames long
-                    if len(r)<2:
-                        pass
-                    else:
-                        cell = cells.iloc[r]
-                        result = pool.apply_async(interpolate_trajectory, args = (
-                            time_interval,
-                            cell,
-                            ))
-                        results.append(result)
-    
-            #get results
-            results = [r.get() for r in results]
+            results = list(pool.imap(interpolate_trajectory, mapargs))
+
         #separate results into transtions and transition pairs
         transdf_sep = pd.concat(results)
         transdf_sep = transdf_sep.sort_values(by = ['CellID','real_time']).reset_index(drop=True)
@@ -785,17 +704,7 @@ def get_bootstrapped_cgps_trajectories(
         combolist = []
         for cidc, cell in mig.groupby('CellID'):
             #sort data and get continuous transitions in order
-            cell = cell.sort_values('real_time').reset_index(drop = True)
-            #resets in cumulative time represent a change between non-consecutive
-            #series of interpolated transitions
-            diff = cell.cumulative_time.diff()
-            difflist = [0]
-            difflist.extend(diff[diff<0].index.to_list())
-            if difflist[-1] < len(cell):
-                difflist.append(len(cell))
-            #make a list of lists with the indices of consecutive time points
-            runs = [list(range(difflist[x], difflist[x+1])) for x in range(len(difflist)-1)]
-            
+            cell, runs = utils.get_consecutive_transitions(cell)
             for r in runs:
                 limdf = cell.iloc[r]
                 for i in range(len(limdf) - ntrans + 1):
@@ -827,19 +736,11 @@ def get_bootstrapped_cgps_trajectories(
 
         ###### now interpolate the bootstrapped trajectories ######
         print(f'Interpolating trajectories for {m}')
-        results = []
+        mapargs = [d for i, d in migboot.groupby('iter')]
         with multiprocessing.Pool(processes=60) as pool:
-            for i, d in migboot.groupby('iter'):
-                cell = d.sort_values('cumulative_time').reset_index(drop = True)
-                result = pool.apply_async(interpolate_2dtrajectory, args = (
-                    time_interval,
-                    cell,
-                    ))
-                results.append(result)
-            #get results
-            results = [r.get() for r in results]
-            
-        bsinttrans = pd.DataFrame([x for r in results for x in r])
+            results = list(tqdm.tqdm(pool.imap(interpolate_trajectory, mapargs), total=bsiter))
+                    
+        bsinttrans = pd.concat(results, ignore_index=True)
         bsinttrans['iter'] = list(itertools.chain.from_iterable([[k]*len(res) for k,res in enumerate(results)]))
         bsinttrans = bsinttrans.sort_values(by = ['iter','cumulative_time']).reset_index(drop=True)
         bsinttrans[group_factor] = m
@@ -865,11 +766,11 @@ def get_bootstrapped_cgps_trajectories(
 
     ####### pull everything together and save
     bstrans = pd.concat(bstrans, ignore_index=True)
-    bstrans.to_csv(savedir.joinpath('-'.join(f"PC{w}" for w in whichpcs)+'_bootstrapped_{ntrans}_transitions.csv'))
+    bstrans.to_csv(savedir.joinpath('-'.join(f"PC{w}" for w in whichpcs)+f'_bootstrapped_{ntrans}_transitions.csv'))
     bsint = pd.concat(bsint, ignore_index=True)
-    bsint.to_csv(savedir.joinpath('-'.join(f"PC{w}" for w in whichpcs)+'_bootstrapped_{ntrans}_interpolated_transitions.csv'))
+    bsint.to_csv(savedir.joinpath('-'.join(f"PC{w}" for w in whichpcs)+f'_bootstrapped_{ntrans}_interpolated_transitions.csv'))
     bsframe_sep_full = pd.concat(bsframe_sep_full, ignore_index=True)
-    bsframe_sep_full.to_csv(savedir.joinpath('-'.join(f"PC{w}" for w in whichpcs)+'_bootstrapped_{ntrans}_transition_rates.csv'))
+    bsframe_sep_full.to_csv(savedir.joinpath('-'.join(f"PC{w}" for w in whichpcs)+f'_bootstrapped_{ntrans}_transition_rates.csv'))
     print('Finished bootstrapping')
     
     return bstrans, bsint, bsframe_sep_full
@@ -906,7 +807,7 @@ def get_avg_current_error(
                               group_factor:m})
 
     bsfield_sep = pd.DataFrame(bsfield)
-    bsfield_sep.to_csv(savedir.joinpath('-'.join(f"PC{w}" for w in whichpcs)+'_bootstrapped_{ntrans}_transitions_average_currents.csv'))
+    bsfield_sep.to_csv(savedir.joinpath('-'.join(f"PC{w}" for w in whichpcs)+f'_bootstrapped_{ntrans}_transitions_average_currents.csv'))
     
     return bsfield_sep
 
@@ -932,76 +833,97 @@ def get_aer_cf(
         results = list(tqdm.tqdm(pool.imap(get_area_enclosing_rate, mapargs), total=bsiter))
 
     allaers = pd.concat(results, ignore_index=True)
-    allaers.to_csv(savedir.joinpath('-'.join(f"PC{w}" for w in whichpcs)+'_{ntrans}_transition_Area_Enclosing_Rates.csv'))
+    allaers.to_csv(savedir.joinpath('-'.join(f"PC{w}" for w in whichpcs)+f'_{ntrans}_transition_Area_Enclosing_Rates.csv'))
 
 
 
 
-########## measure gap frequency and duration
-def get_gap_stats(
-        df, #dataframe
+
+
+def get_run_stats(
+        df, #dataframe containing aer info
         group, #what is the identifier to group by as a str
-        time_interval, #frame rate of the data
-        gapcol = 'aer', #column that I care about gaps in, will be dropped
+        time_interval, #what was the imaging interval for this data
         ):
-    gaps = []
-    gap_freqs = []
+    allrunlengths = []
+    allrunlengthmeans = []
+    allgaplengths = []
+    allgaplengthmeans = []
+    allgapfrequencies = []
     for c, cell in df.groupby(group):
-        #drop spots where there's no AER
-        cell = cell[~cell[gapcol].isna()]
-        cell = cell.sort_values('time').reset_index(drop = True)
-        #find time differences between frames
-        diffs = cell.time.diff()
-        #find gaps larger than the imaging interval
-        bigdiffs = diffs[diffs.abs()>time_interval].to_list()
-        #measure the frequency of gaps in # / sec
-        celldiff_freq = len(bigdiffs)/cell.time.max()
+        ### drop aer nans just in case
+        cell = cell[~cell.aer.isna()].copy()
+        cell, runs = utils.get_consecutive_transitions(cell)
+        run_lengths = [len(r) for r in runs]
+        ##gap indexes
+        gapinds = [r[0] for r in runs[1:]]
+        ##gap lengths
+        gap_lengths = np.array([cell.real_time.iloc[i] - cell.real_time.iloc[i-1] for i in gapinds], dtype = float)
+        #gap_lenths units from # of seconds to # of frames
+        gap_lengths /= time_interval
+        #average run length for this cell
+        meanrunlength = np.mean(run_lengths)
+        #average gap length for this cell
+        meangaplength = np.mean(gap_lengths)
+        #frequency of gaps for this cell in number of gaps
+        #per total time observed
+        meangapfreq = len(gap_lengths)/cell.time_elapsed.sum()
         
-        #append the gap lengths and frequencies
-        gaps.extend(bigdiffs)
-        gap_freqs.append(celldiff_freq)
         
-    ### array of observed gaps in #'s of frames
-    gap_frame_num = np.round(np.array(gaps)/time_interval)
-    
-    ## average frequency of gaps in seconds
-    gap_prob = np.mean(gap_freqs)
-    # probability of gaps in # / frame
-    gap_prob_frame = gap_prob*time_interval
-    
-    return gap_prob_frame, gap_frame_num
+        allrunlengths.extend(run_lengths)
+        allrunlengthmeans.append(meanrunlength)
+        allgaplengths.extend(gap_lengths)
+        allgaplengthmeans.append(meangaplength)
+        allgapfrequencies.append(meangapfreq)
+    return allrunlengths, allrunlengthmeans, allgaplengths, allgaplengthmeans, allgapfrequencies
+
 
 
 
 
 ######### get dataframe of bootstrapped rows to drop to mimic LLS data gaps
-def bootstrap_gaps(
+def bootstrap_runs(
     bsdf, #dataframe with bootstrap iterations (doesn't actually need aer)
-    gap_prob, #gap probability NOTE: this won't necessarily match the gap frequency in the output
-    gap_frame_num, #distribution of gap lengths in numbers of frames
+    allrunlengths, #the sample of movies lengths in seconds
+    allgaplengths, #the sample of non-movie gap lengths in seconds
     ):
-    
+
+    ### get the kde's of movie_lengths and non_movie_gaps
+    run_length_kde = gaussian_kde(allrunlengths)
+    gap_length_kde = gaussian_kde(allgaplengths)
+
     bs_gapped_list = []
     for i, it in bsdf.groupby('iter'):
         it = it.sort_values('real_time').reset_index(drop = True)
         ## loop through the bootstrap iteration and put in gaps with similar
         ## probability and duration to those in the real cells
-        ftk = 0 ## frames to keep
+        current_frame = 0 ## frames to keep
         ftklist = []
-        cur_prob = gap_prob ## current probability
-        while ftk<len(it):
-            if random.random()<cur_prob:
-                ## pick a gap length from the distribution
-                gp = random.choice(gap_frame_num)
-                ftk = ftk+gp
-                cur_prob = 0 #don't put gaps after gaps
-            else:
-                ftk = ftk+1
-                cur_prob = gap_prob
-            ftklist.append(ftk)
-        
+        while current_frame<len(it):
+            
+            ### sample a movie length to use (in number of frames)
+            current_run = round(run_length_kde.resample(1)[0][0])
+            ### ensure that the movie length is positive since the KDE is continuous over zero
+            while current_run<1:
+                current_run = round(run_length_kde.resample(1)[0][0])
+
+            ftklist.append(np.arange(current_frame, current_frame + current_run))
+            
+            ### sample a movie length to use (in number of frames)
+            current_gap = round(gap_length_kde.resample(1)[0][0])
+            ### ensure that the movie length is positive since the KDE is continuous over zero
+            while current_gap<1:
+                current_gap = round(gap_length_kde.resample(1)[0][0])
+
+            current_frame = ftklist[-1][-1] + current_gap
+
+
+        ### movie while loop will result in bootstraps going long
+        ### so only get frames that actually exist
+        ftkarray = np.concatenate(ftklist)
+        ftkmask = ftkarray[ftkarray<len(it)]
         ## drop the rows that are now gaps
-        dropped = it.loc[np.array(ftklist[:-1]).astype(int)]
+        dropped = it.loc[ftkmask]
         bs_gapped_list.append(dropped)
         
     #combine into one dataframe    

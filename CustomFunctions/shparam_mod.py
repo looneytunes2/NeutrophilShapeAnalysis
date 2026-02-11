@@ -11,6 +11,7 @@ import numpy as np
 import pandas as pd
 from vtk.util import numpy_support
 from skimage import transform as sktrans
+import skimage.measure
 from scipy import signal
 from scipy import interpolate as spinterp
 from scipy.spatial import KDTree
@@ -39,6 +40,40 @@ def get_sphericity(
     # SA = 4*math.pi*r
     return (np.pi**(1/3)*(6*vol)**(2/3))/surf #SA/surf
 
+
+def get_long_axis_eulers(
+        im, #binary segmented image
+        xyres, #xy resolution of the image in microns
+        zstep, #z resolution of the image in microns
+        return_rotation_object:bool = False, #whether to return the scipy rotation object
+        ):
+    ## get zyx cell coords from segmented image
+    cell_coords = np.stack(np.where(im>0))
+    ## center coords
+    cell_coords = cell_coords - np.mean(cell_coords,axis = 1,keepdims=True)
+    ## adjust coordinates to micron resolution
+    pixel_res = np.array([zstep, xyres, xyres])[..., np.newaxis]
+    cell_coords *= pixel_res
+
+
+    #get covariance matrix and find eigenvalues and vectors
+    cov = np.cov(cell_coords)
+    cell_evals, cell_evecs = np.linalg.eigh(cov)
+    #make sure that the eigenvalues and vectors are in the order of highest to lowest
+    idx = np.argsort(cell_evals)[::-1]
+    cell_evals = cell_evals[idx]
+    cell_evecs = cell_evecs[:,idx]
+
+    ### PC1 eigen vector in xyz order
+    eig1 = cell_evecs[:,0][::-1]
+    #always get the x-positive direction of the vector
+    if eig1[0]<0:
+        eig1 *= -1
+
+    ## actually get euler angles to align the long axis to the x axis
+    euler_angles, rotationthing = align_vec_to_xaxis_euler(eig1, True)
+    
+    return (euler_angles, rotationthing) if return_rotation_object else euler_angles
 
 
 
@@ -659,17 +694,7 @@ def shcoeffs_and_PILR_nonuc(
     #read image
     im = TiffReader(impath)
     
-    #read euler angles for alignment
-    infopath = savedir.joinpath('processed_data', cell_name + '_cell_info.csv')
-    #if align_method is a numpy array, use that as the vector to align to
-    if type(align_method) == np.ndarray:
-        vec = align_method.copy()
-    elif align_method == 'trajectory':
-        info = pd.read_csv(infopath, index_col=0)
-        vec = np.array([info.Trajectory_X[0], info.Trajectory_Y[0], info.Trajectory_Z[0]])
-    euler_angles = align_vec_to_xaxis_euler(vec) 
-        
-        
+    
     #determind image dimensions and whether there is a non-membrane channel
     if len(im.shape)>3:
         if im.shape[0]>2:
@@ -681,6 +706,19 @@ def shcoeffs_and_PILR_nonuc(
     else:
         ci = im.data
         
+    
+    #read euler angles for alignment
+    infopath = savedir.joinpath('processed_data', cell_name + '_cell_info.csv')
+    #if align_method is a numpy array, use that as the vector to align to
+    if type(align_method) == np.ndarray:
+        vec = align_method.copy()
+        euler_angles, rotationthing = align_vec_to_xaxis_euler(vec, True) 
+    elif align_method == 'trajectory':
+        info = pd.read_csv(infopath, index_col=0)
+        vec = np.array([info.Trajectory_X[0], info.Trajectory_Y[0], info.Trajectory_Z[0]])
+        euler_angles, rotationthing = align_vec_to_xaxis_euler(vec, True) 
+    elif align_method == 'long-axis':
+        euler_angles, rotationthing = get_long_axis_eulers(ci, xyres, zstep, True)
 
     
     #make sure nucleus is handled as segmented
@@ -774,7 +812,7 @@ def shcoeffs_and_PILR_nonuc(
                     
                     #scale structure mesh
                     #set transform and apply
-                    meshf = savedir + 'meshes/'
+                    meshf = savedir.joinpath('meshes')
                     str_mesh = shtools_mod.rotate_and_scale_mesh(
                             str_mesh,
                             scale = np.array([xyres, xyres, xyres]),
@@ -930,7 +968,7 @@ def shcoeffs_and_PILR_nonuc(
     TopVolume = measure_volume_half(cell_mesh, 'z')
     
     
-    #get cell major, minor, and mini axes using the segmented image
+    #get cell major, minor, and mini axes using the aligned mesh
     cell_coords = numpy_support.vtk_to_numpy(cell_mesh.GetPoints().GetData())
     trajlenfront = np.max(cell_coords[:,0])
     trajlenrear = np.min(cell_coords[:,0])

@@ -1,7 +1,7 @@
 """
 Modified from Allen Cell aicsshparam  
 """
-
+import os
 import vtk
 import pyshtools
 import numpy as np
@@ -720,4 +720,41 @@ def save_polydata(mesh: vtk.vtkPolyData, filename: str):
     writer.Write()
 
 
-    
+####### grabbed from https://examples.vtk.org/site/Python/PolyData/BooleanOperationPolyDataFilter/    
+def ReadPolyData(file_name):
+    path, extension = os.path.splitext(file_name)
+    extension = extension.lower()
+    if extension == '.ply':
+        reader = vtk.vtkPLYReader()
+        reader.SetFileName(file_name)
+        reader.Update()
+        poly_data = reader.GetOutput()
+    elif extension == '.vtp':
+        reader = vtk.vtkXMLPolyDataReader()
+        reader.SetFileName(file_name)
+        reader.Update()
+        poly_data = reader.GetOutput()
+    elif extension == '.obj':
+        reader = vtk.vtkOBJReader()
+        reader.SetFileName(file_name)
+        reader.Update()
+        poly_data = reader.GetOutput()
+    elif extension == '.stl':
+        reader = vtk.vtkSTLReader()
+        reader.SetFileName(file_name)
+        reader.Update()
+        poly_data = reader.GetOutput()
+    elif extension == '.vtk':
+        reader = vtk.vtkPolyDataReader()
+        reader.SetFileName(file_name)
+        reader.Update()
+        poly_data = reader.GetOutput()
+    elif extension == '.g':
+        reader = vtk.vtkBYUReader()
+        reader.SetGeometryFileName(file_name)
+        reader.Update()
+        poly_data = reader.GetOutput()
+    else:
+        # Return a None if the extension is unknown.
+        poly_data = None
+    return poly_data
