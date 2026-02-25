@@ -18,11 +18,11 @@ from matplotlib import cm
 curdir = os.path.dirname(os.path.abspath(__file__))
 
 ##### load all of the data to get average speeds
-whichpcs = [1,7]
+whichpcs = [1,2]
 treatments = ['Random']
 binrange = 20
 #get directories and open separated datasets
-basedir = 'E:/Aaron/Combined_37C_Confocal_PCA_s5/'
+basedir = 'E:/Aaron/Combined_37C_Confocal_PCA_planar/'
 datadir = basedir + 'Data_and_Figs/'
 aerdir = basedir + 'random/'
 meshdir = curdir + f'/PC{whichpcs[0]}-PC{whichpcs[1]}_Cycle_AllSHCoeff_Visualization/{treatments[0]}/'
@@ -76,18 +76,18 @@ if not view:
     # When using the ParaView UI, the View will be present, not otherwise.
     view = CreateRenderView()
     
-view.CameraViewUp = [0, -1, -1]
+view.CameraViewUp = [0, 1, 0]
 view.CameraFocalPoint = [0, 0, 0]
-view.CameraPosition = [0, 0, -150]
+view.CameraPosition = [0, 0, 150]
 view.ViewSize = [4000, 4000]  
-view.OrientationAxesVisibility = 0
+# view.OrientationAxesVisibility = 0
 
 
 
 ############# SCALE BAR
 slen = 5
-sx = -1
-sy = 10
+sx = -slen - 5
+sy = -10
 # 10um line scalebar
 line = Line(Point1=[sx, sy, 0], Point2=[sx+slen, sy, 0])
 # Apply a Tube filter to give it thickness
@@ -192,11 +192,12 @@ for i, p in enumerate(meshfl):
 
 
 #set the camera focus in the middle of the cell path
-view.CameraPosition = [(cum_pos)/2, 0, -110]
+view.CameraPosition = [(cum_pos)/2, 0, cum_pos*2.5]
 view.CameraFocalPoint = [(cum_pos)/2, 0, 0]
 
 
 # save animation
-SaveAnimation(__file__.split('.')[0] + '.mp4', view, ImageResolution=[4000, 4000], FrameRate=2)#, ImageResolution=[788, 364])
+# print(__file__.split('anim2')[0] + f'PC{whichpcs[0]}-PC{whichpcs[1]}_linear_cycle_anim.mp4')
+SaveAnimation(__file__.split('anim2')[0] + f'PC{whichpcs[0]}-PC{whichpcs[1]}_linear_cycle_anim.mp4', view, ImageResolution=[4000, 4000], FrameRate=2)#, ImageResolution=[788, 364])
 
 

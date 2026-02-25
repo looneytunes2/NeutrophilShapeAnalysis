@@ -16,8 +16,8 @@ from CustomFunctions import linear_cycle_utils
 
 treatments = ['Random']
 time_interval = 10 #sec/frame
-whichpcs = [1,7]
-origin = [9, 9]
+whichpcs = [1,8]
+origin = [7, 8]
 binnum = 18
 binrange = 360/binnum
 direction = 'clockwise'
@@ -25,7 +25,7 @@ zerostart = 'left'
 
 
 #get directories and open separated datasets
-basedir = 'E:/Aaron/Combined_37C_Confocal_PCA_s5/'
+basedir = 'E:/Aaron/Combined_37C_Confocal_PCA_planar/'
 datadir = basedir + 'Data_and_Figs/'
 savedir = basedir + 'random/'
 if not os.path.exists(savedir):

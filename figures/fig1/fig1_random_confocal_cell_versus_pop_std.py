@@ -5,12 +5,10 @@ Created on Tue Feb 11 14:42:54 2025
 @author: Aaron
 """
 
-import os
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
-import matplotlib.lines as mlines
-
+from pathlib import Path
 
 #get directories and open separated datasets
 
@@ -18,13 +16,10 @@ import matplotlib.lines as mlines
 treatments = ['Random']
 
 #get directories and open separated datasets
-basedir = 'E:/Aaron/Combined_37C_Confocal_PCA_s5/'
-datadir = basedir + 'Data_and_Figs/'
-savedir = basedir + 'random/'
-if not os.path.exists(savedir):
-    os.makedirs(savedir)
+basedir = Path('E:/Aaron/Combined_37C_Confocal_PCA_planar')
+datadir = basedir.joinpath('Data_and_Figs')
 
-FullFrame = pd.read_csv(datadir + 'All_Data_with_CGPS_bins.csv', index_col=0)
+FullFrame = pd.read_csv(datadir.joinpath('All_Data_with_CGPS_bins.csv'), index_col=0)
 #restrict dataframe to only random experiments
 TotalFrame = FullFrame[FullFrame.Treatment.isin(treatments)].copy()
 #limit the dataframe to only tracks with at least 25 frames

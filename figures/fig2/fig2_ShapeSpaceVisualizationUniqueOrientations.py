@@ -10,7 +10,7 @@ import os
 import re
 import numpy as np
 
-meshdir = 'E:/Aaron/Combined_37C_Confocal_PCA_s5/Data_and_Figs/PC_Meshes/'
+meshdir = 'E:/Aaron/Combined_37C_Confocal_PCA_planar/Data_and_Figs/PC_Meshes/'
 meshfl = os.listdir(meshdir)
 
 PCnum = 8
@@ -21,17 +21,17 @@ reconnum = 5
 
 if PCnum%2 == 0:
     zval = PCnum/2*vspacing-vspacing/2
-    zpos = np.linspace(-zval,zval,PCnum)
+    zpos = np.linspace(zval,-zval,PCnum)
 else:
     zval = (PCnum-1)/2*vspacing
-    zpos = np.linspace(-zval,zval,PCnum)
+    zpos = np.linspace(zval,-zval,PCnum)
 
 xval = (reconnum-1)/2*hspacing
 xpos = np.linspace(-xval,xval,reconnum)
 binrange = list(range(1,reconnum+1))
 xarr = np.stack((binrange,xpos))
 
-perspectives = ['xy','xy','xz','xz','yz','xz','xz','xy']#,'xy','xy']
+perspectives = ['xy','xy','xz','xz','yz','yz','xz','xy']#,'xy','xy']
 
 # good pink color #ffaaff
 #aaaaff
@@ -74,12 +74,12 @@ LoadPalette(paletteName='WhiteBackground')
 
 
     
-view.CameraViewUp = [0, -1, -1]
+view.CameraViewUp = [0.01, 1, 0]
 view.CameraFocalPoint = [0, 0, 0]
 # view.CameraViewAngle = 45
-view.CameraPosition = [0,0,-375]
+view.CameraPosition = [0,0,375]
 view.ViewSize = [4000, 5000]  
-view.OrientationAxesVisibility = 0
+# view.OrientationAxesVisibility = 0
    
 Render()
 

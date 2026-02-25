@@ -6,15 +6,11 @@ Created on Tue Feb  4 13:34:44 2025
 """
 
 from paraview.simple import *
-import os 
-import re
-import numpy as np
 
-curdir = os.path.dirname(__file__)
-avg_recon = curdir + '/average_cell_mesh.vtp'
+from pathlib import Path
 
-# good pink color #ffaaff
-#aaaaff
+avg_recon = Path(__file__).parent.joinpath('average_cell_mesh.vtp').as_posix()
+
 
 view = GetActiveView()
 if not view:
@@ -25,9 +21,10 @@ if not view:
 paraview.simple._DisableFirstRenderCameraReset()
 LoadPalette(paletteName='WhiteBackground')
 #change camera stuff
-view.CameraViewUp = [0, -1, -1]
+cameradist = 50
+view.CameraViewUp = [0, 1, 0]
 view.CameraFocalPoint = [0, 0, 0]
-view.CameraPosition = [0,0,-50]
+view.CameraPosition = [0,0,cameradist]
 view.ViewSize = [1000, 1000]  
 
 
@@ -48,28 +45,112 @@ tube_display.DiffuseColor = [0, 0, 0]
 
 
 
+
+
 #read one of the average PC shapes
 reader = XMLPolyDataReader(FileName=avg_recon)
 obj = GetRepresentation(reader)
 # obj.Opacity = 0.7
-orientations = [['xy',[0,0,0]],['xz',[-90,0,0]],['yz',[0,90,0]]]
-for o in orientations:
-    obj.Orientation = o[1]
+views = ['xy','xz','yz']
+for vn, v in enumerate(views):
+    if vn>0:
+        Hide(tube)
+    
+    if v == 'xy':
+        view.CameraViewUp = [0, 1, 0]
+        view.CameraPosition = [0, 0, cameradist]
+
+    elif v == 'xz':
+        view.CameraViewUp = [0, 0, 1]
+        view.CameraPosition = [0, -cameradist, 0]
+
+    elif v == 'yz':
+        view.CameraViewUp = [0, 0, 1]
+        view.CameraPosition = [cameradist, 0, 0]
+    
+
     
     Render()
     
-    WriteImage(__file__.split('.')[0] + f'_{o[0]}.png')
+    WriteImage(__file__.split('.')[0] + f'_{v}.png')
 
 
 
+Hide(reader)
+Hide(tube)
+
+
+##### make a little axes at a specific position
+yellow = np.array([255, 224, 102])/255
+red = np.array([222, 33, 71])/255
+blue = np.array([54, 111, 209])/255
+xax = Arrow()
+yax = Arrow()
+zax = Arrow()
+for ar in [xax,yax,zax]:
+    # ar.ShaftRadius = 0.3
+    ar.ShaftResolution = 500
+    # ar.TipLength = 0.15
+    ar.TipRadius = 0.075
+    ar.TipResolution = 500
+
+
+xyzprops = {'Scale':[[10,10,10]]*3,
+            'Color':[red, yellow, blue],
+            'Orientation': [[0,0,0], [-90,-90,0], [0,-90,90]],
+            'Position': [[0,0,0]]*3}
+
+xax_display = Show(xax)
+xax_display.Orientation = xyzprops['Orientation'][0]
+xax_display.Scale = xyzprops['Scale'][0]
+xax_display.DiffuseColor = xyzprops['Color'][0]
+xax_display.AmbientColor = xyzprops['Color'][0]
+yax_display = Show(yax)
+yax_display.Orientation = xyzprops['Orientation'][1]
+yax_display.Scale = xyzprops['Scale'][1]
+yax_display.DiffuseColor = xyzprops['Color'][1]
+yax_display.AmbientColor = xyzprops['Color'][1]
+zax_display = Show(zax)
+zax_display.Orientation = xyzprops['Orientation'][2]
+zax_display.Scale = xyzprops['Scale'][2]
+zax_display.DiffuseColor = xyzprops['Color'][2]
+zax_display.AmbientColor = xyzprops['Color'][2]
+
+
+#### move all the arrows to the correct position
+xax_display.Position = xyzprops['Position'][0]
+yax_display.Position = xyzprops['Position'][1]
+zax_display.Position = xyzprops['Position'][2]
+
+
+for v in views:
+    
+    if v == 'xy':
+        ResetCamera()
+        view.CameraFocalPoint = [0, 0, 0]
+        view.CameraViewUp = [0, 1, 0]
+        view.CameraPosition = [0, 0, cameradist]
+        view.CameraParallelProjection = 1
+        view.CameraParallelScale = 15
+    elif v == 'xz':
+        ResetCamera()
+        view.CameraFocalPoint = [0, 0, 0]
+        view.CameraViewUp = [0, 0, 1]
+        view.CameraPosition = [0, -cameradist, 0]
+        view.CameraParallelProjection = 1
+        view.CameraParallelScale = 15
+    elif v == 'yz':
+        ResetCamera()
+        view.CameraFocalPoint = [0, 0, 0]
+        view.CameraViewUp = [0, 0, 1]
+        view.CameraPosition = [cameradist, 0, 0]
+        view.CameraParallelProjection = 1
+        view.CameraParallelScale = 15
     
 
-# def LoadMultipleFiles(FilePrefix, Low, High):
-# 	#setup paraview connection
-# 	from paraview.simple import *
+    # save animation
+    Render()
+    
+    WriteImage(__file__.split('.')[0]+f'_{v}_axes.png')
 
-# 	for i in range(Low,High+1):
-# 		#load files named FilePrefix[Low].vtp, FilePrefix[Low+1].vtp, ..., FilePrefix[High].vtp
-# 		reader = XMLPolyDataReader(FileName=FilePrefix + str(i) + '.vtk')
-# 		Show(reader)
-# 	Render()
+

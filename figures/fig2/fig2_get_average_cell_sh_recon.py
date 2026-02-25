@@ -7,7 +7,7 @@ from CustomFunctions import shtools_mod
 import os
 
 #get some directories
-basedir = 'E:/Aaron/Combined_37C_Confocal_PCA_s5/Data_and_Figs/'
+basedir = 'E:/Aaron/Combined_37C_Confocal_PCA_planar/Data_and_Figs/'
 shdf = pd.read_csv(basedir+'All_Data_with_CGPS_bins.csv')
 #get just columns with SH coeffs
 allsh = shdf[[x for x in shdf.columns.to_list() if 'shcoeff' in x]]

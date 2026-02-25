@@ -11,16 +11,17 @@ from CustomFunctions import utils
 import matplotlib.pyplot as plt
 import seaborn as sns
 from matplotlib.lines import Line2D
+from pathlib import Path
 
 time_interval = 10 #sec/frame
 
 
-#get directories and open separated datasets
-basedir = 'E:/Aaron/Combined_37C_Confocal_PCA_s5/'
-datadir = basedir + 'Data_and_Figs/'
 
-##### open all of the data
-FullFrame = pd.read_csv(datadir + 'All_Data_with_CGPS_bins.csv', index_col=0)
+#get directories and open separated datasets
+basedir = Path('E:/Aaron/Combined_37C_Confocal_PCA_planar')
+datadir = basedir.joinpath('Data_and_Figs')
+
+FullFrame = pd.read_csv(datadir.joinpath('All_Data_with_CGPS_bins.csv'), index_col=0)
 
 ### limit the data to random and galvanotaxis
 treatments = ['Random']
@@ -70,7 +71,7 @@ ax.spines['right'].set_visible(False)
 
 # Define custom legend items
 type_legend_handles = [
-    Line2D([0], [0], color='0.4', lw=3, label='Mean line'),
+    Line2D([0], [0], color='0.4', lw=3, label='Mean'),
     Line2D([0], [0], color=[0.4, 0.4, 0.4, 0.2], lw=9, label='95% CI'),
 ]
 

@@ -12,30 +12,32 @@ import matplotlib
 import matplotlib.pyplot as plt
 import seaborn as sns
 from CustomFunctions import utils
+from pathlib import Path
 
 time_interval = 5
-whichpcs = [1,7]
+whichpcs = [1,2]
 ntrans = 1
-basedir = 'E:/Aaron/Combined_37C_Confocal_PCA_s5_LLS_Apply/'
-datadir = basedir + 'Data_and_Figs/'
-savedir = basedir + 'random/'
+basedir = Path('E:/Aaron/Combined_37C_Confocal_PCA_planar_LLS_Apply')
+datadir = basedir.joinpath('Data_and_Figs')
+aerdir = basedir.joinpath('Detailed_Balance')
 
 
-FullFrame = pd.read_csv(datadir + 'All_Data_with_CGPS_bins.csv', index_col = 0)
+FullFrame = pd.read_csv(datadir.joinpath('All_Data_with_CGPS_bins.csv'), index_col = 0)
+FullFrame['real_time'] = FullFrame.time.copy()
 nbins = np.max(FullFrame[[x for x in FullFrame.columns.to_list() if 'bin' in x]].to_numpy())
 #open the centers of the binned PCs
-centers = pd.read_csv(datadir+'PC_bin_centers.csv', index_col=0)
+centers = pd.read_csv(datadir.joinpath('PC_bin_centers.csv'), index_col=0)
 
 #open aers previously calculated
-allaers = pd.read_csv(savedir + f'PC{whichpcs[0]}-PC{whichpcs[1]}_raw_transition_aer_cf.csv', index_col = 0)
+allaers = pd.read_csv(aerdir.joinpath(f'PC{whichpcs[0]}-PC{whichpcs[1]}_raw_transition_aer_cf.csv'), index_col = 0)
 
 #merge aer and cf info
-TotalFrame = pd.merge(FullFrame, allaers[['aer','angular_velocity','cell']],on='cell',how='left')
+TotalFrame = pd.merge(FullFrame, allaers[['aer','angular_velocity','CellID','real_time']],on=['CellID','real_time'],how='left')
 TotalFrame = TotalFrame.sort_values(['CellID','time'])
 
 #open all the bootstrapped realizations
-bsaers = pd.read_csv(savedir+f'PC{whichpcs[0]}-PC{whichpcs[1]}_{ntrans}_transition_Area_Enclosing_Rates.csv', index_col = 0)
-bsgaps = pd.read_csv(savedir+f'PC{whichpcs[0]}-PC{whichpcs[1]}_{ntrans}_transition_Area_Enclosing_Rates_gaps.csv', index_col = 0)
+bsaers = pd.read_csv(aerdir.joinpath(f'PC{whichpcs[0]}-PC{whichpcs[1]}_{ntrans}_transition_Area_Enclosing_Rates.csv'), index_col = 0)
+bsgaps = pd.read_csv(aerdir.joinpath(f'PC{whichpcs[0]}-PC{whichpcs[1]}_{ntrans}_transition_Area_Enclosing_Rates_gaps.csv'), index_col = 0)
 bsaers_gaps = bsaers.merge(bsgaps, on = ['iter','real_time'])
 
 #only use aers that are within the range of observed time of the real cells
@@ -50,9 +52,9 @@ bsaers_long = bsaers_gaps[bsaers_gaps.iter.isin(longiters)].copy()
 dflist = []
 for i, t in TotalFrame.groupby('CellID'):
     ### smoothen bootstrapped AE curve
-    t,_,_ = utils.get_aer_state(t, time_interval)
+    # t,_,_ = utils.get_aer_state(t, time_interval)
     #linear regression
-    aerresid, aercoef = utils.fit_AER(t,time_interval,'aer_smooth')
+    aerresid, aercoef = utils.fit_AER(t,time_interval,'aer')
     
     dflist.append({'CellID':i,'aerresid':aerresid,'aercoef':aercoef})
 avgdf = pd.DataFrame(dflist)
@@ -64,9 +66,9 @@ for i, t in bsaers_long.groupby('iter'):
     ### smoothen bootstrapped AE curve
     #first rename time
     t = t.rename(columns={'real_time':'time'})
-    t,_,_ = utils.get_aer_state(t, time_interval)
+    # t,_,_ = utils.get_aer_state(t, time_interval)
     #linear regression
-    aerresid, aercoef = utils.fit_AER(t,time_interval,'aer_smooth')
+    aerresid, aercoef = utils.fit_AER(t,time_interval,'aer')
     
     bslist.append({'iter':i,'aerresid':aerresid,'aercoef':aercoef})
 bsdf = pd.DataFrame(bslist)
@@ -87,7 +89,7 @@ new_cmap = matplotlib.colors.ListedColormap(
 
 
 ### probability density proportions to use as levels for the kde plot
-lvls = [0.03,0.2,0.4,0.6,0.8,1]
+lvls = [0.01,0.2,0.4,0.6,0.8,1]
 
 ### plot the stuff
 fig, ax = plt.subplots()
@@ -107,8 +109,8 @@ ax.set_xlabel('Area Enclosing Rate (PC units²/sec)', fontsize = 18)
 #change fontsize on axis ticks
 ax.tick_params(labelsize = 8)
 
-ax.set_xlim(0.0011,0.0078)
-ax.set_ylim(0.72,1.03)
+ax.set_xlim(0,0.0315)#(0.0085,0.0315)
+ax.set_ylim(0,1.03)#(0.93,1.005)
 
 ax.spines['top'].set_visible(False)
 ax.spines['right'].set_visible(False)

@@ -91,8 +91,6 @@ def raw_transitions(
     alltrans['cumulative_time'] = np.arange(time_interval, len(df)*time_interval, time_interval)
     #add cell identification
     alltrans['CellID'] = df.CellID.to_list()[:-1]
-    # 'cell' will reference the cell/frame at the end of the transition
-    alltrans['cell'] = df.cell.to_list()[1:]
     
     #drop stalled "transitions" so that only true transitions are counted
     stallmask = (alltrans[froms].values == alltrans[tos].values).all(axis = 1)
@@ -250,9 +248,6 @@ def interpolate_trajectory(
     alltrans['real_time'] = alltrans.cumulative_time + rawtrans.real_time.iloc[0] - rawtrans.time_elapsed.iloc[0]
     #add cell name
     alltrans['CellID'] = rawtrans.CellID.iloc[0]
-    #also add the frame identifier just in case
-    celllist = rawtrans.cell.to_list()
-    alltrans['cell'] = [celllist[frames.index(x)] for x in alltrans.frame.to_list()]
     
     return alltrans
 
@@ -833,7 +828,7 @@ def get_aer_cf(
         results = list(tqdm.tqdm(pool.imap(get_area_enclosing_rate, mapargs), total=bsiter))
 
     allaers = pd.concat(results, ignore_index=True)
-    allaers.to_csv(savedir.joinpath('-'.join(f"PC{w}" for w in whichpcs)+f'_{ntrans}_transition_Area_Enclosing_Rates.csv'))
+    allaers.to_csv(savedir.joinpath('-'.join(f"PC{w}" for w in whichpcs)+f'_bootstrapped_{ntrans}_Area_Enclosing_Rates.csv'))
 
 
 

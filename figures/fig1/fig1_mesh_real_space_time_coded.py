@@ -125,6 +125,53 @@ tube_display.DiffuseColor = [0, 0, 0]
 # text_display.FontSize = 150
 
 
+##### make a little axes at a specific position
+yellow = np.array([255, 224, 102])/255
+red = np.array([222, 33, 71])/255
+blue = np.array([54, 111, 209])/255
+xax = Arrow()
+yax = Arrow()
+zax = Arrow()
+for ar in [xax,yax,zax]:
+    # ar.ShaftRadius = 0.3
+    ar.ShaftResolution = 100
+    # ar.TipLength = 0.15
+    ar.TipRadius = 0.075
+    ar.TipResolution = 100
+
+arrow_pos = [18,0,0]
+xyzprops = {'Scale':[[5,5,5], [5,5,5], [5,5,5]],
+            'Color':[red, yellow, blue],
+            'Orientation': [[0,0,0], [-90,-90,0], [0,-90,90]],
+            'Position': [arrow_pos,arrow_pos,arrow_pos]}
+
+xax_display = Show(xax)
+xax_display.Orientation = xyzprops['Orientation'][0]
+xax_display.Scale = xyzprops['Scale'][0]
+xax_display.DiffuseColor = xyzprops['Color'][0]
+xax_display.AmbientColor = xyzprops['Color'][0]
+yax_display = Show(yax)
+yax_display.Orientation = xyzprops['Orientation'][1]
+yax_display.Scale = xyzprops['Scale'][1]
+yax_display.DiffuseColor = xyzprops['Color'][1]
+yax_display.AmbientColor = xyzprops['Color'][1]
+zax_display = Show(zax)
+zax_display.Orientation = xyzprops['Orientation'][2]
+zax_display.Scale = xyzprops['Scale'][2]
+zax_display.DiffuseColor = xyzprops['Color'][2]
+zax_display.AmbientColor = xyzprops['Color'][2]
+
+
+#### move all the arrows to the correct position
+xax_display.Position = xyzprops['Position'][0]
+yax_display.Position = xyzprops['Position'][1]
+zax_display.Position = xyzprops['Position'][2]
+
+
+
+
+
+
 
 #change background to white
 paraview.simple._DisableFirstRenderCameraReset()

@@ -44,9 +44,8 @@ def filter_extremes_based_on_percentile(
     df["extreme"] = False
 
     for f in features:
-
         # Calculated the extreme interval fot the current feature
-        finf, fsup = np.percentile(df[f].values, [pct, 100 - pct])
+        finf, fsup = np.percentile(df[f].dropna().values, [pct, 100 - pct])
 
         # Points in either high or low extreme as flagged
         df.loc[(df[f] < finf), "extreme"] = True

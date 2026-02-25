@@ -1,4 +1,5 @@
 # ignore folders
 script_notebook
-planar_figures
-shape_align_figures
+old_figures
+paraview
+Visualizations
