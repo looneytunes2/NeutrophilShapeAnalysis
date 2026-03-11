@@ -48,7 +48,7 @@ for p in meshfl:
     if perspectives[int(PC)-1] == 'xz':
         obj.Orientation = [-90,0,0]
     elif perspectives[int(PC)-1] == 'yz':
-        obj.Orientation = [-180,-90,-180]
+        obj.Orientation = [180,90,90]
     # obj.Opacity = 0.7
     binn = p.split('_')[-2]
     #it says zpos but array meshes in xy

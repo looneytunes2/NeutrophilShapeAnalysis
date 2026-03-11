@@ -141,10 +141,11 @@ for ar in [xax,yax,zax]:
     ar.TipResolution = 100
 
 
+xyz_orient_pos = [-8,-14,0]
 xyzprops = {'Scale':[[5,5,5], [5,5,5], [5,5,5]],
             'Color':[red, yellow, blue],
             'Orientation': [[0,0,0], [-90,-90,0], [0,-90,90]],
-            'Position': [[-8,-13,0],[-8,-13,0],[-8,-13,0]]}
+            'Position': [xyz_orient_pos]*3}
 
 xax_display = Show(xax)
 xax_display.Orientation = xyzprops['Orientation'][0]
@@ -247,7 +248,7 @@ for i, art in enumerate([xax, yax, zax]):
         art = Transform(Input=art)
         art.Transform.Rotate = [0,-90,90]
     transform = Transform(Input=art)
-    transform.Transform.Rotate = rotationthing[0].as_euler('xyz', degrees = True)  # Rotation angles in degrees
+    transform.Transform.Rotate = Euler_Angles  # Rotation angles in degrees
     transform1 = Transform(Input=transform)
     transform1.Transform.Rotate = [wideroll,0,0]
 

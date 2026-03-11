@@ -22,89 +22,67 @@ alignlist = ['Shape Only','Trajectory + Shape', 'Trajectory Only']
 colorlist = cm.Set2.colors[:3][::-1]
 ntrans = 1
 time_interval = 10 #sec/frame
-basedir = Path('E:/Aaron',dirlist[-1])
-centers = pd.read_csv(basedir.joinpath('Data_and_Figs/PC_bin_centers.csv'), index_col=0)
 
 
-########### ONE BIG DIAGONAL GRAPH OF ALL PC CGPS's ##############
-binlist = [i+'bin' for i in centers.columns]
-
-
-
-collected_data = []
-for ad_num, ad in enumerate(dirlist):
-    #define specific directories
-    basedir = Path('E:/Aaron').joinpath(ad)
-    savedir = basedir.joinpath('Detailed_Balance/alldatabs')
-    # make an interpolation of black values
-    # f = interpolate.interp1d([0, aermax],[0,255])
-    color = colorlist[ad_num]
-    for ycol, a in enumerate(binlist):
-        for xrow, b in enumerate(binlist):
-            bin1 = a.split('bin')[0]
-            bin2 = b.split('bin')[0]
-            ind1 = int(bin1.split('PC')[-1])-1
-            ind2 = int(bin2.split('PC')[-1])-1
-
-            if os.path.exists(savedir.joinpath(f'{bin1}-{bin2}_bootstrapped_{ntrans}_Area_Enclosing_Rates.csv')): 
-                
-                aerdf = pd.read_csv(savedir.joinpath(f'{bin1}-{bin2}_bootstrapped_{ntrans}_Area_Enclosing_Rates.csv'), index_col=0)
-                # print(f'Opened {bin1}-{bin2} aer files average aer mean is ',aerdf.groupby('iter').aer.mean().mean())
+dflist = []
+for d, di in enumerate(dirlist):
     
+    ### get directories and constants
+    basedir = Path('E:/Aaron',di)
+    aerdir = basedir.joinpath('Detailed_Balance','alldatabs')
     
-                #fit lines to get aer and cf
-                dflist = []
-                for i, t in aerdf.groupby(['Treatment','iter']):
-                    t = t.rename(columns = {'cumulative_time':'time'})
-                    t = t.sort_values('time').reset_index(drop=True)
-                    #fit aer
-                    aerresid, aercoef = utils.fit_AER(t,time_interval,'aer')
-                    
-                    ###### fit angular velocity
-                    ##add angle
-                    t['angle'] = t.angular_velocity*time_interval
-                    ## fit a line to av over time
-                    cfreg = LinearRegression().fit(t.time.values.reshape(-1, 1),
-                                                   t.angle.cumsum().values.reshape(-1, 1))
-                    cfresid = cfreg.score(t.time.values.reshape(-1, 1),
-                                            t.angle.cumsum().values.reshape(-1, 1))
-                    dflist.append({'Treatment':i[0],'iter':i[1],
-                                   'aerresid':aerresid,'aercoef':aercoef,
-                                   'cfresid':cfresid,'cfcoef':cfreg.coef_[0][0]})
-                avgdf = pd.DataFrame(dflist)
+    file_list = aerdir.glob(f'*bootstrapped_{ntrans}_Area_Enclosed_Linear_Reg.csv')
+    for f in file_list:
+        tempdf = pd.read_csv(f, index_col = 0)
+        firstpc, secondpc = f.name.split('_')[0].split('-')
+        tempdf['first_pc'] = firstpc
+        tempdf['second_pc'] = secondpc
+        tempdf['Alignment Method'] = alignlist[d]
+        dflist.append(tempdf)
     
-    
-                ### add average cycle period
-                avgcf = avgdf.cfcoef.mean() #degrees/sec
-                cycle_period = abs(360/avgcf/60) #minutes/cycle
+df = pd.concat(dflist, ignore_index = True)
+##drop nans
+df = df[~df.aer_fit.isna()]
 
-                
-                ### add data to overall dataframe
-                meandict = {
-                    'alignment': alignlist[ad_num],
-                    'pc_combo': bin1+'_'+bin2,
-                    'aer_mean': avgdf.aercoef.mean(),
-                    'cycle_period_mean': cycle_period,
-                    }
-                collected_data.append(meandict)
-
-                print(f'finised {ad} {bin1}-{bin2}')
-
-#make a dataframe out of collected data
-df = pd.DataFrame(collected_data)
+## add cycle period not just angular velocity
+df['cycle_period'] = 360/(df.angular_velocity_coeff.abs()*60) ## (degrees/cycle)/((degrees/sec)*(sec/min)) = min/cycle
 
 
+### get means and SEMs 
+sems = df.groupby(['Alignment Method','first_pc','second_pc'])[['aer_coeff','cycle_period']].sem().reset_index()
+means = df.groupby(['Alignment Method','first_pc','second_pc'])[['aer_coeff','cycle_period']].mean().reset_index()
+##get abs value of the aers
+means['aer_abs'] = means.aer_coeff.abs()
 
+#get the colors for the errorbars
+colors = [colorlist[alignlist.index(t)] for t in means['Alignment Method']]
 
 #plot the scattered data
 fig, ax = plt.subplots()
-sns.scatterplot(data = df, x='aer_mean', y = 'cycle_period_mean', hue = 'alignment',
-                palette = colorlist, alpha = 0.6, ax = ax)
+scat = sns.scatterplot(data = means, x='aer_abs', y = 'cycle_period', hue = 'Alignment Method',
+                palette = colorlist, ax = ax, zorder = 10)
+scat.set_yscale("log")
+# ax.errorbar(means.aer_abs.values, means.cycle_period.values,
+#             xerr=sems.aer_coeff.values, yerr=sems.cycle_period.values, c=colors, ls = 'none')
+
+for xi, yi, xe, ye, c in zip(means.aer_abs.values, means.cycle_period.values,
+                              sems.aer_coeff.values, sems.cycle_period.values, colors):
+    ax.errorbar(
+        xi, yi,
+        xerr=xe, yerr=ye,
+        fmt='none',
+        ecolor=c,
+        elinewidth=1,
+        # alpha = 0.6,
+        # capsize=4,
+        zorder=2
+    )
+
 #Change legend title and size
 leg = ax.legend_
-leg.set_title(title = 'Align Method', prop = FontProperties(size=12))
+leg.set_title(title = 'Alignment Method', prop = FontProperties(size=12))
 
-ax.set_xlabel("Mean Area Enclosing Rate (PC units²/sec)", fontsize = 16)         
+ax.set_xlabel("|Mean Area Enclosing Rate| (PC units²/sec)", fontsize = 16)         
 ax.set_ylabel("Mean Cycle Period (min/cycle)", fontsize = 16)
 
 # remove upper and right box lines
@@ -114,5 +92,19 @@ ax.spines['right'].set_visible(False)
 
 
 
-
 plt.savefig(__file__.split('.')[0]+'.png', bbox_inches='tight', dpi = 500)
+
+
+
+
+
+
+
+
+
+
+df[(df['Alignment Method']=='Trajectory Only') &
+   (df.first_pc == 'PC3') &
+   (df.second_pc == 'PC4')]
+
+

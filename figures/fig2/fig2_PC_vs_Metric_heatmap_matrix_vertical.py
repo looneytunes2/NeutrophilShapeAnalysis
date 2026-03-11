@@ -32,12 +32,12 @@ TotalFrame['Experiment'] = pd.Categorical(TotalFrame.Experiment.to_list(), categ
 
 
 #all the metrics we want to plot by their name in the dataframe
-metrics =  [['Cell_Volume','Cell_SurfaceArea','Volume_Front_Ratio','Volume_Right_Ratio','Volume_Top_Ratio','Cell_Sphericity'],
+metrics =  [['Cell_Volume','Cell_SurfaceArea','Volume_Front_Ratio','Volume_Left_Ratio','Volume_Top_Ratio','Cell_Sphericity'],
             ['Cell_MajorAxis','Cell_MinorAxis','Cell_MiniAxis','Cell_Aspect_Ratio','Cell_UpDownAngle','Cell_LeftRightAngle','Cell_TotalAngle','LengthAlongTrajectory'],
             ['speed','directional_autocorrelation']
             ]
 
-labelz = [['Cell Volume (µm$^3$)','Cell Surface\nArea (µm$^2$)','Front-Back Volume\nRatio','Right-Left Volume\nRatio','Top-Bottom Volume\nRatio','Cell Sphericity'],
+labelz = [['Cell Volume (µm$^3$)','Cell Surface\nArea (µm$^2$)','Front-Back Volume\nRatio','Left-Right Volume\nRatio','Top-Bottom Volume\nRatio','Cell Sphericity'],
           ['Cell Major Axis\nLength (µm)','Cell Minor Axis\nLength (µm)','Cell Mini Axis\nLength (µm)','Aspect Ratio','Long-Axis X-Z\nAngle (°)','Long-Axis X-Y\nAngle (°)','Long-Axis Total\nAngle (°)','Length Along\nTrajectory (µm)'],
           ['Instantaneous\nSpeed (µm/sec)','Persistence']#,'Directional Autocorrelation',
           ]

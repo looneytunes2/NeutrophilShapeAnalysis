@@ -94,20 +94,7 @@ def find_normal_width_peaks(
     #read image
     im = TiffReader(impath)
     
-
-    #if align_method is a numpy array, use that as the vector to align to
-    if type(align_method) == np.ndarray:
-        vec = align_method.copy()
-    elif align_method == 'trajectory':
-        #if the csvdir is a string read the csv file, if it's a dict turn it into a DataFrame
-        if isinstance(csvdir, Path):
-            infopath = csvdir.joinpath(cell_name + '_cell_info.csv')
-            info = pd.read_csv(infopath, index_col=0)
-        elif type(csvdir)==dict:
-            info = pd.DataFrame(csvdir, index=[0])
-        vec = np.array([info.Trajectory_X[0], info.Trajectory_Y[0], info.Trajectory_Z[0]])
-    Euler_Angles = align_vec_to_xaxis_euler(vec)
-        
+    ##get only the membrane channel if the image has multiple channels
     if len(im.shape)>3:
         image = im.data[0,:,:,:]
     else:
@@ -119,11 +106,32 @@ def find_normal_width_peaks(
             "Incorrect dimensions: {}. Expected 3 dimensions.".format(image.shape)
         )
 
-
     # Binarize the input. We assume that everything that is not background will
     # be use for parametrization
     image_ = image.copy()
     image_[image_ > 0] = 1
+
+
+
+    #get euler angles to align the provided vector to the +x axis
+    if type(align_method) == np.ndarray:
+        vec = align_method.copy()
+        Euler_Angles = align_vec_to_xaxis_euler(vec)
+    #get euler angles to align the trajectory vector to the +x axis
+    elif align_method == 'trajectory':
+        #if the csvdir is a string read the csv file, if it's a dict turn it into a DataFrame
+        if isinstance(csvdir, Path):
+            infopath = csvdir.joinpath(cell_name + '_cell_info.csv')
+            info = pd.read_csv(infopath, index_col=0)
+        elif type(csvdir)==dict:
+            info = pd.DataFrame(csvdir, index=[0])
+        vec = np.array([info.Trajectory_X[0], info.Trajectory_Y[0], info.Trajectory_Z[0]])
+        Euler_Angles = align_vec_to_xaxis_euler(vec)
+    #get euler angles to align the long axis of the cell to the x axis   
+    elif align_method == 'long_axis':
+        Euler_Angles = get_long_axis_eulers(image_, xyres, zstep, False)
+        
+        
 
     # Converting the input image into a mesh using regular marching cubes
     mesh, image_, centroid = shtools_mod.get_mesh_from_image(image=image_, sigma=sigma)
@@ -717,7 +725,7 @@ def shcoeffs_and_PILR_nonuc(
         info = pd.read_csv(infopath, index_col=0)
         vec = np.array([info.Trajectory_X[0], info.Trajectory_Y[0], info.Trajectory_Z[0]])
         euler_angles, rotationthing = align_vec_to_xaxis_euler(vec, True) 
-    elif align_method == 'long-axis':
+    elif align_method == 'long_axis':
         euler_angles, rotationthing = get_long_axis_eulers(ci, xyres, zstep, True)
 
     
@@ -964,19 +972,22 @@ def shcoeffs_and_PILR_nonuc(
     Cell_Sphericity = get_sphericity(Cell_SurfaceArea, Cell_Volume)
     #measure the volume of the cell only within the positive x, y, and z domains
     FrontVolume = measure_volume_half(cell_mesh, 'x')
-    RightVolume = measure_volume_half(cell_mesh, 'y')
+    LeftVolume = measure_volume_half(cell_mesh, 'y')
     TopVolume = measure_volume_half(cell_mesh, 'z')
     
     
     #get cell major, minor, and mini axes using the aligned mesh
     cell_coords = numpy_support.vtk_to_numpy(cell_mesh.GetPoints().GetData())
-    trajlenfront = np.max(cell_coords[:,0])
-    trajlenrear = np.min(cell_coords[:,0])
-    trajwidleft = np.max(cell_coords[:,1])
-    trajwidright = np.min(cell_coords[:,1])
+    alignlenfront = np.max(cell_coords[:,0])
+    alignlenrear = np.min(cell_coords[:,0])
+    alignwidleft = np.max(cell_coords[:,1])
+    alignwidright = np.min(cell_coords[:,1])
+    alignheighttop = np.min(cell_coords[:,1])
+    alignheightbottom = np.min(cell_coords[:,1])
     ##### measure length of cell along the trajectory axis
-    trajlen = trajlenfront-trajlenrear
-    trajwid = trajwidleft-trajwidright
+    alignlen = alignlenfront-alignlenrear
+    alignwid = alignwidleft-alignwidright
+    alignheight = alignheighttop-alignheightbottom
     #remove duplicate coordinates
     duplicates = pd.DataFrame(cell_coords).duplicated().to_numpy()
     mask = np.ones(len(cell_coords), dtype=bool)
@@ -998,18 +1009,26 @@ def shcoeffs_and_PILR_nonuc(
     Cell_MiniAxis = np.max(cell_coords[:,2])-np.min(cell_coords[:,2])
     
     
-    ######### Get angles of long axes relative to the axis of trajectory #############
-    arr = cell_evecs[:,0].T
-    if arr[0] < 0:
-        arr = arr*-1
-    #get angle between the vector and the planes
-    UpDownAngle = angle3D(arr[0], arr[1], arr[2], arr[0], arr[1], 0)
-    LeftRightAngle = angle3D(arr[0], arr[1], arr[2], arr[0], 0, arr[2])
-    Cell_TotalAngle = angle3D(arr[0], arr[1], arr[2], 1, 0, 0)
-    #make sure the directionality is correct
-    Cell_UpDownAngle = UpDownAngle if arr[2]>0 else -1*UpDownAngle
-    Cell_LeftRightAngle = LeftRightAngle if arr[1]>0 else -1*LeftRightAngle
-
+    ######### Build dict of angles between principle axes relative to the alignment axis #############
+    ax_angle_dict = {}
+    ax_names = ['Major','Minor','Mini']
+    for a, arr in enumerate(cell_evecs.T):
+        #only use the orientation of these vectors in the +x domain
+        if arr[0] < 0:
+            arr = arr*-1
+        #get angle between the vector and the planes
+        UpDownAngle = angle3D(arr[0], arr[1], arr[2], arr[0], arr[1], 0)
+        LeftRightAngle = angle3D(arr[0], arr[1], arr[2], arr[0], 0, arr[2])
+        Cell_TotalAngle = angle3D(arr[0], arr[1], arr[2], 1, 0, 0)
+        #make sure the directionality is correct
+        Cell_UpDownAngle = UpDownAngle if arr[2]>0 else -1*UpDownAngle
+        Cell_LeftRightAngle = LeftRightAngle if arr[1]>0 else -1*LeftRightAngle
+        ax_angle_dict.update({
+            'Cell_'+ax_names[a]+'Axis_TotalAngle': Cell_TotalAngle, # absolute angle between principal axis and cell's alignment axis
+            'Cell_'+ax_names[a]+'Axis_UpDownAngle': Cell_UpDownAngle, # X-Z angle between principal axis and cell's alignment axis
+            'Cell_'+ax_names[a]+'Axis_LeftRightAngle': Cell_LeftRightAngle, # X-Y angle between principal axis and cell's alignment axis
+            })
+        
 
     #Shape stats dict
     Shape_Stats = {'cell': cell_name,
@@ -1022,10 +1041,10 @@ def shcoeffs_and_PILR_nonuc(
                   'Cell_Centroid_Z': centroid_mem[0][2],
                    'Cell_Volume': Cell_Volume,
                     'Cell_Volume_Front': FrontVolume,
-                    'Cell_Volume_Right': RightVolume,
+                    'Cell_Volume_Left': LeftVolume,
                     'Cell_Volume_Top': TopVolume,
                     'Volume_Front_Ratio': FrontVolume/Cell_Volume,
-                    'Volume_Right_Ratio': RightVolume/Cell_Volume,
+                    'Volume_Left_Ratio': LeftVolume/Cell_Volume,
                     'Volume_Top_Ratio': TopVolume/Cell_Volume,
                    'Cell_SurfaceArea': Cell_SurfaceArea,
                    'Cell_Sphericity': Cell_Sphericity,
@@ -1042,24 +1061,28 @@ def shcoeffs_and_PILR_nonuc(
                    'Cell_MiniAxis_Vec_Y': cell_evecs[1,2],
                    'Cell_MiniAxis_Vec_Z': cell_evecs[2,2],
                    'Cell_Aspect_Ratio': Cell_MajorAxis/Cell_MinorAxis, 
-                   'Cell_TotalAngle': Cell_TotalAngle, # angle between the cell's trajectory and it's longest axis
-                   'Cell_UpDownAngle': Cell_UpDownAngle, # angle between the cell's trajectory and it's longest axis in X-Z
-                   'Cell_LeftRightAngle': Cell_LeftRightAngle, # angle between the cell's trajectory and it's longest axis in X-Y
                    'OriginaltoReconError': OriginaltoReconError,
                    'RecontoOriginalError': RecontoOriginalError,
-                   'LengthAlongTrajectory': trajlen,
-                   'LengthAlongTrajectoryFront':trajlenfront,
-                   'LengthAlongTrajectoryRear':trajlenrear,
-                   'WidthAlongTrajectory': trajwid,
-                   'WidthAlongTrajectoryLeft': trajwidleft,
-                   'WidthAlongTrajectoryRight': trajwidright,
+                   'LengthAlongTrajectory': alignlen,
+                   'LengthAlongTrajectoryFront': alignlenfront,
+                   'LengthAlongTrajectoryRear': alignlenrear,
+                   'WidthAlongTrajectory': alignwid,
+                   'WidthAlongTrajectoryLeft': alignwidleft,
+                   'WidthAlongTrajectoryRight': alignwidright,
+                   'HeightAlongTrajectory': alignheight,
+                   'HeightAlongTrajectoryTop': alignheighttop,
+                   'HeightAlongTrajectoryBottom': alignheightbottom,
                    'Structure_Centroid_X':struct_centroid[0],
                    'Structure_Centroid_Y':struct_centroid[1],
                    'Structure_Centroid_Z':struct_centroid[2]
                     }
 
+    #add the principal axes angles
+    Shape_Stats.update(ax_angle_dict)
     #add the shcoeffs to the dict I just built
     Shape_Stats.update(coeffs_mem)
+    
+    
     return Shape_Stats, exceptions_list
 
 

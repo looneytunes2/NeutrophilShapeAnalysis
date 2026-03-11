@@ -45,8 +45,10 @@ for i, t in df.groupby(['Treatment','iter']):
     t = t.rename(columns = {'cumulative_time':'time'})
     t = t.sort_values('time').reset_index(drop=True)
     #fit aer
-    aerresid, aercoef = utils.fit_AER(t,time_interval,'aer')
-    dflist.append({'Treatment':i[0],'iter':i[1],'aerresid':aerresid,'aercoef':aercoef})
+    rate_fit_dict = utils.fit_rates_linear(t,time_interval,['aer'])
+    id_dict = {'Treatment':i[0],'iter':i[1]}
+    id_dict.update(rate_fit_dict)
+    dflist.append(id_dict)
 avgdf = pd.DataFrame(dflist)
 
 

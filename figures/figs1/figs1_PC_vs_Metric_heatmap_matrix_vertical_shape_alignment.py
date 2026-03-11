@@ -27,13 +27,13 @@ TotalFrame = pd.read_csv(datadir.joinpath('All_Data_with_CGPS_bins.csv'), index_
 
 
 #all the metrics we want to plot by their name in the dataframe
-metrics =  [['Cell_Volume','Cell_SurfaceArea','Volume_Front_Ratio','Volume_Right_Ratio','Volume_Top_Ratio','Cell_Sphericity'],
-            ['Cell_MajorAxis','Cell_MinorAxis','Cell_MiniAxis','Cell_Aspect_Ratio','Cell_UpDownAngle','Cell_LeftRightAngle','Cell_TotalAngle','LengthAlongTrajectory'],
+metrics =  [['Cell_Volume','Cell_SurfaceArea','Volume_Front_Ratio','Volume_Left_Ratio','Volume_Top_Ratio','Cell_Sphericity'],
+            ['Cell_MajorAxis','Cell_MinorAxis','Cell_MiniAxis','Cell_Aspect_Ratio'],#,'Cell_UpDownAngle','Cell_LeftRightAngle','Cell_TotalAngle','LengthAlongTrajectory'],
             ['speed','directional_autocorrelation']
             ]
 
-labelz = [['Cell Volume (µm$^3$)','Cell Surface\nArea (µm$^2$)','Front-Back Volume\nRatio','Right-Left Volume\nRatio','Top-Bottom Volume\nRatio','Cell Sphericity'],
-          ['Cell Major Axis\nLength (µm)','Cell Minor Axis\nLength (µm)','Cell Mini Axis\nLength (µm)','Aspect Ratio','Long-Axis X-Z\nAngle (°)','Long-Axis X-Y\nAngle (°)','Long-Axis Total\nAngle (°)','Length Along\nTrajectory (µm)'],
+labelz = [['Cell Volume (µm$^3$)','Cell Surface\nArea (µm$^2$)','Front-Back Volume\nRatio','Left-Right Volume\nRatio','Top-Bottom Volume\nRatio','Cell Sphericity'],
+          ['Cell Major Axis\nLength (µm)','Cell Minor Axis\nLength (µm)','Cell Mini Axis\nLength (µm)','Aspect Ratio'],#,'Long-Axis X-Z\nAngle (°)','Long-Axis X-Y\nAngle (°)','Long-Axis Total\nAngle (°)','Length Along\nTrajectory (µm)'],
           ['Instantaneous\nSpeed (µm/sec)','Persistence']#,'Directional Autocorrelation',
           ]
 #get PCs in order
@@ -44,7 +44,7 @@ totalcorr = TotalFrame[[x for y in metrics for x in y]+PCs].corr()
 PCsAndMetrics = totalcorr.loc[:,PCs]
 PCsAndMetrics = PCsAndMetrics.drop(index=PCs)
 
-fig, axes = plt.subplots(len(metrics), 1, figsize=(15,25), gridspec_kw={'height_ratios':[len(x) for x in metrics]})
+fig, axes = plt.subplots(len(metrics), 1, figsize=(15,18.75), gridspec_kw={'height_ratios':[len(x) for x in metrics]})
 for i, m in enumerate(metrics):
     ax = axes[i]
     temp = PCsAndMetrics.loc[m,:].copy()
@@ -74,7 +74,7 @@ for i, m in enumerate(metrics):
         
     ax.set_yticklabels(
         labelz[i],
-        # rotation=45,
+        rotation=0,
         # horizontalalignment='right',
         fontsize = 28
     )

@@ -32,21 +32,20 @@ TotalFrame = FullFrame[FullFrame.Treatment=='Random'].copy()
 
 
 #manually define origins for all of the CGPSs
-allorigins = [[[8,8],[7,9],[8,8],[8,8],[8,8],[8,8],[9,7]],
-                [[9,6],[9,9],[8,8],[8,8],[8,7],[8,8]],
+allorigins = [[[7,8],[8,6],[8,7],[8,8],[8,8],[8,8],[9,8]],
+                [[8,6],[8,7],[8,8],[8,7],[8,8],[8,8]],
                     [[8,8],[7,8],[8,8],[8,8],[9,8]],
-                        [[9,8],[8,8],[8,8],[8,8]],
-                            [[8,9],[8,8],[8,8]],
-                                [[8,7],[8,7]],
+                        [[7,8],[9,8],[8,8],[8,8]],
+                            [[8,8],[8,8],[9,8]],
+                                [[8,7],[8,8]],
                                     [[8,8]]]
-
 
 
 
 
 ########### ONE BIG DIAGONAL GRAPH OF ALL PC CGPS's ##############
 # inverse scale for arrows
-scale = 0.0008
+scale = 0.0004
 binlist = [i for i in TotalFrame.columns.to_list() if 'bin' in i]
 
    
@@ -66,7 +65,7 @@ for xrow, a in enumerate(binlist):
 
         if savedir.joinpath(f'{bin1}-{bin2}_binned_transition_rates_separated.csv').exists():
             transdf_sep = pd.read_csv(savedir.joinpath(f'{bin1}-{bin2}_interpolated_transitions_separated.csv'), index_col=0)
-            bsfield_sep = pd.read_csv(savedir.joinpath('alldatabs', f'{bin1}-{bin2}_bootstrapped_{ntrans}_transitions_average_currents.csv'), index_col=0)
+            # bsfield_sep = pd.read_csv(savedir.joinpath('alldatabs', f'{bin1}-{bin2}_bootstrapped_{ntrans}_transitions_average_currents.csv'), index_col=0)
             print(f'Opened {bin1}-{bin2} transition rate files')
             
 
@@ -112,7 +111,7 @@ for xrow, a in enumerate(binlist):
             
             ######################### vector map of probability flux ################
             #combine relevant data
-            elldf = trans_rate_df_sep.merge(bsfield_sep, on = ['x','y'])
+            elldf = trans_rate_df_sep.copy()#.merge(bsfield_sep, on = ['x','y'])
             for x in range(1,nbins+1):
                 for y in range(1,nbins+1):
                     current = elldf[(elldf['x'] == x) & (elldf['y'] == y)]
@@ -129,22 +128,22 @@ for xrow, a in enumerate(binlist):
                               zorder = 3)
 
 
-                    #determine ellipse width, height and angle
-                    #always set eval1 to width and adjust angle accordingly
-                    eh = np.sqrt(abs(current.eval2))*(2/scale)
-                    ew = np.sqrt(abs(current.eval1))*(2/scale)
-                    evec = current[['evec1x','evec1y']].values[0]
-                    evec = evec if evec[1]>0 else -evec
-                    eang = np.degrees(np.arctan2(evec[1],evec[0]))
+                    # #determine ellipse width, height and angle
+                    # #always set eval1 to width and adjust angle accordingly
+                    # eh = np.sqrt(abs(current.eval2))*(2/scale)
+                    # ew = np.sqrt(abs(current.eval1))*(2/scale)
+                    # evec = current[['evec1x','evec1y']].values[0]
+                    # evec = evec if evec[1]>0 else -evec
+                    # eang = np.degrees(np.arctan2(evec[1],evec[0]))
             
-                    ell = Ellipse(xy=(x-0.5+(xcurrent.values*(1/scale)),y-0.5+(ycurrent.values*(1/scale))),
-                                  width=ew,
-                                  height=eh,
-                                  angle=eang,
-                                  color = 'lightblue',
-                                  alpha = 0.12,
-                                  zorder = 2)
-                    ax.add_artist(ell)
+                    # ell = Ellipse(xy=(x-0.5+(xcurrent.values*(1/scale)),y-0.5+(ycurrent.values*(1/scale))),
+                    #               width=ew,
+                    #               height=eh,
+                    #               angle=eang,
+                    #               color = 'lightblue',
+                    #               alpha = 0.12,
+                    #               zorder = 2)
+                    # ax.add_artist(ell)
             
 
 

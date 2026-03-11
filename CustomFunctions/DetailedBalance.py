@@ -464,6 +464,8 @@ def transition_count_wrapper(
 
 
 
+
+
 def contour_integral(
     cdf, #dataframe that contains the transition rates in and out of each state space position
     uple, #[x,y] list of upper left coordinate of rectangular contour
@@ -573,6 +575,27 @@ def get_area_enclosing_rate(
     return cell
 
 
+
+def rate_fit_bs_wrap(
+        args
+        ):
+    
+    ### unpack args
+    # df, #dataframe containing "iter" bootstrap iteration ID, some group_factor, and "aer"
+    # group_factor,
+    # time_interval, #time interval of the imaging data
+    df, group_factor, time_interval = args
+    
+    ## create a dict with ID info
+    id_dict = {
+        group_factor: df.iloc[0][group_factor],
+        'iter': df.iloc[0].iter,
+        }
+    ## fit rate
+    rate_fit_dict = utils.fit_rates_linear(df, time_interval, ['aer','angular_velocity'])
+    ## update dict
+    id_dict.update(rate_fit_dict)
+    return id_dict
 
 
 def get_raw_cgps_trajectories(
@@ -815,6 +838,7 @@ def get_aer_cf(
         center, #origin in [x bin,y bin]
         savedir, #where to save calculated aers and cfs
         whichpcs, #which two PCs to use in the cgps [x,y]
+        time_interval, #time interval of imaging data
         ntrans = 1, #how many transitions to sample at each step
         group_factor = 'Treatment', #column with factor to separate the data on
         ):
@@ -829,10 +853,14 @@ def get_aer_cf(
 
     allaers = pd.concat(results, ignore_index=True)
     allaers.to_csv(savedir.joinpath('-'.join(f"PC{w}" for w in whichpcs)+f'_bootstrapped_{ntrans}_Area_Enclosing_Rates.csv'))
+    
+    ### get AE rate and fit 
+    lrmapargs = [(df.sort_values('cumulative_time').reset_index(drop = True),group_factor,time_interval) for i, df in allaers.groupby([group_factor,'iter'])]
+    with multiprocessing.Pool(processes=60) as pool:
+        lrresults = list(tqdm.tqdm(pool.imap(rate_fit_bs_wrap, lrmapargs), total=bsiter))
 
-
-
-
+    ## save the AE rate and fit
+    pd.DataFrame(lrresults).to_csv(savedir.joinpath('-'.join(f"PC{w}" for w in whichpcs)+f'_bootstrapped_{ntrans}_Area_Enclosed_Linear_Reg.csv'))
 
 
 def get_run_stats(
@@ -932,40 +960,3 @@ def bootstrap_runs(
 
 
 
-
-######## from https://stackoverflow.com/questions/13728392/moving-average-or-running-mean
-def running_mean(x, N):
-    cumsum = np.cumsum(np.insert(x, 0, 0)) 
-    return (cumsum[N:] - cumsum[:-N]) / float(N)
-
-def filter_dataframe(df,
-                     factor,
-                     thresh = 0.05,
-                     N = 20,
-                     ):
-    allcellsabv = []
-    df = df.sort_values(by='frame').reset_index(drop=True)
-    for i, cells in df.groupby('CellID'):
-        cells, runs = utils.get_consecutive_timepoints(cells, 'frame', 1)
-        for r in runs:
-            #skip runs less than 3 frames long
-            if len(r)<2:
-                pass
-            else:
-                cell = cells.iloc[r]
-                N=20
-                #shrink the convolution window if the track isn't long enough
-                if len(cell)<N:
-                    N=round(len(cell)/3)
-                ####### alternatively use:
-                ####### con = np.convolve(np.nan_to_num(data.speed), np.ones(N)/N, mode='valid')
-                con = running_mean(np.nan_to_num(cell[factor]),N)
-                abvthresh = np.where(con>thresh)[0]
-                if len(abvthresh)>0:
-                    indtopull = abvthresh + (N-1)
-                    if abvthresh[0] == 0:
-                        indtopull = np.insert(indtopull, 0, range(N-1))
-                    cellabv = cell.iloc[indtopull].copy()
-                    allcellsabv.append(cellabv)
-
-    return pd.concat(allcellsabv).reset_index(drop=True)

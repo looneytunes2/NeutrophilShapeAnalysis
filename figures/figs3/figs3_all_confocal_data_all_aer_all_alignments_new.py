@@ -7,13 +7,11 @@ Created on Mon Apr 14 14:33:38 2025
 
 import numpy as np
 import pandas as pd
-import os
 import matplotlib.pyplot as plt
 import seaborn as sns
 from CustomFunctions import utils
 from CustomFunctions.shapePCAtools import filter_extremes_based_on_percentile
 from matplotlib import cm
-from sklearn.linear_model import LinearRegression
 from pathlib import Path
 from matplotlib.patches import Patch
 
@@ -29,58 +27,50 @@ time_interval = 10 #sec/frame
     
 for d, di in dirlist:
     
-    
+    ### get directories and constants
     basedir = Path('E:/Aaron',di)
+    aerdir = basedir.joinpath('Detailed_Balance','alldatabs')
     centers = pd.read_csv(basedir.joinpath('Data_and_Figs/PC_bin_centers.csv'), index_col=0)
-    
-    
-    binlist = [i+'bin' for i in centers.columns]
-    
-    
-    
-    aerdf = pd.read_csv('C:/Users/Aaron/NeutrophilShapeAnalysis/figures/figs3/figs3_all_confocal_data_all_aer_all_alignments_avg_data.csv')
-        
-    ## add cycle period not just angular velocity
-    aerdf['cycle_period'] = 360/(aerdf.cfcoef.abs()*60) ## (degrees/cycle)/((degrees/sec)*(sec/min)) = min/cycle
-    
-    
-    ### get means and SEMs 
-    # sems = aerdf.groupby(['Alignment Method','pc_first','pc_second'])[['aercoef','cycle_period']].sem().reset_index()
-    means = aerdf.groupby(['Alignment Method','pc_first','pc_second'])[['aercoef','cycle_period']].mean().reset_index()
-    ##get abs value of the aers
-    means['aer_abs'] = means.aercoef.abs()
-    
-    
-    ########### ONE BIG DIAGONAL GRAPH OF ALL PC CGPS's ##############
     binlist = centers.columns.to_list()
-    
-    
-       
+        
+    ########### ONE BIG DIAGONAL GRAPH OF ALL PC CGPS's ##############    
     fig, axes = plt.subplots(len(binlist),len(binlist), figsize = (40,40), sharex=True, sharey=True)
-    
+    cbar_ax = fig.add_axes([.05, .303, .012, .376])
+    ## set variables to adjust axis limits
+    xmin, xmax = np.inf, -np.inf
+    ymin, ymax = np.inf, -np.inf
+    axlist = []
     for ycol, bin1 in enumerate(binlist):
         for xrow, bin2 in enumerate(binlist):
-            
+            #define axis
             ax = axes[xrow, ycol]
-    
-            tempdf = aerdf[(aerdf.pc_first == bin1) &
-                           (aerdf.pc_second == bin2) &
-                           (aerdf.cycle_period!=np.inf)]
+            #get hypothetical directory for this PC pair
+            dfdir = aerdir.joinpath(f'{bin1}-{bin2}_bootstrapped_{ntrans}_Area_Enclosed_Linear_Reg.csv')
+        
+            #Plot the data if this PC pair exists
+            if dfdir.exists():
+                #open data
+                tempdf = pd.read_csv(dfdir, index_col = 0)
+                 
+                ## add cycle period not just angular velocity
+                tempdf['cycle_period'] = 360/(tempdf.angular_velocity_coeff.abs()*60) ## (degrees/cycle)/((degrees/sec)*(sec/min)) = min/cycle
+                
+                ### filter the dataframe to avoid really extreme values
+                tempdf_filtered = filter_extremes_based_on_percentile(
+                    tempdf,
+                    ['aer_coeff','cycle_period'],
+                    0.1)
+                
             
-        
-            
-            if not tempdf.empty:
-                #plot the KDEs
-                sns.kdeplot(data = tempdf, x='cycle_period', hue = 'Alignment Method',
-                            common_norm = True, palette = colorlist,
-                            alpha = 0.6, ax = ax, zorder = 2)
-        
-        
-        
-                # sns.kdeplot(data = tempdf, x='aercoef', y = 'cycle_period',
-                #             hue = 'Alignment Method', levels = [0.05,0.2,0.4,0.6,0.8],
-                #             palette = colorlist, common_norm =False,
-                #             ax = ax, zorder = 2)
+                ### plot 2d density
+                dens = sns.kdeplot(data = tempdf_filtered, x='aer_coeff', y = 'cycle_period',
+                            levels = 5,
+                            palette = colorlist[d],
+                            fill = True,
+                            ax = ax, zorder = 2)
+                dens.set_yscale("log")
+                
+
         
                 ## plot the zero line
                 ax.axvline(0, ls = '--', lw = 0.5, color = 'black', alpha = 0.5, zorder = 1)   
@@ -97,8 +87,18 @@ for d, di in dirlist:
                 #rotate and horizontally align x axis labels because they're long
                 ax.tick_params('x', rotation = 30)
                 
-                #center x axis
-                # ax.set_xlim(-0.01,0.01)
+                # Extract extents from all contour collections
+                outer = ax.get_children()[0]
+                # outer = contour_sets[0].collections[0]  # lowest-density level
+                for path in outer.get_paths():
+                    v = path.vertices
+                    xmin = min(xmin, v[:,0].min())
+                    xmax = max(xmax, v[:,0].max())
+                    ymin = min(ymin, v[:,1].min())
+                    ymax = max(ymax, v[:,1].max())
+                
+                #add axis array position to adjust axis limits later
+                axlist.append([xrow,ycol])
                 
                 for label in ax.get_xticklabels():
                     label.set_horizontalalignment('right')
@@ -113,7 +113,7 @@ for d, di in dirlist:
                     ax.set_xlabel('')
                 
     
-        
+            
         
             #keep the upper right plot but remove plot box
             elif (ycol==0) & (xrow==0):
@@ -128,7 +128,9 @@ for d, di in dirlist:
                 ax.remove()
     
             
-            
+    for al in axlist:
+        axes[al[0],al[1]].set_xlim(xmin,xmax)
+        axes[al[0],al[1]].set_ylim(ymin,ymax)
             
                 
                 
@@ -142,9 +144,15 @@ for d, di in dirlist:
     axes[0,0].tick_params(left=False, bottom=False, labelleft=False, labelbottom=False)
     
     
+    cbar = fig.colorbar(axes[0, 1].collections[0], cax=cbar_ax)
+    cbar.ax.yaxis.set_tick_params(labelsize=20)
+    cbar.ax.yaxis.set_ticks_position("left")
+    cbar.ax.yaxis.set_label_position("left")
+    cbar.set_label("Probability", fontsize = 40, labelpad = 36, rotation=-90)
     
     
-    plt.savefig(__file__.split('.')[0]+'.png', bbox_inches='tight', dpi = 500)
+    
+    plt.savefig(__file__.split('.')[0]+f'_{alignlist[d]}.png', bbox_inches='tight', dpi = 500)
     
     
 

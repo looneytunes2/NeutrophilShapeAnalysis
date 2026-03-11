@@ -44,9 +44,11 @@ for i, t in df.groupby(['Treatment','iter']):
     t = t.rename(columns = {'cumulative_time':'time'})
     t = t.sort_values('time').reset_index(drop=True)
     #fit aer
-    aerresid, aercoef = utils.fit_AER(t,time_interval,'aer')
-    
-    dflist.append({'Treatment':i[0],'iter':i[1],'aerresid':aerresid,'aercoef':aercoef})
+    rate_fit_dict = utils.fit_rates_linear(t,time_interval,['aer'])
+    rate_fit_dict.update({
+        'Treatment':i[0],'iter':i[1],
+         })
+    dflist.append(rate_fit_dict)
 avgdf = pd.DataFrame(dflist)
 
 
@@ -60,7 +62,7 @@ print(f'{treatments[2]} AER mean is {avgdf[avgdf.Treatment == treatments[2]].aer
 
 avgdf_filtered = filter_extremes_based_on_percentile(
     avgdf,
-    ['aercoef','aerresid'],
+    ['aer_coeff','aer_fit'],
     1)
 
 

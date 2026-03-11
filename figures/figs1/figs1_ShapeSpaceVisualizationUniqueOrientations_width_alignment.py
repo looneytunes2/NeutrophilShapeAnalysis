@@ -31,7 +31,7 @@ xpos = np.linspace(-xval,xval,reconnum)
 binrange = list(range(1,reconnum+1))
 xarr = np.stack((binrange,xpos))
 
-perspectives = ['xy','xy','xz','xz','yz','yz','xz','xy']#,'xy','xy']
+perspectives = ['xy','xy','xz','xz','yz','xz','xz','xy']#,'xy','xy']
 
 # good pink color #ffaaff
 #aaaaff
@@ -48,7 +48,7 @@ for p in meshfl:
     if perspectives[int(PC)-1] == 'xz':
         obj.Orientation = [-90,0,0]
     elif perspectives[int(PC)-1] == 'yz':
-        obj.Orientation = [-180,-90,-180]
+        obj.Orientation = [180,90,90]
     # obj.Opacity = 0.7
     binn = p.split('_')[-2]
     #it says zpos but array meshes in xy

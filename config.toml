@@ -1,0 +1,44 @@
+[nsa.parameters.common]
+alignment = 'shape' #shape,trajectory+shape,trajectory
+smooth_factor = 5 #trajectory smoothness
+sigma = 0 #gaussian smooth for mesh 
+l_order = 10 # SH order
+
+
+[nsa.settings.confocal]
+xyres = 0.3394 #um / pixel
+zstep = 0.7 #um
+time_interval = 10 #sec/frame
+pilr_method = 'none' #what kind of PILR signal to calculate
+nisos = [1,63] # interpolated "shells" if calculated a PILR
+
+[nsa.settings.lls]
+xyres = 0.145 #um / pixel
+zstep = 0.145 #um
+time_interval = 5 #sec/frame
+pilr_method = 'none' #what kind of PILR signal to calculate
+nisos = [1,63] # interpolated "shells" if calculated a PILR
+
+
+########### DIRECTORIES ###########
+
+#where is this analysis getting saved
+savedir = Path('E:/Aaron/Combined_37C_Confocal_PCA_shape/')
+
+#which data folders to include
+foldlist = ['Galvanotaxis_Confocal_40x_37C_10s/',
+            'CK666_Confocal_40x_37C/',
+            'ParaNitroBlebbistatin_Confocal_40x_37C/']
+bigdir = Path('E:/Aaron/')
+
+########### PARAMETERS ##############
+
+
+
+
+align_method = 'long_axis'
+normal_method = 'width' #align normal to the trajectory based on width minimized through time 
+
+norm_rot = 'provided'
+
+

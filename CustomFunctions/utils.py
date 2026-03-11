@@ -186,24 +186,32 @@ def get_aer_state(
 
 
 ######## perform regression on AE over time in minutes
-def fit_AER(
+def fit_rates_linear(
         df, # dataframe with 'time' in seconds
         time_interval, #frame rate of 'time' data in df
-        aercol = 'aer', #what is the name of the aer column
+        rate_cols, #iterable with column names of rate quantities to fit with lr
         ):
     #make sure data is sorted by time
-    df = df.sort_values('time').reset_index(drop=True)
-    #drop na
-    df = df[~df[aercol].isna()]
-    #get area enclosed from aer
-    df['area_enclosed'] = df[aercol]*time_interval
-    #linear regression
-    aerreg = LinearRegression().fit(df.time.values.reshape(-1, 1),
-                                    df.area_enclosed.cumsum().values.reshape(-1, 1))
-    aerresid = aerreg.score(df.time.values.reshape(-1, 1),
-                            df.area_enclosed.cumsum().values.reshape(-1, 1))
+    time_col = 'real_time' if 'real_time' in df.columns else 'time'
+    df = df.sort_values(time_col).reset_index(drop=True)
+    ### make dict to update
+    rate_fit_dict = {}
+    for rc in rate_cols:
+        #drop na
+        dropdf = df[~df[rc].isna()].copy()
+        #get value per time interval instead of per sec
+        dropdf['value_per_time'] = dropdf[rc]*time_interval
+        #linear regression
+        reg = LinearRegression().fit(dropdf[time_col].values.reshape(-1, 1),
+                                        dropdf.value_per_time.cumsum().values.reshape(-1, 1))
+        resid = reg.score(dropdf[time_col].values.reshape(-1, 1),
+                                dropdf.value_per_time.cumsum().values.reshape(-1, 1))
+        rate_fit_dict.update({
+            rc+'_coeff': reg.coef_[0][0],
+            rc+'_fit': resid,
+            })
     
-    return aerresid, aerreg.coef_[0][0] #residuals and coefficient 
+    return rate_fit_dict
 
 
 

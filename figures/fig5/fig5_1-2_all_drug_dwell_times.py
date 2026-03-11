@@ -191,9 +191,9 @@ for i, (treat, tdf) in enumerate(transdf_sep.groupby('Treatment')):
 
 #create the difference heatmap
 differences = [h-hms[0] for h in hms[1:]]
-#print the results of the one-sample ttest
-print([(treatments[i+1], stats.wilcoxon(dif.flatten())) for i, dif in enumerate(differences)])
-
+#print the results of signed rank wilcoxon
+wilcox_result = [(treatments[i+1], stats.wilcoxon(dif.flatten())[1]) for i, dif in enumerate(differences)]
+print('Wilcoxon signed rank result',wilcox_result)
 
 #### start building the figure
 fig, axes = plt.subplots(1,len(differences),figsize=(5*len(differences),5))
@@ -261,6 +261,13 @@ cbar_ax.set_ylabel('Relative Dwell Time (sec)', fontsize = 20, rotation=270)
 plt.tight_layout()
 
 plt.savefig(__file__.split('.')[0] + '_center.png', dpi = 500, bbox_inches='tight')
+
+
+
+
+
+
+
 
 
 
@@ -405,6 +412,10 @@ sig = [stats.ttest_1samp(dif.flatten(), popmean=0)[1] for dif in differences]
 print(sig)
 
 
+#line at zero
+xmin, xmax = ax.get_xlim()
+ax.axhline(0,xmin,xmax, color = '0.7', ls = '--', zorder = 0)
+
 #lines for the weighted means of the populations
 #calculate weighted means
 weightedmeans = []
@@ -419,11 +430,21 @@ ax.plot([firstcent - quad_offsets[-1] * widthaug,firstcent + quad_offsets[-1] * 
 secondcent = treatment_to_x[treatments[2]]
 ax.plot([secondcent - quad_offsets[-1] * widthaug,secondcent + quad_offsets[-1] * widthaug], [weightedmeans[1]]*2, c='black')
 
-#line at zero
-xmin, xmax = ax.get_xlim()
-ax.axhline(0,xmin,xmax, color = '0.7', ls = '--', zorder = 0)
+
+##### significance of whole pop
+##first treatment
+y_marg = 0.05
+pstar = get_stars(wilcox_result[0][1])
+ax.text(1.075, weightedmeans[0]/2, pstar, fontsize = 12, va='center', rotation = -90)
+ax.plot([1.15,1.15], [0+y_marg,weightedmeans[0]-y_marg], lw = 0.5, color = 'black')
+##second treatment
+pstar = get_stars(wilcox_result[1][1])
+ax.text(2.6, weightedmeans[1]/2, pstar, fontsize = 12, va='center', rotation = -90)
+ax.plot([2.85,2.85], [0+y_marg,weightedmeans[1]-y_marg], lw = 0.5, color = 'black')
 
 plt.tight_layout()
+
+
 
 plt.savefig(__file__.split('.')[0] + '_quad_dots.png', dpi = 500, bbox_inches='tight')
 

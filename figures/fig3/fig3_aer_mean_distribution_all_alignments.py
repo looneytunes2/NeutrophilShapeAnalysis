@@ -64,17 +64,17 @@ bigdf = pd.concat(bigdflist, ignore_index = True)
 
 #plot the distributions
 fig, ax = plt.subplots()
-sns.histplot(data = bigdf, x='aercoef', hue = 'alignment', common_norm = True,
+sns.kdeplot(data = bigdf, x='aercoef', hue = 'alignment', common_norm = True,
             fill = True, palette = colorlist, alpha = 0.6, # cut = 0
             ax = ax)
 
 #Change legend title and size
 leg = ax.legend_
-leg.set_title(title = 'Align Method', prop = FontProperties(size=12))
+leg.set_title(title = 'Alignment Method', prop = FontProperties(size=12))
 
 # set axis labels
-ax.set_xlabel("Area Enclosing Rate (PC units²/sec)", fontsize = 14)   
-ax.set_ylabel("Probability Density", fontsize = 14)  
+ax.set_xlabel("Area Enclosing Rate (PC units²/sec)", fontsize = 16)   
+ax.set_ylabel("Probability Density", fontsize = 16)  
 
 
 
