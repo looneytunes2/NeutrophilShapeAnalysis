@@ -13,7 +13,7 @@ from CustomFunctions import utils
 from CustomFunctions.shapePCAtools import filter_extremes_based_on_percentile
 from matplotlib import cm
 from pathlib import Path
-from matplotlib.patches import Patch
+
 
 ####### load common directories and data
 dirlist = ['Combined_37C_Confocal_PCA_shape','Combined_37C_Confocal_PCA_s5','Combined_37C_Confocal_PCA_planar']
@@ -25,7 +25,7 @@ time_interval = 10 #sec/frame
 
     
     
-for d, di in dirlist:
+for d, di in enumerate(dirlist):
     
     ### get directories and constants
     basedir = Path('E:/Aaron',di)
@@ -60,15 +60,18 @@ for d, di in dirlist:
                     tempdf,
                     ['aer_coeff','cycle_period'],
                     0.1)
-                
-            
+                lvl = np.arange(0.2,1.2,0.2)
+                palette = sns.dark_palette(colorlist[d], n_colors=len(lvl), reverse=True)
                 ### plot 2d density
+                ax.set_yscale("log")
                 dens = sns.kdeplot(data = tempdf_filtered, x='aer_coeff', y = 'cycle_period',
-                            levels = 5,
-                            palette = colorlist[d],
+                            levels = lvl,
+                            palette = palette,
                             fill = True,
+                            cbar = True,
+                            cbar_ax = cbar_ax,
                             ax = ax, zorder = 2)
-                dens.set_yscale("log")
+                
                 
 
         
@@ -94,9 +97,9 @@ for d, di in dirlist:
                     v = path.vertices
                     xmin = min(xmin, v[:,0].min())
                     xmax = max(xmax, v[:,0].max())
-                    ymin = min(ymin, v[:,1].min())
                     ymax = max(ymax, v[:,1].max())
-                
+                #get the data ymin
+                ymin = min(ymin, tempdf_filtered.cycle_period.min())
                 #add axis array position to adjust axis limits later
                 axlist.append([xrow,ycol])
                 
@@ -141,47 +144,21 @@ for d, di in dirlist:
                             
     
     # remove tick stuff from the upper right plot, but maintain the sharex sharey
-    axes[0,0].tick_params(left=False, bottom=False, labelleft=False, labelbottom=False)
+    axes[0,0].tick_params(which ='both', left=False, bottom=False, labelleft=False, labelbottom=False)
     
     
-    cbar = fig.colorbar(axes[0, 1].collections[0], cax=cbar_ax)
+    cbar = cbar_ax._colorbar
+    cbar.ax.yaxis.set_ticklabels(np.round(lvl,2))
     cbar.ax.yaxis.set_tick_params(labelsize=20)
     cbar.ax.yaxis.set_ticks_position("left")
     cbar.ax.yaxis.set_label_position("left")
-    cbar.set_label("Probability", fontsize = 40, labelpad = 36, rotation=-90)
+    cbar.set_label("Density Proportion", fontsize = 40, labelpad = 5, rotation=90)
     
     
     
     plt.savefig(__file__.split('.')[0]+f'_{alignlist[d]}.png', bbox_inches='tight', dpi = 500)
     
+    plt.close(fig)
     
-
-
-
-
-
-########## MAKE A LEGEND FOR THE BIG MATRIX
-
-fig, ax = plt.subplots()
-leghands = [Patch(color=colorlist[i], label=a) for i, a in enumerate(alignlist)]
-ax.legend(handles=leghands, title = 'Alignment Method', title_fontsize = 14,
-          loc = 'center')
-
-#get rid of axis framing
-for spine in ax.spines.values():
-    spine.set_visible(False)
-ax.tick_params(left=False, bottom=False, labelleft=False, labelbottom=False)
-
-
-plt.tight_layout()
-
-
-
-plt.savefig(__file__.split('.')[0]+'_legend.png', bbox_inches='tight', dpi = 500)
-
-
-
-
-
 
 
