@@ -9,11 +9,10 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
-from CustomFunctions import utils
 from CustomFunctions.shapePCAtools import filter_extremes_based_on_percentile
 from matplotlib import cm
 from pathlib import Path
-
+from matplotlib.colors import LinearSegmentedColormap
 
 ####### load common directories and data
 dirlist = ['Combined_37C_Confocal_PCA_shape','Combined_37C_Confocal_PCA_s5','Combined_37C_Confocal_PCA_planar']
@@ -61,22 +60,24 @@ for d, di in enumerate(dirlist):
                     ['aer_coeff','cycle_period'],
                     0.1)
                 lvl = np.arange(0.2,1.2,0.2)
-                palette = sns.dark_palette(colorlist[d], n_colors=len(lvl), reverse=True)
+                light = sns.light_palette(colorlist[d], n_colors=len(lvl))[2:int(len(lvl)-1)]
+                dark = sns.dark_palette(colorlist[d], n_colors=len(lvl), reverse=True)
+                cmap = LinearSegmentedColormap.from_list(alignlist[d], light+dark)
                 ### plot 2d density
                 ax.set_yscale("log")
-                dens = sns.kdeplot(data = tempdf_filtered, x='aer_coeff', y = 'cycle_period',
+                dens = sns.kdeplot(data = tempdf, x='aer_coeff', y = 'cycle_period',
                             levels = lvl,
-                            palette = palette,
+                            cmap = cmap,
                             fill = True,
                             cbar = True,
                             cbar_ax = cbar_ax,
-                            ax = ax, zorder = 2)
+                            ax = ax, zorder = 1)
                 
                 
 
         
                 ## plot the zero line
-                ax.axvline(0, ls = '--', lw = 0.5, color = 'black', alpha = 0.5, zorder = 1)   
+                ax.axvline(0, ls = '--', lw = 1, color = 'black', alpha = 0.6, zorder = 2)   
                 
                 ### remove legend
                 ax.legend_ = None
@@ -127,7 +128,6 @@ for d, di in enumerate(dirlist):
                 ax.spines['right'].set_visible(False)
         
             else:
-                print('remove this plot')
                 ax.remove()
     
             
@@ -138,9 +138,9 @@ for d, di in enumerate(dirlist):
                 
                 
     ##### add common x axis label
-    fig.text(0.5, 0.06, "Area Enclosing Rate (PC units²/sec)", fontsize = 40, ha='center')
-    ##### add common x axis label
-    fig.text(0.5, 0.08, "Probability Density", fontsize = 40, ha='center')
+    fig.text(0.5, 0.075, "Area Enclosing Rate (PC units²/sec)", fontsize = 40, ha='center')
+    ##### add common y axis label
+    fig.text(0.083, 0.5, "Cycle Period (min/cycle)", fontsize = 40, rotation = 90, va='center')
                             
     
     # remove tick stuff from the upper right plot, but maintain the sharex sharey

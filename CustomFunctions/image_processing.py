@@ -8,6 +8,7 @@ Created on Tue Jan 28 14:39:57 2025
 import numpy as np
 import pandas as pd
 import re
+from pathlib import Path
 import multiprocessing
 from aicsimageio.writers.ome_tiff_writer import OmeTiffWriter
 from aicsimageio.readers.czi_reader import CziReader
@@ -21,18 +22,19 @@ from CustomFunctions import shparam_mod, metadata_funcs, segment_LLS
 from CustomFunctions.track_functions import segment_caax_tracks_confocal_40x_fromsingle
 from CustomFunctions.PILRagg import read_pilr_regions
 from CustomFunctions.utils import get_consecutive_timepoints, angle3D, align_vec_to_xaxis_euler
+from config.models import Config
 from tqdm import tqdm
 
 
 
 def segment_whole_images(
-        raw_dir,  # parent directory for the folders from different imaging days
-        foldlist,  # the dates on the folders from different imaging days
-        trackdir,  # where to save the segmented tracking images
-        xyres,
-        zstep,
-        # fullimshape, #shape of the full movie in TZYX format
+        raw_dir: Path,  # parent directory for the folders from different imaging days
+        foldlist: list,  # the dates on the folders from different imaging days
+        imdir: Path,  # where to save the segmented tracking images
+        config: Config,  # Config class
 ):
+    #define tracking image subd directory
+    trackdir = imdir / 'Tracking_Images'
 
     for f in foldlist:
         ims = [o for o in raw_dir.joinpath(f).glob('*') if o.is_dir()]
@@ -53,9 +55,7 @@ def segment_whole_images(
             shapez = int(re.findall(r'(?<=_z)\d+', shapestring)[0])
             # combine and add 1 because of zero index
             fullimshape = [int(shapetime+1),
-                           int(shapez+1),
-                           1024,
-                           1024]
+                           int(shapez+1)] + config.confocal.stackshape[-2:]
 
             results = []
             # use multiprocessing to perform segmentation and x,y,z determination
@@ -64,8 +64,8 @@ def segment_whole_images(
                 result = pool.apply_async(segment_caax_tracks_confocal_40x_fromsingle, args=(
                     imdir,
                     fullimshape[-3:],
-                    xyres,
-                    zstep,
+                    config.confocal.xyres,
+                    config.confocal.zstep,
                     t, ))
                 results.append(result)
 
@@ -109,26 +109,32 @@ def segment_whole_images(
 
 
 ############### SEGMENT AND SAVE CELLS ################################
-def segment_and_crop(
-        mindir,  # directory to access tracking data and where processed data will be saved
+def segment_and_crop_confocal(
         raw_dir,  # directory with original images (saved as individual slices)
-        xyres,  # xy resolution of images
-        zstep,  # z resolution of images
-        xy_buffer,  # amount to buffer cropped images in xy
-        z_buffer,  # amount to buffer cropped images in z
-        stackshape,  # shape of one z stack in pixels (z,y,x) format
-        whatseg,  # what segmentation function to use for which cells
+        imdir,  # directory to access tracking data and where processed data will be saved
+        config, # Config class
 ):
 
-    folder_fl = mindir.joinpath('Tracking_Images')
+    folder_fl = imdir.joinpath('Tracking_Images')
     filelist_fl = [f for f in folder_fl.glob('*') if f.is_dir()]
-    savedir = mindir.joinpath('processed_images')
-    posdir = mindir.joinpath('position_info')
+    procimdir = imdir.joinpath('processed_images')
+    posdir = imdir.joinpath('position_info')
+    meshdir = imdir.joinpath('meshes')
     # make the savedir if it doesn't exist
-    if not savedir.exists():
-        savedir.mkdir(parents=True)
+    if not procimdir.exists():
+        procimdir.mkdir(parents=True)
     if not posdir.exists():
         posdir.mkdir(parents=True)
+    if not meshdir.exists():
+        meshdir.mkdir(parents=True)
+
+    ## load a few configuration parameters from the config file
+    xyres = config.confocal.xyres  # xy resolution of images
+    zstep = config.confocal.zstep  # z resolution of images
+    xy_buffer = config.confocal.xy_buffer  # amount to buffer cropped images in xy
+    z_buffer = config.confocal.z_buffer  # amount to buffer cropped images in z
+    stackshape = config.confocal.stackshape  # shape of one z stack in pixels (z,y,x) format
+    whatseg = config.confocal.whatseg  # what segmentation function to use for which cells
 
     for u in filelist_fl:
 
@@ -213,7 +219,7 @@ def segment_and_crop(
                         tdir,
                         stackshape,
                         row,
-                        savedir,
+                        procimdir,
                         xyres,
                         zstep,
                         croparr,
@@ -240,18 +246,21 @@ def segment_and_crop(
 
 # GET TRAJECTORIES FROM POSITION INFO
 def get_smooth_trajectories(
-        mindir,  # where to find the segmented images and position information
-        savedir,  # where to save the trajectories
-        time_interval,  # time interval between frames of movies
-        smooth_factor,  # "s" parameter in the interpolate.splprep function
+        imdir: Path,  # where to find the segmented images and position information
+        config: Config,
+        microscope: str,  # what microscope the data is from to determine which config parameters to use
 ):
+    #save some variables from the config
+    if microscope == 'confocal':
+        mcon = config.confocal
+    elif microscope == 'lls':
+        mcon = config.lls
+    time_interval = mcon.time_interval  # time interval between frames of movies
+    smooth_factor = config.common.smooth_factor  # "s" parameter in the interpolate.splprep function
 
     # define directory stuff
-    datadir = mindir.joinpath('Data_and_Figs')
-    csvdir = savedir.joinpath('processed_data')
-    posdir = mindir.joinpath('position_info')
-    if not datadir.exists():
-        datadir.mkdir(parents=True)
+    csvdir = imdir.joinpath('smooth_traj')
+    posdir = imdir.joinpath('position_info')
     if not csvdir.exists():
         csvdir.mkdir(parents=True)
 
@@ -379,25 +388,31 @@ def get_smooth_trajectories(
 
 ############ FIND WIDTH ROTATIONS THAT DEPEND ON PREVIOUS FRAMES TO LIMIT ROTATION FLIPPING ################
 def get_normal_rotations(
-        mindir,  # where to find the segmented images and position information
-        savedir,  # where to save the normal rotations
-        xyres,  # xy resolution of images
-        zstep,  # z resolution in same units as xyres
-        normal_method = 'width', # what method to use to find the normal rotation, "width" finds the least rotation to optimize
-                                # width perpendicular to trajectory, "planar" levels the plane with the current and future trajectory
-        align_method = 'trajectory', # how to align the cells based on shparam_mod.find_normal_width_peaks function
-        sigma = 0,  # sigma to smoothen meshes before finding the normal rotation
+        imdir: Path,  # where to find the segmented images and position information
+        config: Config,
+        microscope: str,  # what microscope the data is from to determine which config parameters to use
 ):
+    #save some variables from the config
+    if microscope == 'confocal':
+        mcon = config.confocal
+    elif microscope == 'lls':
+        mcon = config.lls
+    savedir = config.common.savedir  # where to save the normal rotations
+    xyres = mcon.xyres  # xy resolution of images
+    zstep = mcon.zstep  # z resolution in same units as xyres
+    align_method = config.common.align_method # how to align the cells based on shparam_mod.find_normal_width_peaks function
+    normal_method = config.common.normal_method # what method to use to find the normal rotation,
+    sigma = config.common.sigma,  # sigma to smoothen meshes before finding the normal rotation
 
-    imdir = mindir.joinpath('processed_images')
-    datadir = savedir.joinpath('Data_and_Figs')
-    csvdir = savedir.joinpath('processed_data')
+    procimdir = imdir.joinpath('processed_images')
+    csvdir = imdir.joinpath('smooth_traj')
+    datadir = savedir.joinpath('shape_data')
     if not datadir.exists():
         datadir.mkdir(parents=True)
 
     # get the list of unique cells that we have trajectory info for
     #first get list of unique cells in the image folder for that experiment
-    imlist = list(set([o.name.split('_frame')[0] for o in imdir.glob('*')]))
+    imlist = list(set([o.name.split('_frame')[0] for o in procimdir.glob('*')]))
     #next get unique cells in the whole dataset
     csvlist = list(set([o.name.split('_frame')[0] for o in csvdir.glob('*')]))
     #combine and just get cells from that experiment that I have trajectory info for
@@ -407,7 +422,7 @@ def get_normal_rotations(
     # each mesh until you find the rotation angle for the widest axis perpendicular
     # to the trajectory
     # trajinfolist = [x.name for x in csvdir.glob('*cell_info.csv')]
-    # segimlist = [x.name for x in imdir.glob('*_segmented*')]
+    # segimlist = [x.name for x in procimdir.glob('*_segmented*')]
     allresults = []
     for u in uniquelist:
         # get list of all frames I have trajectory info on with this cell
@@ -421,7 +436,7 @@ def get_normal_rotations(
             pool = multiprocessing.Pool(processes=60)
             for y in cellframelist:
                 # get path to segmented image
-                impath = imdir.joinpath(y+'_segmented.tiff')
+                impath = procimdir.joinpath(y+'_segmented.tiff')
                 # put in the pool
                 result = pool.apply_async(shparam_mod.find_normal_width_peaks, args=(
                     impath,
@@ -547,57 +562,43 @@ def get_normal_rotations(
 
 
 def seg_to_mesh(
-        mindir,  # base directory with all of the different data folders and files
-        savedir,  # where to save the meshes etc.
-        xyres,  # xy resolution
-        zstep,  # z resolution
-        align_method='trajectory',  # how to align the cells
-        norm_rot='provided',  # how to perform the normal rotation
-        l_order=10,  # L order for SH coefficients
-        nisos=[1, 63],  # list of shells to calculate in PILRs
-        pilr_method='none',  # how to calculate PILRs
-        sigma=0,  # how much to smoothen image before turning to mesh
-):
+    imdir, # where to find the segmented images 
+    config: Config,
+    microscope: str,  # what microscope the data is from to determine which config parameters to use
+    ):
+    #save some variables from the config
+    if microscope == 'confocal':
+        mcon = config.confocal
+    elif microscope == 'lls':
+        mcon = config.lls
+    savedir = config.common.savedir  # where to save the meshes etc.
+    xyres = mcon.xyres  # xy resolution
+    zstep = mcon.zstep  # z resolution
+    align_method = config.common.align_method  # how to align the cells
+    l_order = config.common.l_order  # L order for SH coefficients
+
+    ## get a few variables from the config file
+    norm_rot = config.common.normal_method
 
     # make dirs if it doesn't exist
-    datadir = savedir.joinpath('Data_and_Figs')
-    csvdir = savedir.joinpath('processed_data')
-    imdir = mindir.joinpath('processed_images')
-    # make dirs if it doesn't exist
-    meshf = savedir.joinpath('Meshes')
-    if not meshf.exists():
-        meshf.mkdir(parents=True)
-    pilrf = savedir.joinpath('PILRs')
-    if not pilrf.exists():
-        pilrf.mkdir(parents=True)
+    datadir = savedir.joinpath('shape_data')
+    csvdir = imdir.joinpath('smooth_traj')
+    meshdir = imdir.joinpath('meshes')
 
-    if norm_rot == 'provided':
-        widthpeaks = pd.read_csv(datadir.joinpath(
-            f'Closest_Width_Peaks_{mindir.name}.csv'), index_col=0)
+
+    widthpeaks = pd.read_csv(datadir.joinpath(
+        f'Closest_Width_Peaks_{imdir.name}.csv'), index_col=0)
 
     # get all segmented images that were analyzed
     datalist = [x.name.split('_cell_info.csv')[0] for x in csvdir.glob('*_cell_info.csv')]
-    imlist = [x for x in imdir.glob('*_segmented.tiff') if x.name.split('_segmented.tiff')[0] in datalist]
+    meshlist = [x for x in meshdir.glob('*_cell_mesh.vtp') if x.name.split('_cell_mesh.vtp')[0] in datalist]
 
     mapargs = []
-    for i in imlist:
-        imname = i.name
-        # choose structure name based on file name
-        if 'actin' in imname:
-            str_name = 'actin'
-        elif ('Hoechst' in imname) or ('DNA' in imname):
-            str_name = 'nucleus'
-        elif 'myosin' in imname:
-            str_name = 'myosin'
-        else:
-            str_name = ''
-
+    for i in meshlist:
         # assign the normal rotation value for that particular cell
-        if (norm_rot == 'provided') or (type(norm_rot) == float):
-            #                 try:
-            norm_rot = float(widthpeaks[widthpeaks.cell == imname.split('_segment')[0]]['Closest_minimums'].values)#[0])
-            if np.isnan(norm_rot):
-                continue
+        norm_rot = float(widthpeaks[widthpeaks.cell == i.name.split('_cell_mesh')[0]]['Closest_minimums'].values)#[0])
+        if np.isnan(norm_rot):
+            continue
 
         # append unique args to list
         mapargs.append((
@@ -605,38 +606,24 @@ def seg_to_mesh(
             savedir,
             xyres,
             zstep,
-            str_name,
             norm_rot,
             l_order,
-            nisos,
-            pilr_method,
-            sigma,
             align_method,
         ))
 
     # parallel processing for all segmented images
     with multiprocessing.Pool(processes=60) as pool:
         results = list(tqdm(pool.imap(
-            shparam_mod.get_shcoeffs_and_PILR_nonuc, mapargs), total=len(mapargs)))
+            shparam_mod.shape_info_imap, mapargs), total=len(mapargs)))
 
-    # organize results
-    errorlist = []
-    dflist = []
-    for r in results:
-        dflist.append(r[0])
-        # get list with cells that had warnings when getting shcoeffs
-        if r[1]:
-            errorlist.append(r[1])
+    # get results
+    dflist = [r for r in results]
 
     # save the shape metrics dataframe
     bigdf = pd.DataFrame(dflist)
     bigdf.to_csv(datadir.joinpath(
-        f'Shape_Metrics_{mindir.name}.csv'))
+        f'Shape_Metrics_{imdir.name}.csv'))
 
-    # save list of cells that don't have centroid in shape
-    errordf = pd.DataFrame(errorlist, columns=['reason', 'cell'])
-    errordf.to_csv(datadir.joinpath(
-        f'ListToExclude_{mindir.name}.csv'))
 
 
 ################ SEGMENT AND TRACK CELLS FROM MANUALLY CROPPED LLS MOVIES #############
@@ -782,7 +769,7 @@ def get_pilr_regions(
 ):
 
     # make dirs if it doesn't exist
-    datadir = mindir.joinpath('Data_and_Figs')
+    datadir = mindir.joinpath('shape_data')
     pilrf = mindir.joinpath('PILRs')
 
     # get a list of all of the PILR images

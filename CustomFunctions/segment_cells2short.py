@@ -19,7 +19,7 @@ from aicssegmentation.core.pre_processing_utils import intensity_normalization, 
 from skimage.morphology import remove_small_objects     # function for post-processing (size filter)
 from aicssegmentation.core.MO_threshold import MO
 from CustomFunctions.utils import twodholefill, get_intensity_features
-
+from CustomFunctions import shtools_mod
 
 import skimage.measure
 import cv2
@@ -262,11 +262,12 @@ def seg_confocal_40x_memonly_fromslices(
     direct,
     imshape,
     row,
-    savedir,
+    procimdir,
     xyres,
     zstep,
     croparr,
     whatseg = 'hl60',
+    save_mesh = True,
 ):
 
     """
@@ -287,6 +288,8 @@ def seg_confocal_40x_memonly_fromslices(
             for opening the minimal image from slices.
         whatseg : str
             Defines what segmentation function to use.
+        save_mesh : bool
+            Whether to save a mesh of the segmented cell. Meshes are saved in a similar directory
 
         Returns
         -------
@@ -343,26 +346,38 @@ def seg_confocal_40x_memonly_fromslices(
         #get original centroids
         cent = im_props[0].centroid
     
+        #ask if centroid inside the object
+        goodsh = False if seg_rimg[tuple([int(u) for u in cent])]==0 else True
+    
         #SAVE SEGMENTED IMAGE
-        out=seg_rimg.astype(np.uint8)
-        out[out>0]=255
-        
-        
         # remove file if it already exists
-        seg_file = savedir.joinpath(cell_name + '_segmented.tiff')
+        seg_file = procimdir.joinpath(cell_name + '_segmented.tiff')
         if seg_file.exists():
             seg_file.unlink()
-        OmeTiffWriter.save(out, seg_file, dimension_order = "CZYX")
+        OmeTiffWriter.save(seg_rimg, seg_file, dimension_order = "CZYX")
         
        
         #SAVE THE RAW IMAGE
-        raw_file = savedir.joinpath(cell_name + '_raw.tiff')
+        raw_file = procimdir.joinpath(cell_name + '_raw.tiff')
         if raw_file.exists():
             raw_file.unlink()
         OmeTiffWriter.save(raw_img, raw_file, dimension_order = "CZYX")
         
-        
-    
+        #### SAVE A MESH IF SPECIFIED
+        if save_mesh:
+            #make mesh
+            mesh,_,_ = shtools_mod.get_mesh_from_image(seg_rimg)
+            #scale mesh from pixels to microns
+            mesh = shtools_mod.rotate_and_scale_mesh(mesh,
+                                                     scale = np.array([xyres, xyres, zstep]),
+                                                    )
+            #save mesh
+            meshdir = procimdir.parent / 'meshes'
+            mesh_file = meshdir.joinpath(cell_name + '_cell_mesh.vtp')
+            if mesh_file.exists():
+                mesh_file.unlink()
+            shtools_mod.save_polydata(mesh, mesh_file)
+
         
         #Append shape metrics to dataframe
         data = {'image': row.CellID.split('_cell_')[0],
@@ -384,7 +399,8 @@ def seg_confocal_40x_memonly_fromslices(
                 'Cell_'+mem_keylist[2]: mem_feat[mem_keylist[2]],
                 'Cell_'+mem_keylist[3]: mem_feat[mem_keylist[3]],
                 'Cell_'+mem_keylist[4]: mem_feat[mem_keylist[4]],
-                'Cell_'+mem_keylist[5]: mem_feat[mem_keylist[5]]
+                'Cell_'+mem_keylist[5]: mem_feat[mem_keylist[5]],
+                'centroid_inside': goodsh
                         }
         
         return data 

@@ -1,7 +1,7 @@
 """
 Modified from Allen Cell aicsshparam  
 """
-import os
+from pathlib import Path
 import vtk
 import pyshtools
 import numpy as np
@@ -687,7 +687,7 @@ def get_reconstruction_error(grid_input: np.array, grid_rec: np.array):
     return mse
 
 
-def save_polydata(mesh: vtk.vtkPolyData, filename: str):
+def save_polydata(mesh: vtk.vtkPolyData, filename: Path):
 
     """Saves a mesh as a vtkPolyData file.
 
@@ -695,14 +695,14 @@ def save_polydata(mesh: vtk.vtkPolyData, filename: str):
     ----------
     mesh : vtkPolyData
         Input mesh
-    filename : str
+    filename : Path
         File path where the mesh will be saved
     output_type : vtk or ply
         Format of output polydata file
     """
 
     # Output file format
-    output_type = filename.split(".")[-1]
+    output_type = filename.suffix.lower()[1:]
 
     if output_type not in ["vtk", "ply", "vtp"]:
         raise ValueError(
@@ -721,9 +721,10 @@ def save_polydata(mesh: vtk.vtkPolyData, filename: str):
 
 
 ####### grabbed from https://examples.vtk.org/site/Python/PolyData/BooleanOperationPolyDataFilter/    
-def ReadPolyData(file_name):
-    path, extension = os.path.splitext(file_name)
-    extension = extension.lower()
+def read_polydata(
+        file_name:Path,
+        ):
+    extension = file_name.suffix.lower()
     if extension == '.ply':
         reader = vtk.vtkPLYReader()
         reader.SetFileName(file_name)

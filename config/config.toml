@@ -1,0 +1,67 @@
+# [galv]
+# serverdir = '//10.158.28.37/ExpansionHomesA/avlnas/HL60 Galv/'
+# localdir = 'E:/Aaron/Galvanotaxis_Confocal_40x_37C_10s/'
+# dates = ['20231116','20231122']
+
+# [ck666]
+# serverdir = '//10.158.28.37/ExpansionHomesA/avlnas/HL60 CK666/'
+# localdir = 'E:/Aaron/CK666_Confocal_40x_37C/'
+# dates = ['20240610','20240617','20240620','20241205','20241209']
+
+# [pnb]
+# serverdir = '//10.158.28.37/ExpansionHomesA/avlnas/HL60 ParaNitroBlebbistatin/'
+# localdir = 'E:/Aaron/ParaNitroBlebbistatin_Confocal_40x_37C/'
+# dates = ['20240624','20240626','20240701','20241125','20241126','20241127']
+
+[common]
+alignment = 'shape' #shape,trajectory_shape,trajectory
+smooth_factor = 5 #trajectory smoothness
+sigma = 0 #gaussian smooth for mesh 
+l_order = 10 # SH order
+pilr_method = 'none' #what kind of PILR signal to calculate 'none','threshold','raw'
+nisos = [1,63] # interpolated "shells" if calculated a PILR
+
+[confocal]
+xyres = 0.3394 #um / pixel
+zstep = 0.7 #um
+time_interval = 10 #sec/frame
+xy_buffer = 20 #xy pixel buffer for cropping cells
+z_buffer = 10 #zpixel buffer for cropping cells
+stackshape = [150,1024,1024] # zyx size of single timepoints
+whatseg = 'hl60' #what segmentation function to use for the membrane
+
+[lls]
+xyres = 0.145 #um / pixel
+zstep = 0.145 #um
+time_interval = 5 #sec/frame
+decon = true #whether the images to be segmented are deconvolved
+orig_size = false #whether to leave "cropped" images in their original shape
+xy_buffer = 25 #xy pixel buffer for cropping cells
+z_buffer = 25 #z pixel buffer for cropping cells
+hilo = true #whether or not to do multiple thresholds for segmenting secondary signals
+
+[detailed_balance]
+ntrans = 1 #number of consecutive transitions to sample when bootstrapping
+bsiter = 3000 #number of bootstrap iterations
+
+
+[dependencies]
+conda = [
+    "python=3.12",
+    "pip",
+    "numpy",
+    "pandas",
+    "scipy",
+    "scikit-learn",
+    "matplotlib",
+    "vtk",
+    "scikit-image",
+    "seaborn",
+    "aicsimageio",
+    "aicspylibczi",
+
+]
+pip = [
+    "pyshtools==4.14",
+    # "aicssegmentation",
+]
