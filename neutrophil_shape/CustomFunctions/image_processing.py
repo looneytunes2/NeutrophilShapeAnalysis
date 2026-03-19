@@ -10,19 +10,19 @@ import pandas as pd
 import re
 from pathlib import Path
 import multiprocessing
-from aicsimageio.writers.ome_tiff_writer import OmeTiffWriter
-from aicsimageio.readers.czi_reader import CziReader
-from aicsimageio.readers.tiff_reader import TiffReader
+import tifffile
+from aicspylibczi import CziFile
 from scipy.spatial import KDTree, distance
 from scipy.spatial.transform import Rotation as R
 from scipy import interpolate
-from CustomFunctions.segment_cells2short import seg_confocal_40x_memonly_fromslices
-from CustomFunctions.persistance_activity import get_pa, DA_3D
-from CustomFunctions import shparam_mod, metadata_funcs, segment_LLS
-from CustomFunctions.track_functions import segment_caax_tracks_confocal_40x_fromsingle
-from CustomFunctions.PILRagg import read_pilr_regions
-from CustomFunctions.utils import get_consecutive_timepoints, angle3D, align_vec_to_xaxis_euler
-from config.models import Config
+from .segment_cells2short import seg_confocal_40x_memonly_fromslices
+from .persistance_activity import get_pa, DA_3D
+from . import shparam_mod, metadata_funcs, segment_LLS
+from .shtools_mod import read_polydata
+from .track_functions import segment_caax_tracks_confocal_40x_fromsingle
+# from .PILRagg import read_pilr_regions
+from .utils import get_consecutive_timepoints, angle3D, align_vec_to_xaxis_euler
+from neutrophil_shape.config.models import Config
 from tqdm import tqdm
 
 
@@ -86,11 +86,10 @@ def segment_whole_images(
             segmented_img = segmented_img.astype(np.uint8)
 
             # save the segmented image
-            OmeTiffWriter.save(segmented_img,
-                               trackdir.joinpath(
+            tifffile.imwrite(trackdir.joinpath(
                                    imagename, imagename+'_segmented.ome.tiff'),
-                               dim_order="TZYX", overwrite_file=True)
-
+                            segmented_img)
+            
             # save the skimage region props
             df = pd.DataFrame()
             for d in results:
@@ -160,14 +159,16 @@ def segment_and_crop_confocal(
         df_track.drop(columns=['TRACK_ID'], inplace=True)
 
         ############## find euclidean distance #############
-        euclid = pd.DataFrame([])
+        euclid = []
         for i, cell in df_track.groupby('CellID'):
             cell = cell.sort_values('frame').reset_index(drop=True)
             FL = cell.iloc[[0, -1]]
             euc_dist = distance.pdist(FL[['x', 'y', 'z']])
-            euclid = euclid.append(
-                {'CellID': cell.CellID.iloc[0], 'euc_dist': euc_dist[0]}, ignore_index=True)
-        cellsmorethan = euclid.loc[euclid['euc_dist'] > 10, 'CellID']
+            euclid.append(
+                {'CellID': cell.CellID.iloc[0], 'euc_dist': euc_dist[0]}
+                ) 
+        eucliddf = pd.DataFrame(euclid)
+        cellsmorethan = eucliddf.loc[eucliddf['euc_dist'] > 10, 'CellID']
         df_track = df_track[df_track.CellID.isin(cellsmorethan)]
 
         ########remove edge cells############
@@ -390,21 +391,13 @@ def get_smooth_trajectories(
 def get_normal_rotations(
         imdir: Path,  # where to find the segmented images and position information
         config: Config,
-        microscope: str,  # what microscope the data is from to determine which config parameters to use
 ):
     #save some variables from the config
-    if microscope == 'confocal':
-        mcon = config.confocal
-    elif microscope == 'lls':
-        mcon = config.lls
     savedir = config.common.savedir  # where to save the normal rotations
-    xyres = mcon.xyres  # xy resolution of images
-    zstep = mcon.zstep  # z resolution in same units as xyres
     align_method = config.common.align_method # how to align the cells based on shparam_mod.find_normal_width_peaks function
     normal_method = config.common.normal_method # what method to use to find the normal rotation,
-    sigma = config.common.sigma,  # sigma to smoothen meshes before finding the normal rotation
 
-    procimdir = imdir.joinpath('processed_images')
+    meshdir = imdir.joinpath('meshes')
     csvdir = imdir.joinpath('smooth_traj')
     datadir = savedir.joinpath('shape_data')
     if not datadir.exists():
@@ -412,7 +405,7 @@ def get_normal_rotations(
 
     # get the list of unique cells that we have trajectory info for
     #first get list of unique cells in the image folder for that experiment
-    imlist = list(set([o.name.split('_frame')[0] for o in procimdir.glob('*')]))
+    imlist = list(set([o.name.split('_frame')[0] for o in meshdir.glob('*')]))
     #next get unique cells in the whole dataset
     csvlist = list(set([o.name.split('_frame')[0] for o in csvdir.glob('*')]))
     #combine and just get cells from that experiment that I have trajectory info for
@@ -436,14 +429,11 @@ def get_normal_rotations(
             pool = multiprocessing.Pool(processes=60)
             for y in cellframelist:
                 # get path to segmented image
-                impath = procimdir.joinpath(y+'_segmented.tiff')
+                impath = meshdir.joinpath(y+'_cell_mesh.vtp')
                 # put in the pool
                 result = pool.apply_async(shparam_mod.find_normal_width_peaks, args=(
                     impath,
                     csvdir,
-                    xyres,
-                    zstep,
-                    sigma,
                     align_method,
                 ))
                 results.append(result)
@@ -522,19 +512,12 @@ def get_normal_rotations(
         ### rotate to somewhat preserve original frame
         elif normal_method == 'original':
             for c in cellframelist:
-                ## open the current segmented image
-                im = TiffReader(imdir.joinpath(c+'_segmented.tiff'))
-                
-                if len(im.shape)>3:
-                    ci = im.data[0,:,:,:]
-                else:
-                    ci = im.data
-                    
+                ## open the current mesh
+                mesh = read_polydata(meshdir.joinpath(c+'_cell_mesh.vtp'))
                 ## rotate to align to long axis
-                eulers = shparam_mod.get_long_axis_eulers(ci, xyres, zstep)
+                eulers, ro = shparam_mod.get_long_axis_eulers_mesh(mesh, True)
                     
                 #apply euler to the original negative y direction
-                ro = R.from_euler('xyz', eulers, degrees = True)
                 next_traj_rotated = ro.apply([0,-1,0])
                 #get the actual rotation angles around the x-axis needed to align
                 #the next trajectory with the y-axis
@@ -662,8 +645,8 @@ def segment_and_crop_LLS_manual(
         for n, c in enumerate(curcell):
             celldir = raw_dir.joinpath(c)
             # open the image
-            czi = CziReader(celldir)
-            imdata = czi.data
+            czi = CziFile(celldir)
+            imdata = czi.read_image()
             # absolute timepoint of first image
             if n == 0:
                 timezero = metadata_funcs.adjustedstarttime(czi)
@@ -764,18 +747,18 @@ def segment_and_crop_LLS_manual(
                   re.split('-\d*-Subset', curcell[0])[0] + '-' + s)
 
 
-def get_pilr_regions(
-        mindir,
-):
+# def get_pilr_regions(
+#         mindir,
+# ):
 
-    # make dirs if it doesn't exist
-    datadir = mindir.joinpath('shape_data')
-    pilrf = mindir.joinpath('PILRs')
+#     # make dirs if it doesn't exist
+#     datadir = mindir.joinpath('shape_data')
+#     pilrf = mindir.joinpath('PILRs')
 
-    # get a list of all of the PILR images
-    pilrlist = [x for x in pilrf.glob('*_PILR*')]
-    with multiprocessing.Pool(processes=60) as pool:
-        results = pool.map(read_pilr_regions, pilrlist)
+#     # get a list of all of the PILR images
+#     pilrlist = [x for x in pilrf.glob('*_PILR*')]
+#     with multiprocessing.Pool(processes=60) as pool:
+#         results = pool.map(read_pilr_regions, pilrlist)
 
-    pilrframe = pd.DataFrame(results).reset_index(drop=True)
-    pilrframe.to_csv(datadir.joinpath('PILR_regions.csv'))
+#     pilrframe = pd.DataFrame(results).reset_index(drop=True)
+#     pilrframe.to_csv(datadir.joinpath('PILR_regions.csv'))

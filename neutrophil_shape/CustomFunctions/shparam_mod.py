@@ -18,11 +18,10 @@ from scipy.spatial import KDTree
 from scipy.spatial.transform import Rotation as R
 from pathlib import Path
 
-from . import shtools_mod, cytoparam_mod
-from CustomFunctions.utils import align_vec_to_xaxis_euler, angle3D
+from . import shtools_mod #, cytoparam_mod
+from .utils import align_vec_to_xaxis_euler, angle3D
 
-from aicsimageio.writers.ome_tiff_writer import OmeTiffWriter
-from aicsimageio.readers.tiff_reader import TiffReader
+
 
 
 
@@ -105,36 +104,14 @@ def get_long_axis_eulers_mesh(
 def find_normal_width_peaks(
         impath,
         csvdir,
-        xyres,
-        zstep,
-        sigma: float = 0,
         align_method: str = 'None',
         ):
 
     
     #get cell name from impath
     cell_name = impath.name.split('/')[-1].split('_segmented')[0]
-    #read image
-    im = TiffReader(impath)
-    
-    ##get only the membrane channel if the image has multiple channels
-    if len(im.shape)>3:
-        image = im.data[0,:,:,:]
-    else:
-        image = im.data
-    
-    
-    if len(image.shape) != 3:
-        raise ValueError(
-            "Incorrect dimensions: {}. Expected 3 dimensions.".format(image.shape)
-        )
-
-    # Binarize the input. We assume that everything that is not background will
-    # be use for parametrization
-    image_ = image.copy()
-    image_[image_ > 0] = 1
-
-
+    #read mesh
+    mesh = shtools_mod.read_polydata(impath)
 
     #get euler angles to align the provided vector to the +x axis
     if type(align_method) == np.ndarray:
@@ -152,18 +129,12 @@ def find_normal_width_peaks(
         Euler_Angles = align_vec_to_xaxis_euler(vec)
     #get euler angles to align the long axis of the cell to the x axis   
     elif align_method == 'long_axis':
-        Euler_Angles = get_long_axis_eulers(image_, xyres, zstep, False)
+        Euler_Angles = get_long_axis_eulers_mesh(mesh, False)
         
-        
-
-    # Converting the input image into a mesh using regular marching cubes
-    mesh, image_, centroid = shtools_mod.get_mesh_from_image(image=image_, sigma=sigma)
-    
-    #rotate and scale mesh
+    #rotate mesh
     mesh = shtools_mod.rotate_and_scale_mesh(
             mesh,
             rotations = Euler_Angles,
-            scale = np.array([xyres, xyres, zstep]), 
             )
     
     
@@ -532,192 +503,192 @@ def get_pilr_stuct_string(
         str_name = ''
     return str_name
 
-def get_pilr_nonuc(
-    impath: Path,
-    savedir: str,
-    xyres: float,
-    zstep: float,
-    normal_rotation_method: str,
-    l_order: int,
-    nisos: int,
-    pilr_method: str,
-    sigma: float = 0,
-    align_method: str = 'None',
-    ):
+# def get_pilr_nonuc(
+#     impath: Path,
+#     savedir: str,
+#     xyres: float,
+#     zstep: float,
+#     normal_rotation_method: str,
+#     l_order: int,
+#     nisos: int,
+#     pilr_method: str,
+#     sigma: float = 0,
+#     align_method: str = 'None',
+#     ):
 
-    #get cell name from impath
-    cell_name = impath.name.split('/')[-1].split('_segmented')[0]
+#     #get cell name from impath
+#     cell_name = impath.name.split('/')[-1].split('_segmented')[0]
 
-    #determine the type of structure
-    str_name = get_pilr_stuct_string(cell_name)
+#     #determine the type of structure
+#     str_name = get_pilr_stuct_string(cell_name)
 
-    #read image
-    im = TiffReader(impath)
-    #determind image dimensions
-    if im.shape[0]>2:
-        ci = im.data[0,:,:,:]
-        si = im.data[1:,:,:,:]
-    else:
-        ci = im.data[0,:,:,:]
-        si = im.data[1,:,:,:][np.newaxis]
+#     #read image
+#     im = TiffReader(impath)
+#     #determind image dimensions
+#     if im.shape[0]>2:
+#         ci = im.data[0,:,:,:]
+#         si = im.data[1:,:,:,:]
+#     else:
+#         ci = im.data[0,:,:,:]
+#         si = im.data[1,:,:,:][np.newaxis]
 
-    ##### if we're going to get a PILR get shchoeffs and mesh in terms of pixels
-    (coeffs_mem, grid_rec, widestangle, exceptions_list), (image_, cell_mesh, grid, centroid_mem) = get_shcoeffs_mod(        
-        image = ci,
-        img_name= cell_name,
-        lmax = l_order,
-        xyres = xyres/xyres, #use pixels and not microns because I'll need pixel dimensions for PILRs
-        zstep = zstep/xyres,
-        Euler_Angles = euler_angles,
-        sigma = sigma,
-        normal_rotation_method = normal_rotation_method,
-        )
-
-
-    #create inner sphere
-    sphereSource = vtk.vtkSphereSource()
-    sphereSource.SetCenter(0.0, 0.0, 0.0)
-    sphereSource.SetRadius(nisos[0]/2)
-    # Make the surface smooth.
-    sphereSource.SetPhiResolution(100)
-    sphereSource.SetThetaResolution(100)
-    sphereSource.Update()
-    spherepoly = sphereSource.GetOutput()
+#     ##### if we're going to get a PILR get shchoeffs and mesh in terms of pixels
+#     (coeffs_mem, grid_rec, widestangle, exceptions_list), (image_, cell_mesh, grid, centroid_mem) = get_shcoeffs_mod(        
+#         image = ci,
+#         img_name= cell_name,
+#         lmax = l_order,
+#         xyres = xyres/xyres, #use pixels and not microns because I'll need pixel dimensions for PILRs
+#         zstep = zstep/xyres,
+#         Euler_Angles = euler_angles,
+#         sigma = sigma,
+#         normal_rotation_method = normal_rotation_method,
+#         )
 
 
-    (sphere_coeffs, grid_rec), (grid_down) = get_shcoeffs_mesh(
-            spherepoly,
-            lmax= l_order)
+#     #create inner sphere
+#     sphereSource = vtk.vtkSphereSource()
+#     sphereSource.SetCenter(0.0, 0.0, 0.0)
+#     sphereSource.SetRadius(nisos[0]/2)
+#     # Make the surface smooth.
+#     sphereSource.SetPhiResolution(100)
+#     sphereSource.SetThetaResolution(100)
+#     sphereSource.Update()
+#     spherepoly = sphereSource.GetOutput()
+
+
+#     (sphere_coeffs, grid_rec), (grid_down) = get_shcoeffs_mesh(
+#             spherepoly,
+#             lmax= l_order)
 
     
-    images_to_probe = []
-    if pilr_method == 'threshold':
-        #set levels strings for structure thrsholds
-        if len(si)>1:
-            levels = ['low','mid','high']
-        else:
-            levels = ['mid']
-        #for each structure threshold try to get a PILR
-        for n, s in enumerate(si):
+#     images_to_probe = []
+#     if pilr_method == 'threshold':
+#         #set levels strings for structure thrsholds
+#         if len(si)>1:
+#             levels = ['low','mid','high']
+#         else:
+#             levels = ['mid']
+#         #for each structure threshold try to get a PILR
+#         for n, s in enumerate(si):
 
-            #provide escape for cells with no signal in the "structure channel"
-            if np.max(s) == 0:
-                #get voxelized intracellular structure image
-                img, origin = cytoparam_mod.voxelize_meshes([cell_mesh])
+#             #provide escape for cells with no signal in the "structure channel"
+#             if np.max(s) == 0:
+#                 #get voxelized intracellular structure image
+#                 img, origin = cytoparam_mod.voxelize_meshes([cell_mesh])
             
-                #get rotated segmentented str signal alone
-                strimg = img.copy()
-                strimg[strimg>0]=255
+#                 #get rotated segmentented str signal alone
+#                 strimg = img.copy()
+#                 strimg[strimg>0]=255
             
-            else:
-                #get structure mesh
-                str_mesh, _, cent = shtools_mod.get_mesh_from_image(
-                    image = s,
-                    translate_to_origin=False,
-                    lcc = False,
-                    center = np.array(centroid_mem)[0]
-                    )
-                #euler rotation and scaling
-                str_mesh = shtools_mod.rotate_and_scale_mesh(str_mesh,
-                                                    rotations = euler_angles,
-                                                    scale = np.array([xyres, xyres, zstep])/xyres)
-                #widest angle rotation
-                str_mesh = shtools_mod.rotate_and_scale_mesh(str_mesh,
-                                                    rotations = np.array([widestangle,0,0]))
-                #adjust the structure center to the final position of the cell after rotation
-                coords = numpy_support.vtk_to_numpy(str_mesh.GetPoints().GetData())
-                coords -= np.array(centroid_mem)[1]
-                str_mesh = shtools_mod.update_mesh_points(str_mesh, coords[:, 0], coords[:, 1], coords[:, 2])
+#             else:
+#                 #get structure mesh
+#                 str_mesh, _, cent = shtools_mod.get_mesh_from_image(
+#                     image = s,
+#                     translate_to_origin=False,
+#                     lcc = False,
+#                     center = np.array(centroid_mem)[0]
+#                     )
+#                 #euler rotation and scaling
+#                 str_mesh = shtools_mod.rotate_and_scale_mesh(str_mesh,
+#                                                     rotations = euler_angles,
+#                                                     scale = np.array([xyres, xyres, zstep])/xyres)
+#                 #widest angle rotation
+#                 str_mesh = shtools_mod.rotate_and_scale_mesh(str_mesh,
+#                                                     rotations = np.array([widestangle,0,0]))
+#                 #adjust the structure center to the final position of the cell after rotation
+#                 coords = numpy_support.vtk_to_numpy(str_mesh.GetPoints().GetData())
+#                 coords -= np.array(centroid_mem)[1]
+#                 str_mesh = shtools_mod.update_mesh_points(str_mesh, coords[:, 0], coords[:, 1], coords[:, 2])
             
-                #get voxelized intracellular structure image
-                img, origin = cytoparam_mod.voxelize_meshes([cell_mesh,str_mesh])
+#                 #get voxelized intracellular structure image
+#                 img, origin = cytoparam_mod.voxelize_meshes([cell_mesh,str_mesh])
                 
-                #get rotated segmentented str signal alone
-                strimg = img.copy()
-                strimg[strimg<2]=0
-                strimg[strimg>0]=255
-                images_to_probe.append([str_name,strimg])
+#                 #get rotated segmentented str signal alone
+#                 strimg = img.copy()
+#                 strimg[strimg<2]=0
+#                 strimg[strimg>0]=255
+#                 images_to_probe.append([str_name,strimg])
                 
-                #scale structure mesh
-                #set transform and apply
-                meshf = savedir.joinpath('meshes')
-                str_mesh = shtools_mod.rotate_and_scale_mesh(
-                        str_mesh,
-                        scale = np.array([xyres, xyres, xyres]),
-                        )
+#                 #scale structure mesh
+#                 #set transform and apply
+#                 meshf = savedir.joinpath('meshes')
+#                 str_mesh = shtools_mod.rotate_and_scale_mesh(
+#                         str_mesh,
+#                         scale = np.array([xyres, xyres, xyres]),
+#                         )
 
-                #save str mesh
-                writer = vtk.vtkXMLPolyDataWriter()
-                writer.SetFileName(meshf.joinpath(cell_name + f'_str_mesh_{levels[n]}.vtp'))
-                writer.SetInputData(str_mesh)
-                writer.Write()
+#                 #save str mesh
+#                 writer = vtk.vtkXMLPolyDataWriter()
+#                 writer.SetFileName(meshf.joinpath(cell_name + f'_str_mesh_{levels[n]}.vtp'))
+#                 writer.SetInputData(str_mesh)
+#                 writer.Write()
                 
-        # since threshold is used for discrete structures, get the centroid
-        # of that structure in an aligned cell
-        struct_coords = numpy_support.vtk_to_numpy(str_mesh.GetPoints().GetData())
-        struct_centroid = struct_coords.mean(axis=0, keepdims=True)[0]
+#         # since threshold is used for discrete structures, get the centroid
+#         # of that structure in an aligned cell
+#         struct_coords = numpy_support.vtk_to_numpy(str_mesh.GetPoints().GetData())
+#         struct_centroid = struct_coords.mean(axis=0, keepdims=True)[0]
 
-    elif pilr_method == 'raw':
-        ######### translate coordinates to membrane centroid
-        #open the raw data
-        rawpath = impath.parent.absolute().joinpath(impath.name.split('_segmented')[0] + '_raw.tiff')
-        #read image
-        raw = TiffReader(rawpath).data
-        memseg = np.where(ci>0)
-        intensities = np.tile(raw[1][memseg],3)
-        #add some half points
-        memsegmore = []
-        for m in memseg:
-            memsegmore.append(np.concatenate((m,m-0.25,m+0.25)))
-        memcent = np.mean(memsegmore, axis = 1)
-        centcoords = [memsegmore[i]-m for i, m in enumerate(memcent)]
-        ########## rotate coordinates
-        #first rotate toward trajectory (coords are flipped from zyx to xyz)
-        rotcoords = rotationthing[0].apply(np.flip(np.array(centcoords).T, axis = 1))
-        #then do width rotation (coords are flipped back to zyx from xyz)
-        widrot = R.from_euler('xyz',np.array([widestangle,0,0]), degrees = True)
-        widrotcoords = np.flip(widrot.apply(rotcoords), axis = 1)
-        ######### move coordinates to origin as 0,0,0 (size of image plus pad 1)
-        rotimg, origin = cytoparam_mod.voxelize_meshes([cell_mesh])
-        rotseg = np.where(rotimg>0)
-        rotcent = np.mean(rotseg, axis = 1)
-        zerocoords = np.subtract(widrotcoords, -rotcent)#origin[::-1])
-        ######### turn coordinates into int
-        zerointcoords = np.round(zerocoords).astype(np.int16)
-        ######### apply scalars to new array
-        strimg = np.zeros(rotimg.shape)
-        #combine coords with intensities
-        coordint = np.hstack((zerointcoords,intensities.reshape(-1,1)))
-        for z in range(strimg.shape[-3]):
-            zcoords = coordint[np.where(coordint[:,0] == z)]
-            for y in np.unique(zcoords[:,1]):
-                ycoords = zcoords[np.where(zcoords[:,1] == y)]
-                for x in np.unique(ycoords[:,2]):
-                    xcoords = ycoords[np.where(ycoords[:,2] == x)]
-                    #fill in the new value if it fits in a real position
-                    if all((z,y,x)<=np.array(strimg.shape[-3:])-1):
-                        strimg[z,y,x] = np.mean(xcoords[:,-1])
-        ####### normalize the strimg
-        strimg = strimg-intensities.min()
-        strimg = strimg/strimg.max()
-        strimg[strimg<0] = 0
-        images_to_probe.append([str_name,strimg])
+#     elif pilr_method == 'raw':
+#         ######### translate coordinates to membrane centroid
+#         #open the raw data
+#         rawpath = impath.parent.absolute().joinpath(impath.name.split('_segmented')[0] + '_raw.tiff')
+#         #read image
+#         raw = TiffReader(rawpath).data
+#         memseg = np.where(ci>0)
+#         intensities = np.tile(raw[1][memseg],3)
+#         #add some half points
+#         memsegmore = []
+#         for m in memseg:
+#             memsegmore.append(np.concatenate((m,m-0.25,m+0.25)))
+#         memcent = np.mean(memsegmore, axis = 1)
+#         centcoords = [memsegmore[i]-m for i, m in enumerate(memcent)]
+#         ########## rotate coordinates
+#         #first rotate toward trajectory (coords are flipped from zyx to xyz)
+#         rotcoords = rotationthing[0].apply(np.flip(np.array(centcoords).T, axis = 1))
+#         #then do width rotation (coords are flipped back to zyx from xyz)
+#         widrot = R.from_euler('xyz',np.array([widestangle,0,0]), degrees = True)
+#         widrotcoords = np.flip(widrot.apply(rotcoords), axis = 1)
+#         ######### move coordinates to origin as 0,0,0 (size of image plus pad 1)
+#         rotimg, origin = cytoparam_mod.voxelize_meshes([cell_mesh])
+#         rotseg = np.where(rotimg>0)
+#         rotcent = np.mean(rotseg, axis = 1)
+#         zerocoords = np.subtract(widrotcoords, -rotcent)#origin[::-1])
+#         ######### turn coordinates into int
+#         zerointcoords = np.round(zerocoords).astype(np.int16)
+#         ######### apply scalars to new array
+#         strimg = np.zeros(rotimg.shape)
+#         #combine coords with intensities
+#         coordint = np.hstack((zerointcoords,intensities.reshape(-1,1)))
+#         for z in range(strimg.shape[-3]):
+#             zcoords = coordint[np.where(coordint[:,0] == z)]
+#             for y in np.unique(zcoords[:,1]):
+#                 ycoords = zcoords[np.where(zcoords[:,1] == y)]
+#                 for x in np.unique(ycoords[:,2]):
+#                     xcoords = ycoords[np.where(ycoords[:,2] == x)]
+#                     #fill in the new value if it fits in a real position
+#                     if all((z,y,x)<=np.array(strimg.shape[-3:])-1):
+#                         strimg[z,y,x] = np.mean(xcoords[:,-1])
+#         ####### normalize the strimg
+#         strimg = strimg-intensities.min()
+#         strimg = strimg/strimg.max()
+#         strimg[strimg<0] = 0
+#         images_to_probe.append([str_name,strimg])
 
-    #########parameterize cell
-    aicstif = cytoparam_mod.cellular_mapping(
-        coeffs_mem = coeffs_mem,
-        centroid_mem = abs(origin)[0],
-        coeffs_nuc = sphere_coeffs,
-        centroid_nuc = abs(origin)[0],
-        nisos = nisos,
-        images_to_probe = images_to_probe,
-        )
+#     #########parameterize cell
+#     aicstif = cytoparam_mod.cellular_mapping(
+#         coeffs_mem = coeffs_mem,
+#         centroid_mem = abs(origin)[0],
+#         coeffs_nuc = sphere_coeffs,
+#         centroid_nuc = abs(origin)[0],
+#         nisos = nisos,
+#         images_to_probe = images_to_probe,
+#         )
             
-    #Save PILR
-    pilrf = savedir.joinpath('PILRs')
-    if pilrf.joinpath(cell_name+'_PILR.ome.tiff').exists():
-        pilrf.joinpath(cell_name+'_PILR.ome.tiff').unlink()
-    OmeTiffWriter.save(aicstif.get_image_data('CZYX', S=0, T=0), pilrf.joinpath(cell_name+'_PILR.ome.tiff'), dim_order='CZYX', channel_names=aicstif.channel_names)
+#     #Save PILR
+#     pilrf = savedir.joinpath('PILRs')
+#     if pilrf.joinpath(cell_name+'_PILR.ome.tiff').exists():
+#         pilrf.joinpath(cell_name+'_PILR.ome.tiff').unlink()
+#     OmeTiffWriter.save(aicstif.get_image_data('CZYX', S=0, T=0), pilrf.joinpath(cell_name+'_PILR.ome.tiff'), dim_order='CZYX', channel_names=aicstif.channel_names)
     
 
 

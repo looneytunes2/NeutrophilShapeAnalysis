@@ -1,20 +1,5 @@
-# [galv]
-# serverdir = '//10.158.28.37/ExpansionHomesA/avlnas/HL60 Galv/'
-# localdir = 'E:/Aaron/Galvanotaxis_Confocal_40x_37C_10s/'
-# dates = ['20231116','20231122']
-
-# [ck666]
-# serverdir = '//10.158.28.37/ExpansionHomesA/avlnas/HL60 CK666/'
-# localdir = 'E:/Aaron/CK666_Confocal_40x_37C/'
-# dates = ['20240610','20240617','20240620','20241205','20241209']
-
-# [pnb]
-# serverdir = '//10.158.28.37/ExpansionHomesA/avlnas/HL60 ParaNitroBlebbistatin/'
-# localdir = 'E:/Aaron/ParaNitroBlebbistatin_Confocal_40x_37C/'
-# dates = ['20240624','20240626','20240701','20241125','20241126','20241127']
 
 [common]
-alignment = 'shape' #shape,trajectory_shape,trajectory
 smooth_factor = 5 #trajectory smoothness
 sigma = 0 #gaussian smooth for mesh 
 l_order = 10 # SH order
@@ -44,6 +29,20 @@ hilo = true #whether or not to do multiple thresholds for segmenting secondary s
 ntrans = 1 #number of consecutive transitions to sample when bootstrapping
 bsiter = 3000 #number of bootstrap iterations
 
+[galv]
+serverdir = '//10.158.28.37/ExpansionHomesA/avlnas/HL60 Galv/'
+localdir = 'E:/Aaron/Galvanotaxis_Confocal_40x_37C_10s_test/'
+dates = ['20231116','20231122']
+
+[ck666]
+serverdir = '//10.158.28.37/ExpansionHomesA/avlnas/HL60 CK666/'
+localdir = 'E:/Aaron/CK666_Confocal_40x_37C_test/'
+dates = ['20240610','20240617','20240620','20241205','20241209']
+
+[pnb]
+serverdir = '//10.158.28.37/ExpansionHomesA/avlnas/HL60 ParaNitroBlebbistatin/'
+localdir = 'E:/Aaron/ParaNitroBlebbistatin_Confocal_40x_37C_test/'
+dates = ['20240624','20240626','20240701','20241125','20241126','20241127']
 
 [dependencies]
 conda = [
@@ -57,11 +56,17 @@ conda = [
     "vtk",
     "scikit-image",
     "seaborn",
-    "aicsimageio",
+    "tifffile",
     "aicspylibczi",
-
+    "bottleneck",
+    "pyarrow",
+    "opencv",
+    "pyshtools",
+    # "chardet",
+    # "aicsimageio",
+    # "aicspylibczi",
 ]
 pip = [
-    "pyshtools==4.14",
+    # "pyshtools==4.14",
     # "aicssegmentation",
 ]
