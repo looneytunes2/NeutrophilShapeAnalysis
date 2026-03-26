@@ -13,6 +13,7 @@ from neutrophil_shape.CustomFunctions.shapePCAtools import filter_extremes_based
 from neutrophil_shape.config.loader import load_config
 from scipy import stats
 
+
 def get_stars(pv):
     if pv < 0.001:
         stars = '***'
@@ -24,8 +25,12 @@ def get_stars(pv):
         stars = 'n.s.'
     return stars
 
-treatments = ['DMSO','Para-Nitro-Blebbistatin','CK666']
-whichpcs = [1,2]
+
+
+#define some variables
+treatments = ['Random','Galvanotaxis']
+xlabels = ['Undirected', 'Electrotaxis']
+whichpcs = (4,5)
 config = load_config(microscope_type='confocal')
 ntrans = config.db_params.ntrans
 time_interval = config.im_params.time_interval
@@ -33,17 +38,10 @@ config._alignment = 'trajectory'
 savedir = config.common.savedir
 dbbsdir = savedir.joinpath('detailed_balance','separatedatabs')
 
+
 df = pd.read_csv(dbbsdir.joinpath(f'PC{whichpcs[0]}-PC{whichpcs[1]}_bootstrapped_{ntrans}_Area_Enclosed_Linear_Reg.csv'), index_col = 0)
 df = df[df.Treatment.isin(treatments)].copy()
 df['Treatment'] = pd.Categorical(df.Treatment.to_list(), categories=treatments, ordered=True)
-
-
-print(f'{treatments[0]} AER mean is {df[df.Treatment == treatments[0]].aercoef.mean()}'
-          f' and median is {df[df.Treatment == treatments[0]].aercoef.median()}')
-print(f'{treatments[1]} AER mean is {df[df.Treatment == treatments[1]].aercoef.mean()}'
-          f' and median is {df[df.Treatment == treatments[1]].aercoef.median()}')
-print(f'{treatments[2]} AER mean is {df[df.Treatment == treatments[2]].aercoef.mean()}'
-          f' and median is {df[df.Treatment == treatments[2]].aercoef.median()}')
 
 
 avgdf_filtered = filter_extremes_based_on_percentile(
@@ -52,33 +50,29 @@ avgdf_filtered = filter_extremes_based_on_percentile(
     1)
 
 
+print(f'{treatments[0]} AER mean is {df[df.Treatment == treatments[0]].aer_coeff.mean()}'
+          f' and median is {df[df.Treatment == treatments[0]].aer_coeff.median()}')
+print(f'{treatments[1]} AER mean is {df[df.Treatment == treatments[1]].aer_coeff.mean()}'
+          f' and median is {df[df.Treatment == treatments[1]].aer_coeff.median()}')
+
 
 ############### CELL AVERAGES OF SIGNIFICANT METRICS #################################
-colorlist = ['#d1b59b','#f7bebe','#faf191']
+colorlist = ['0.65','#8adb93']
 sns.set_palette(palette=colorlist)
 
 
-
-#separate dataframes
-ctrlframe = df[df.Treatment == treatments[0]]
-pnbframe = df[df.Treatment == treatments[1]]
-ck666frame = df[df.Treatment == treatments[2]]
-
-tstat, pnbpval = stats.mannwhitneyu(ctrlframe.aer_coeff.values, pnbframe.aer_coeff.values)
-tstat, ck666pval = stats.mannwhitneyu(ctrlframe.aer_coeff.values, ck666frame.aer_coeff.values)
-# reject, pvcorr = multipletests([pnbpval, ck666pval], method = 'bonferroni')[:2]
-# pnbpval_adj, ck666pval_adj = pvcorr
-print(f'Mann Whitney U test for AER between {treatments[0]} and {treatments[1]} is {pnbpval}')
-print(f'Mann Whitney U test for AER between {treatments[0]} and {treatments[2]} is {ck666pval}')
-
+##### stats for line fits
+stat, pval = stats.mannwhitneyu(df[df.Treatment == treatments[0]].aer_coeff.values,
+                            df[df.Treatment == treatments[1]].aer_coeff.values)
+print('Mann Whitney U test for AER coeff p value is ', pval)
 
 fig, ax = plt.subplots(1, 1, figsize=(4,5))#, sharex=True)
 linewid = 2
 # sns.swarmplot(data = avgcfdf, x='Treatment', y ='average_cf', color = 'grey', size = 3.5, alpha = 0.7, ax = ax)
-sns.violinplot(x = 'Treatment', y='aer_coeff', data = avgdf_filtered, alpha = 0.4,
+sns.violinplot(x = 'Treatment', y='aer_coeff', data = avgdf_filtered,
                linewidth = 0, inner = None, ax=ax, )
-for ac in ax.collections:
-    ac.set_edgecolor('black')
+ax.collections[0].set_edgecolor('black')
+ax.collections[1].set_edgecolor('black')
 sns.boxplot(x = 'Treatment', y='aer_coeff', data = avgdf_filtered, width = 0.15, color = 'white',
             showcaps=False, showfliers=False,
             boxprops={
@@ -100,22 +94,18 @@ sns.boxplot(x = 'Treatment', y='aer_coeff', data = avgdf_filtered, width = 0.15,
                 'color': 'black'
                 },
             ax=ax)
-#dmso to bleb
-ax.text(0.5,0.0248,get_stars(pnbpval), fontsize=12, ha='center')
-ax.plot([0.1,0.9],[0.0248,0.0248], color = 'black')
-#dmso to ck666
-ax.text(1,0.0258,get_stars(ck666pval), fontsize=12, ha='center')
-ax.plot([0.1,1.9],[0.0258,0.0258], color = 'black')
 
-#set y limit min at zero
+
 ymin, ymax = ax.get_ylim()
-ax.set_ylim(0,ymax)
-### labels
+
+ax.text(0.5,ymax*0.95,get_stars(pval), fontsize=12, ha='center')
+## set y axi
+# ax.set_ylim(ymin, ymax)
+
 ax.set_xlabel('', fontsize=20)
 ax.tick_params('y', labelsize=10)
 #modify the labels to put bleb in two lines
-ax.set_xticks(range(len(treatments)))
-ax.set_xticklabels([x[:11]+'\n'+x[11:] if x == 'Para-Nitro-Blebbistatin' else x for x in treatments], fontsize = 10)
+ax.set_xticklabels(xlabels, fontsize = 14)
 #remove legends
 ax.legend_ = None
 ax.set_ylabel('Area Enclosing Rate (PC units²/sec)', fontsize=16)
@@ -126,34 +116,25 @@ ax.spines['right'].set_visible(False)
 plt.tight_layout()
 
 
+
 plt.savefig(__file__.split('.')[0] + '_AER.png', dpi = 500, bbox_inches='tight')
 
 
 
 
-print(f'{treatments[0]} AER R² is {df[df.Treatment == treatments[0]].aer_fit.mean()}'
-          f' and median is {df[df.Treatment == treatments[0]].aer_fit.median()}')
-print(f'{treatments[1]} AER R² is {df[df.Treatment == treatments[1]].aer_fit.mean()}'
-          f' and median is {df[df.Treatment == treatments[1]].aer_fit.median()}')
-print(f'{treatments[2]} R² mean is {df[df.Treatment == treatments[2]].aer_fit.mean()}'
-          f' and median is {df[df.Treatment == treatments[2]].aer_fit.median()}')
-
 
 ##### stats for line fits
-tstat, pnbpval = stats.mannwhitneyu(ctrlframe.aer_fit.dropna().values, pnbframe.aer_fit.dropna().values)
-tstat, ck666pval = stats.mannwhitneyu(ctrlframe.aer_fit.dropna().values, ck666frame.aer_fit.dropna().values)
-# reject, pvcorr = multipletests([pnbpval, ck666pval], method = 'bonferroni')[:2]
-# pnbpval_adj, ck666pval_adj = pvcorr
-print(f'Mann Whitney U test for Rsq between {treatments[0]} and {treatments[1]} is {pnbpval}')
-print(f'Mann Whitney U test for Rsq between {treatments[0]} and {treatments[2]} is {ck666pval}')
+stat, pval = stats.mannwhitneyu(df[df.Treatment == treatments[0]].aer_fit.dropna().values,
+                   df[df.Treatment == treatments[1]].aer_fit.dropna().values)
+print('Mann Whitney test for R squared p value is ',pval)
 
 fig, ax = plt.subplots(1, 1, figsize=(4,5))#, sharex=True)
 linewid = 2
 # sns.swarmplot(data = avgcfdf, x='Treatment', y ='average_cf', color = 'grey', size = 3.5, alpha = 0.7, ax = ax)
 sns.violinplot(x = 'Treatment', y='aer_fit', data = avgdf_filtered,
                linewidth = 0, inner = None, ax=ax, )
-for ac in ax.collections:
-    ac.set_edgecolor('black')
+ax.collections[0].set_edgecolor('black')
+ax.collections[1].set_edgecolor('black')
 sns.boxplot(x = 'Treatment', y='aer_fit', data = avgdf_filtered, width = 0.15, color = 'white',
             showcaps=False, showfliers=False,
             boxprops={
@@ -164,7 +145,7 @@ sns.boxplot(x = 'Treatment', y='aer_fit', data = avgdf_filtered, width = 0.15, c
                 },
             medianprops={
                 'linewidth': linewid,
-                'color': 'black'
+                'color': 'black' 
                 },
             whiskerprops={
                 'linewidth': 0,
@@ -176,39 +157,21 @@ sns.boxplot(x = 'Treatment', y='aer_fit', data = avgdf_filtered, width = 0.15, c
                 },
             ax=ax)
 
-
-#set y limit min at zero
+ax.text(0.5,1.01, get_stars(pval), fontsize=12, ha='center')
+## set y axis min lim to 0
 ymin, ymax = ax.get_ylim()
-# ax.set_ylim(0,ymax)
+ax.set_ylim(0, ymax)
 
-#bar placement adjustment
-barinc = (ymax-ymin)*0.18
-starinc = (ymax-ymin)*0.001
-
-#DMSO to bleb
-ax.text(0.5,ymax*0.995,get_stars(pnbpval), fontsize=12, ha ='center')
-ax.plot([0,1],[ymax,ymax], color = 'black')
-#DMSO to CK666
-ax.text(1,ymax*0.995+barinc,get_stars(ck666pval), fontsize=12, ha ='center')
-ax.plot([0,2],[ymax+barinc,ymax+barinc], color = 'black')
-
-ymin, ymax = ax.get_ylim()
-ax.set_ylim(0,ymax)
-
-#ditch x axis label
 ax.set_xlabel('', fontsize=20)
-#change ticks
 ax.tick_params('y', labelsize=10)
 #modify the labels to put bleb in two lines
-ax.set_xticks(range(len(treatments)))
-ax.set_xticklabels([x[:11]+'\n'+x[11:] if x == 'Para-Nitro-Blebbistatin' else x for x in treatments], fontsize = 10)
+ax.set_xticklabels(xlabels, fontsize = 14)
 #remove legends
 ax.legend_ = None
 ax.set_ylabel('Area Enclosing Rate R²', fontsize=16)
 #remove parts of box
 ax.spines['top'].set_visible(False)
 ax.spines['right'].set_visible(False)
-
 
 plt.tight_layout()
 

@@ -64,8 +64,8 @@ def segment_whole_images(
                 result = pool.apply_async(segment_caax_tracks_confocal_40x_fromsingle, args=(
                     imdir,
                     fullimshape[-3:],
-                    config.confocal.xyres,
-                    config.confocal.zstep,
+                    config.im_params.xyres,
+                    config.im_params.zstep,
                     t, ))
                 results.append(result)
 
@@ -128,12 +128,12 @@ def segment_and_crop_confocal(
         meshdir.mkdir(parents=True)
 
     ## load a few configuration parameters from the config file
-    xyres = config.confocal.xyres  # xy resolution of images
-    zstep = config.confocal.zstep  # z resolution of images
-    xy_buffer = config.confocal.xy_buffer  # amount to buffer cropped images in xy
-    z_buffer = config.confocal.z_buffer  # amount to buffer cropped images in z
-    stackshape = config.confocal.stackshape  # shape of one z stack in pixels (z,y,x) format
-    whatseg = config.confocal.whatseg  # what segmentation function to use for which cells
+    xyres = config.im_params.xyres  # xy resolution of images
+    zstep = config.im_params.zstep  # z resolution of images
+    xy_buffer = config.im_params.xy_buffer  # amount to buffer cropped images in xy
+    z_buffer = config.im_params.z_buffer  # amount to buffer cropped images in z
+    stackshape = config.im_params.stackshape  # shape of one z stack in pixels (z,y,x) format
+    whatseg = config.im_params.whatseg  # what segmentation function to use for which cells
 
     for u in filelist_fl:
 
@@ -249,21 +249,16 @@ def segment_and_crop_confocal(
 def get_smooth_trajectories(
         imdir: Path,  # where to find the segmented images and position information
         config: Config,
-        microscope: str,  # what microscope the data is from to determine which config parameters to use
-):
+        ):
     #save some variables from the config
-    if microscope == 'confocal':
-        mcon = config.confocal
-    elif microscope == 'lls':
-        mcon = config.lls
-    time_interval = mcon.time_interval  # time interval between frames of movies
+    time_interval = config.im_params.time_interval  # time interval between frames of movies
     smooth_factor = config.common.smooth_factor  # "s" parameter in the interpolate.splprep function
 
     # define directory stuff
     csvdir = imdir.joinpath('smooth_traj')
     posdir = imdir.joinpath('position_info')
     if not csvdir.exists():
-        csvdir.mkdir(parents=True)
+        csvdir.mkdir(parents=True, exist_ok=True)
 
     # combine all of the cell csvs into one dataframe
     csvlist = [posdir.joinpath(x) for x in posdir.glob('*.csv')]
@@ -401,7 +396,7 @@ def get_normal_rotations(
     csvdir = imdir.joinpath('smooth_traj')
     datadir = savedir.joinpath('shape_data')
     if not datadir.exists():
-        datadir.mkdir(parents=True)
+        datadir.mkdir(parents=True, exist_ok=True)
 
     # get the list of unique cells that we have trajectory info for
     #first get list of unique cells in the image folder for that experiment
@@ -443,10 +438,10 @@ def get_normal_rotations(
             # get results
             results = [r.get() for r in results]
             results.sort(key=lambda x: float(
-                re.findall('(?<=frame_)\d*', x[0])[0]))
+                re.findall(r'(?<=frame_)\d*', x[0])[0]))
             tempframe = pd.DataFrame(results, columns=['cell', 'Width_Peaks'])
             tempframe['frame'] = [
-                float(re.findall('(?<=frame_)\d*', x[0])[0]) for x in results]
+                float(re.findall(r'(?<=frame_)\d*', x[0])[0]) for x in results]
     
             tempframe, runs = get_consecutive_timepoints(tempframe, 'frame', 1)
     
@@ -541,27 +536,22 @@ def get_normal_rotations(
 
     # save the shape metrics dataframe
     bigdf = pd.concat(allresults, ignore_index = True)
-    bigdf.to_csv(datadir.joinpath(f'Closest_Width_Peaks_{mindir.name}.csv'))
+    bigdf.to_csv(datadir.joinpath(f'Closest_Width_Peaks_{imdir.name}.csv'))
 
 
 def seg_to_mesh(
     imdir, # where to find the segmented images 
     config: Config,
-    microscope: str,  # what microscope the data is from to determine which config parameters to use
     ):
     #save some variables from the config
-    if microscope == 'confocal':
-        mcon = config.confocal
-    elif microscope == 'lls':
-        mcon = config.lls
     savedir = config.common.savedir  # where to save the meshes etc.
-    xyres = mcon.xyres  # xy resolution
-    zstep = mcon.zstep  # z resolution
+    xyres = config.im_params.xyres  # xy resolution
+    zstep = config.im_params.zstep  # z resolution
     align_method = config.common.align_method  # how to align the cells
     l_order = config.common.l_order  # L order for SH coefficients
 
     ## get a few variables from the config file
-    norm_rot = config.common.normal_method
+    
 
     # make dirs if it doesn't exist
     datadir = savedir.joinpath('shape_data')
@@ -579,14 +569,13 @@ def seg_to_mesh(
     mapargs = []
     for i in meshlist:
         # assign the normal rotation value for that particular cell
-        norm_rot = float(widthpeaks[widthpeaks.cell == i.name.split('_cell_mesh')[0]]['Closest_minimums'].values)#[0])
+        norm_rot = widthpeaks[widthpeaks.cell == i.name.split('_cell_mesh')[0]]['Closest_minimums'].values[0]
         if np.isnan(norm_rot):
             continue
 
         # append unique args to list
         mapargs.append((
             i,
-            savedir,
             xyres,
             zstep,
             norm_rot,
@@ -744,7 +733,7 @@ def segment_and_crop_LLS_manual(
             fulldf.to_csv(posdir.joinpath(cellstr + f'_{s}_cellpos.csv'))
         else:
             print('No images were recovered of cell ' +
-                  re.split('-\d*-Subset', curcell[0])[0] + '-' + s)
+                  re.split(r'-\d*-Subset', curcell[0])[0] + '-' + s)
 
 
 # def get_pilr_regions(

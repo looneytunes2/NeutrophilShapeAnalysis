@@ -25,7 +25,7 @@ def get_stars(pv):
     return stars
 
 treatments = ['DMSO','Para-Nitro-Blebbistatin','CK666']
-whichpcs = [1,2]
+whichpcs = [4,5]
 config = load_config(microscope_type='confocal')
 ntrans = config.db_params.ntrans
 time_interval = config.im_params.time_interval
@@ -38,12 +38,12 @@ df = df[df.Treatment.isin(treatments)].copy()
 df['Treatment'] = pd.Categorical(df.Treatment.to_list(), categories=treatments, ordered=True)
 
 
-print(f'{treatments[0]} AER mean is {df[df.Treatment == treatments[0]].aercoef.mean()}'
-          f' and median is {df[df.Treatment == treatments[0]].aercoef.median()}')
-print(f'{treatments[1]} AER mean is {df[df.Treatment == treatments[1]].aercoef.mean()}'
-          f' and median is {df[df.Treatment == treatments[1]].aercoef.median()}')
-print(f'{treatments[2]} AER mean is {df[df.Treatment == treatments[2]].aercoef.mean()}'
-          f' and median is {df[df.Treatment == treatments[2]].aercoef.median()}')
+print(f'{treatments[0]} AER mean is {df[df.Treatment == treatments[0]].aer_coeff.mean()}'
+          f' and median is {df[df.Treatment == treatments[0]].aer_coeff.median()}')
+print(f'{treatments[1]} AER mean is {df[df.Treatment == treatments[1]].aer_coeff.mean()}'
+          f' and median is {df[df.Treatment == treatments[1]].aer_coeff.median()}')
+print(f'{treatments[2]} AER mean is {df[df.Treatment == treatments[2]].aer_coeff.mean()}'
+          f' and median is {df[df.Treatment == treatments[2]].aer_coeff.median()}')
 
 
 avgdf_filtered = filter_extremes_based_on_percentile(
@@ -100,16 +100,19 @@ sns.boxplot(x = 'Treatment', y='aer_coeff', data = avgdf_filtered, width = 0.15,
                 'color': 'black'
                 },
             ax=ax)
-#dmso to bleb
-ax.text(0.5,0.0248,get_stars(pnbpval), fontsize=12, ha='center')
-ax.plot([0.1,0.9],[0.0248,0.0248], color = 'black')
-#dmso to ck666
-ax.text(1,0.0258,get_stars(ck666pval), fontsize=12, ha='center')
-ax.plot([0.1,1.9],[0.0258,0.0258], color = 'black')
 
 #set y limit min at zero
 ymin, ymax = ax.get_ylim()
-ax.set_ylim(0,ymax)
+# ax.set_ylim(0,ymax)
+
+#dmso to bleb
+ax.text(0.5,ymax*0.95,get_stars(pnbpval), fontsize=12, ha='center')
+ax.plot([0.1,0.9],[ymax*0.95,ymax*0.95], color = 'black')
+#dmso to ck666
+ax.text(1,ymax,get_stars(ck666pval), fontsize=12, ha='center')
+ax.plot([0.1,1.9],[ymax, ymax], color = 'black')
+
+
 ### labels
 ax.set_xlabel('', fontsize=20)
 ax.tick_params('y', labelsize=10)
@@ -179,21 +182,17 @@ sns.boxplot(x = 'Treatment', y='aer_fit', data = avgdf_filtered, width = 0.15, c
 
 #set y limit min at zero
 ymin, ymax = ax.get_ylim()
-# ax.set_ylim(0,ymax)
+ax.set_ylim(0,ymax)
 
-#bar placement adjustment
-barinc = (ymax-ymin)*0.18
-starinc = (ymax-ymin)*0.001
+
 
 #DMSO to bleb
-ax.text(0.5,ymax*0.995,get_stars(pnbpval), fontsize=12, ha ='center')
-ax.plot([0,1],[ymax,ymax], color = 'black')
+ax.text(0.5,ymax*0.965,get_stars(pnbpval), fontsize=12, ha ='center')
+ax.plot([0,1],[ymax*0.97,ymax*0.97], color = 'black')
 #DMSO to CK666
-ax.text(1,ymax*0.995+barinc,get_stars(ck666pval), fontsize=12, ha ='center')
-ax.plot([0,2],[ymax+barinc,ymax+barinc], color = 'black')
+ax.text(1,ymax*0.99,get_stars(ck666pval), fontsize=12, ha ='center')
+ax.plot([0,2],[ymax,ymax], color = 'black')
 
-ymin, ymax = ax.get_ylim()
-ax.set_ylim(0,ymax)
 
 #ditch x axis label
 ax.set_xlabel('', fontsize=20)

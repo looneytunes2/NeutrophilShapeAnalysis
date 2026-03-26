@@ -15,11 +15,10 @@ import tifffile
 import skimage.measure
 import skimage.segmentation
 from skimage.morphology import remove_small_objects
-from ..aicssegmentation.core.MO_threshold import MO
+from ..aicssegmentation.core.MO_threshold import MO, MO_ma
 from ..aicssegmentation.core import vessel
 from ..aicssegmentation.core.pre_processing_utils import intensity_normalization, image_smoothing_gaussian_3d
 from scipy.spatial import distance
-from .MO_Threshold import MO_ma
 from .utils import twodholefill, get_intensity_features
 
 

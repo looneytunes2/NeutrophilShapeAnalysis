@@ -111,22 +111,12 @@ def get_pa(
     ):
     
     
-    
-    dx = np.zeros([len(df)-1])
-    dy = np.zeros([len(df)-1])
-    dz = np.zeros([len(df)-1])
-    
-    #And then for the actual  inference, for a single time series, plus in the x, y, and x speed values
-    for i, t in enumerate(np.arange(df.frame.min(),df.frame.max())):
-       dx[i] = df[df.frame==t+1].x.values - \
-                        df[df.frame==t].x.values
-    
-       dy[i] = df[df.frame==t+1].y.values - \
-                        df[df.frame==t].y.values
-    
-       dz[i] = df[df.frame==t+1].z.values - \
-                        df[df.frame==t].z.values
-    
+    ### get velocity sequence from cell track    
+    dx = df.x.diff()[1:]
+    dy = df.y.diff()[1:]
+    dz = df.z.diff()[1:]
+
+
     # Now lets begin Bayesian analysis of cell track
     veloSequ1 = np.zeros([len(dx), 3])
     veloSequ1[:,0] = dx/interval # um/sec
@@ -235,7 +225,8 @@ def DA_3D(
     traj[1:,1] = pos[1:,1] - pos[:-1,1]
     traj[1:,2] = pos[1:,2] - pos[:-1,2]
     # Normalize vectors to get unit direction vectors
-    unitvecs = traj/np.linalg.norm(traj, axis = 1)[:, np.newaxis]
+    unitvecs = np.full(traj.shape, np.nan)
+    unitvecs[1:,:] = traj[1:]/np.linalg.norm(traj[1:], axis = 1)[:, np.newaxis]
     # Calculate dot products of consecutive unit vectors with the given lag
     dot_products = np.sum(unitvecs[:-lag] * unitvecs[lag:], axis=1)
     # Create an array with NaN values and insert the dot products in the correct positions

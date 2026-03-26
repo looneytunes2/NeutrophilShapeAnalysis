@@ -9,14 +9,13 @@ from scipy import interpolate
 import pandas as pd
 import numpy as np
 from random import shuffle
-from CustomFunctions import utils
+from . import utils
 import multiprocessing
 import itertools
 import math
 import tqdm
-import random
 from scipy.stats import gaussian_kde
-
+from ..config.models import Config
 
 def signed_angle(u,v):
     return math.degrees(math.atan2( u[0]*v[1] - u[1]*v[0], u[0]*v[0] + u[1]*v[1] ))
@@ -601,10 +600,15 @@ def rate_fit_bs_wrap(
 def get_raw_cgps_trajectories(
         TotalFrame, #pandas dataframe with all of the cgps binned data
         whichpcs, #which two PCs to use in the cgps [x,y]
-        time_interval, #real time between datapoints
-        savedir, #where to save the aggregated trajectories
-        group_factor = 'Treatment', #column with factor to separate the data on
+        config: Config,
+        group_factor: str = 'Treatment', #column with factor to separate the data on
         ):
+    ## get settings from config
+    time_interval = config.im_params.time_interval
+    dbsavedir = config.common.savedir / 'detailed_balance'
+    if not dbsavedir.exists():
+        dbsavedir.mkdir()
+
     migresults = []
     for m, Mig in TotalFrame.groupby(group_factor):
         results = []
@@ -633,7 +637,7 @@ def get_raw_cgps_trajectories(
         migresults.append(rawtrans)
         
     rawtrans = pd.concat(migresults, ignore_index=True)
-    rawtrans.to_csv(savedir.joinpath('-'.join(f"PC{w}" for w in whichpcs)+'_transitions_separated.csv'))
+    rawtrans.to_csv(dbsavedir.joinpath('-'.join(f"PC{w}" for w in whichpcs)+'_transitions_separated.csv'))
 
     print('Aggregated transitions')
     
@@ -643,9 +647,13 @@ def get_raw_cgps_trajectories(
 def get_interpolated_cgps_trajectories(
         rawtrans, #pandas dataframe with raw transitions from get_raw_cgps_trajectories
         whichpcs, #which two PCs to use in the cgps [x,y]
-        savedir, #where to save the aggregated trajectories
-        group_factor = 'Treatment', #column with factor to separate the data on
+        config: Config,
+        group_factor: str = 'Treatment', #column with factor to separate the data on
         ):
+    
+    ## get settings from config
+    dbsavedir = config.common.savedir / 'detailed_balance'
+    
     migresults = []
     for m, Mig in rawtrans.groupby(group_factor):
         mapargs = []
@@ -666,7 +674,7 @@ def get_interpolated_cgps_trajectories(
         migresults.append(transdf_sep)
 
     transdf_sep = pd.concat(migresults)
-    transdf_sep.to_csv(savedir.joinpath('-'.join(f"PC{w}" for w in whichpcs)+'_interpolated_transitions_separated.csv'))
+    transdf_sep.to_csv(dbsavedir.joinpath('-'.join(f"PC{w}" for w in whichpcs)+'_interpolated_transitions_separated.csv'))
     print('Finished interpolating trajectories')
     
     return transdf_sep
@@ -675,10 +683,14 @@ def get_interpolated_cgps_trajectories(
 def aggregate_transition_counts(
         transdf_sep, #transdf_sep from get_interpolated_cgps_trajectories
         whichpcs, #which two PCs to use in the cgps [x,y]
-        savedir, #where to save the aggregated counts
-        nbins, #how many bins in the x and y cgps axes
-        group_factor = 'Treatment', #column with factor to separate the data on
+        config: Config,
+        group_factor: str = 'Treatment', #column with factor to separate the data on
         ):
+    
+    ## get settings from config
+    nbins = config.db_params.nbins
+    dbsavedir = config.common.savedir / 'detailed_balance'
+    
     trresults = []
     for m, mig in transdf_sep.groupby(group_factor):
         ## get time observed in this group
@@ -691,7 +703,7 @@ def aggregate_transition_counts(
         trresults.append(trans_rate_df_sep)
 
     trans_rate_df_sep = pd.concat(trresults)
-    trans_rate_df_sep.to_csv(savedir.joinpath('-'.join(f"PC{w}" for w in whichpcs)+'_binned_transition_rates_separated.csv'))
+    trans_rate_df_sep.to_csv(dbsavedir.joinpath('-'.join(f"PC{w}" for w in whichpcs)+'_binned_transition_rates_separated.csv'))
     print('Finished finding transition rates')
     
     return trans_rate_df_sep
@@ -702,15 +714,21 @@ def aggregate_transition_counts(
 def get_bootstrapped_cgps_trajectories(
         rawtrans, #raw transitions from get_raw_cgps_trajectories
         whichpcs, #which two PCs to use in the cgps [x,y]
-        time_interval, #real time between datapoints
-        savedir, #where to save the aggregated counts
-        nbins, #how many bins in the x and y cgps axes
-        ttot, #set the total bootstrap time
-        ntrans = 1, #how many transitions to sample at each step
-        bsiter = 3000, #number of times to bootstrap
-        group_factor = 'Treatment', #column with factor to separate the data on
+        config: Config,
+        bssavedir: str, #where to save the bootstrapped dataframes
+        group_factor: str = 'Treatment', #column with factor to separate the data on
         ):
     
+    ### get some settings from config
+    dbbssavedir = config.common.savedir / 'detailed_balance' / bssavedir #where to save the aggregated counts
+    if not dbbssavedir.exists():
+        dbbssavedir.mkdir()
+    nbins = config.db_params.nbins #how many bins in the x and y cgps axes
+    ttot = config.db_params.ttot #set the total bootstrap time
+    ntrans = config.db_params.ntrans #how many transitions to sample at each step
+    bsiter = config.db_params.bsiter #number of times to bootstrap
+
+
     #make a bunch of lists that I will append things to as I go for each treatment
     bstrans = []
     bsint = []
@@ -784,11 +802,11 @@ def get_bootstrapped_cgps_trajectories(
 
     ####### pull everything together and save
     bstrans = pd.concat(bstrans, ignore_index=True)
-    bstrans.to_csv(savedir.joinpath('-'.join(f"PC{w}" for w in whichpcs)+f'_bootstrapped_{ntrans}_transitions.csv'))
+    bstrans.to_csv(dbbssavedir.joinpath('-'.join(f"PC{w}" for w in whichpcs)+f'_bootstrapped_{ntrans}_transitions.csv'))
     bsint = pd.concat(bsint, ignore_index=True)
-    bsint.to_csv(savedir.joinpath('-'.join(f"PC{w}" for w in whichpcs)+f'_bootstrapped_{ntrans}_interpolated_transitions.csv'))
+    bsint.to_csv(dbbssavedir.joinpath('-'.join(f"PC{w}" for w in whichpcs)+f'_bootstrapped_{ntrans}_interpolated_transitions.csv'))
     bsframe_sep_full = pd.concat(bsframe_sep_full, ignore_index=True)
-    bsframe_sep_full.to_csv(savedir.joinpath('-'.join(f"PC{w}" for w in whichpcs)+f'_bootstrapped_{ntrans}_transition_rates.csv'))
+    bsframe_sep_full.to_csv(dbbssavedir.joinpath('-'.join(f"PC{w}" for w in whichpcs)+f'_bootstrapped_{ntrans}_transition_rates.csv'))
     print('Finished bootstrapping')
     
     return bstrans, bsint, bsframe_sep_full
@@ -798,11 +816,15 @@ def get_bootstrapped_cgps_trajectories(
 def get_avg_current_error(
         bsframe_sep_full, #transition rates in the cgps from get_bootstrapped_cgps_trajectories
         whichpcs, #which two PCs to use in the cgps [x,y]
-        savedir, #where to save the aggregated counts
-        nbins, #how many bins in the x and y cgps axes
-        ntrans = 1, #how many transitions to sample at each step
-        group_factor = 'Treatment', #column with factor to separate the data on
+        config: Config,
+        bssavedir: str, #where to save the bootstrapped dataframes
+        group_factor: str = 'Treatment', #column with factor to separate the data on
         ):
+    ### get some settings from config
+    dbbssavedir = config.common.savedir / 'detailed_balance' / bssavedir #where to save the aggregated counts
+    nbins = config.db_params.nbins #how many bins in the x and y cgps axes
+    ntrans = config.db_params.ntrans #how many transitions to sample at each step
+
     #### get current field for this bootstrap realization ######
     ####### this is for looking at data spread for the current field ############
     bsfield = []
@@ -825,7 +847,7 @@ def get_avg_current_error(
                               group_factor:m})
 
     bsfield_sep = pd.DataFrame(bsfield)
-    bsfield_sep.to_csv(savedir.joinpath('-'.join(f"PC{w}" for w in whichpcs)+f'_bootstrapped_{ntrans}_transitions_average_currents.csv'))
+    bsfield_sep.to_csv(dbbssavedir.joinpath('-'.join(f"PC{w}" for w in whichpcs)+f'_bootstrapped_{ntrans}_transitions_average_currents.csv'))
     
     return bsfield_sep
 
@@ -833,26 +855,29 @@ def get_avg_current_error(
 ########## calculate all the aers and cycling frequencies from the bootstrapped data
 def get_aer_cf(
         bstrans, #boostrapped transitions from get_bootstrapped_cgps_trajectories
-        nbins, #how many bins in the x and y cgps axes
         xyscaling, #scaling of the bins in real units of whatever the CGPS axis parameters are
         center, #origin in [x bin,y bin]
-        savedir, #where to save calculated aers and cfs
         whichpcs, #which two PCs to use in the cgps [x,y]
-        time_interval, #time interval of imaging data
-        ntrans = 1, #how many transitions to sample at each step
-        group_factor = 'Treatment', #column with factor to separate the data on
+        config: Config,
+        bssavedir: str, #where to save the bootstrapped dataframes
+        group_factor: str = 'Treatment', #column with factor to separate the data on
         ):
-
+    
+    ### get some settings from config
+    time_interval = config.im_params.time_interval
+    dbbssavedir = config.common.savedir / 'detailed_balance' / bssavedir #where to save the aggregated counts
+    nbins = config.db_params.nbins #how many bins in the x and y cgps axes
+    ntrans = config.db_params.ntrans #how many transitions to sample at each step
+    bsiter = config.db_params.bsiter #number of times to bootstrap
 
     #make list of imap arguments
-    bsiter = bstrans.iter.max()+1
     mapargs = [(df.sort_values('cumulative_time').reset_index(drop = True),nbins,xyscaling,center) for i, df in bstrans.groupby([group_factor,'iter'])]
 
     with multiprocessing.Pool(processes=60) as pool:
         results = list(tqdm.tqdm(pool.imap(get_area_enclosing_rate, mapargs), total=bsiter))
 
     allaers = pd.concat(results, ignore_index=True)
-    allaers.to_csv(savedir.joinpath('-'.join(f"PC{w}" for w in whichpcs)+f'_bootstrapped_{ntrans}_Area_Enclosing_Rates.csv'))
+    allaers.to_csv(dbbssavedir.joinpath('-'.join(f"PC{w}" for w in whichpcs)+f'_bootstrapped_{ntrans}_Area_Enclosing_Rates.csv'))
     
     ### get AE rate and fit 
     lrmapargs = [(df.sort_values('cumulative_time').reset_index(drop = True),group_factor,time_interval) for i, df in allaers.groupby([group_factor,'iter'])]
@@ -860,14 +885,17 @@ def get_aer_cf(
         lrresults = list(tqdm.tqdm(pool.imap(rate_fit_bs_wrap, lrmapargs), total=bsiter))
 
     ## save the AE rate and fit
-    pd.DataFrame(lrresults).to_csv(savedir.joinpath('-'.join(f"PC{w}" for w in whichpcs)+f'_bootstrapped_{ntrans}_Area_Enclosed_Linear_Reg.csv'))
+    pd.DataFrame(lrresults).to_csv(dbbssavedir.joinpath('-'.join(f"PC{w}" for w in whichpcs)+f'_bootstrapped_{ntrans}_Area_Enclosed_Linear_Reg.csv'))
 
 
 def get_run_stats(
         df, #dataframe containing aer info
         group, #what is the identifier to group by as a str
-        time_interval, #what was the imaging interval for this data
+        config: Config, #what was the imaging interval for this data
         ):
+    ### get settings from config
+    time_interval = config.im_params.time_interval
+
     allrunlengths = []
     allrunlengthmeans = []
     allgaplengths = []

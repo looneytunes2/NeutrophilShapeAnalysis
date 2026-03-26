@@ -31,7 +31,7 @@ def get_stars(pv):
 
 #define some variables
 treatments = ['DMSO','Para-Nitro-Blebbistatin','CK666']
-whichpcs = (1,2)
+whichpcs = (4,5)
 config = load_config(microscope_type='confocal')
 config._alignment = 'trajectory'
 pc_combos = config.common.pc_combos
@@ -258,6 +258,7 @@ for i, ax in enumerate(axes):
 axes[0].set_ylabel(f'PC{whichpcs[1]}', fontsize = 24)
 
 # adjust colorbar tick label size
+cbar_ax.set_yticks(cbar_ax.get_yticks())
 cbar_ax.set_yticklabels(cbar_ax.get_yticklabels(),fontsize=14)
 cbar_ax.get_yaxis().labelpad = 22
 cbar_ax.set_ylabel('Relative Dwell Time (sec)', fontsize = 20, rotation=270)

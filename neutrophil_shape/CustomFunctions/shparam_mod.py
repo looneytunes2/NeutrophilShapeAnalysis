@@ -109,7 +109,7 @@ def find_normal_width_peaks(
 
     
     #get cell name from impath
-    cell_name = impath.name.split('/')[-1].split('_segmented')[0]
+    cell_name = impath.name.split('/')[-1].split('_cell_mesh')[0]
     #read mesh
     mesh = shtools_mod.read_polydata(impath)
 
@@ -473,8 +473,8 @@ def recondistancesmesh(
 
         #split up all the cofficients so they can be fed to the get_reconstruction_from_coeffs function
         coeff_names = list(cell_coeffs.columns)
-        L_coeffs = len(np.unique(re.findall('L\d*', ''.join(coeff_names))))
-        M_coeffs = len(np.unique(re.findall('M\d*', ''.join(coeff_names))))
+        L_coeffs = len(np.unique(re.findall(r'L\d*', ''.join(coeff_names))))
+        M_coeffs = len(np.unique(re.findall(r'M\d*', ''.join(coeff_names))))
         #reconstruct from coefficients
         cell_recon, grid_recon = shtools_mod.get_reconstruction_from_coeffs(np.array(cell_coeffs).reshape(2,L_coeffs,M_coeffs))
         #get average nearest distance for this particular reconstruction
@@ -694,8 +694,7 @@ def get_pilr_stuct_string(
 
 
 def get_shape_info(
-        cell_name: str,
-        imdir: Path,
+        mesh_path: Path,
         xyres: float,
         zstep: float,
         normal_rotation: float,
@@ -706,10 +705,8 @@ def get_shape_info(
     """
         Parameters
         ----------
-        impath : Path
-            Input image path. Expected to have shape CZYX. Channel order must be Membrane, Nucleus, Structure
-        savedir : str
-            Directory that will contain the Mesh and PILR folders
+        mesh_path : Path
+            Path to the mesh file
         xyres : float
             microns/pixel resolution of the image
         zstep : float
@@ -757,8 +754,10 @@ def get_shape_info(
             Set true to make sure the alignment rotation is unique. 
             """
 
+    cell_name = mesh_path.name.split('_cell_mesh')[0]
+
     ### read the mesh
-    mesh = shtools_mod.read_polydata(imdir.joinpath('meshes', cell_name + '_cell_mesh.vtp'))
+    mesh = shtools_mod.read_polydata(mesh_path)
     
     #if align_method is a numpy array, use that as the vector to align to
     if type(align_method) == np.ndarray:
@@ -766,7 +765,7 @@ def get_shape_info(
         euler_angles = align_vec_to_xaxis_euler(vec, False) 
     elif align_method == 'trajectory':
         #read euler angles for alignment
-        infopath = imdir.joinpath('smooth_traj', cell_name + '_cell_info.csv')
+        infopath = mesh_path.parents[1].joinpath('smooth_traj', cell_name + '_cell_info.csv')
         info = pd.read_csv(infopath, index_col=0)
         vec = np.array([info.Trajectory_X[0], info.Trajectory_Y[0], info.Trajectory_Z[0]])
         euler_angles = align_vec_to_xaxis_euler(vec, False) 

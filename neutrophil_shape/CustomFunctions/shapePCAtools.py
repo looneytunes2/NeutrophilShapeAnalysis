@@ -7,7 +7,7 @@ Created on Thu Oct 20 10:36:41 2022
 
 import pandas as pd
 import numpy as np
-from aicsshparam import shtools
+from . import shtools_mod
 
 
 def filter_extremes_based_on_percentile(
@@ -197,6 +197,6 @@ def get_mesh_from_series(row, alias, lmax):
                 ]
             # If a given (l,m) pair is not found, it is assumed to be zero
             except: pass
-    mesh, _ = shtools.get_reconstruction_from_coeffs(coeffs)
+    mesh, _ = shtools_mod.get_reconstruction_from_coeffs(coeffs)
     return mesh
 

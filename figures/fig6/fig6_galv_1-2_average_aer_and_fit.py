@@ -9,10 +9,9 @@ Created on Wed Apr 16 12:52:22 2025
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
-from CustomFunctions import utils
-from CustomFunctions.shapePCAtools import filter_extremes_based_on_percentile
+from neutrophil_shape.CustomFunctions.shapePCAtools import filter_extremes_based_on_percentile
+from neutrophil_shape.config.loader import load_config
 from scipy import stats
-from pathlib import Path
 
 
 def get_stars(pv):
@@ -26,37 +25,35 @@ def get_stars(pv):
         stars = 'n.s.'
     return stars
 
-ntrans = 1
-whichpcs = [1,2]
-time_interval = 10
+
+
+#define some variables
 treatments = ['Random','Galvanotaxis']
 xlabels = ['Undirected', 'Electrotaxis']
-basedir = Path('E:/Aaron/Combined_37C_Confocal_PCA_planar/')
-datadir = basedir.joinpath('Data_and_Figs')
-aerdir = basedir.joinpath('Detailed_Balance')
+whichpcs = (1,2)
+config = load_config(microscope_type='confocal')
+ntrans = config.db_params.ntrans
+time_interval = config.im_params.time_interval
+config._alignment = 'trajectory'
+savedir = config.common.savedir
+dbbsdir = savedir.joinpath('detailed_balance','separatedatabs')
 
 
-df = pd.read_csv(aerdir.joinpath(f'PC{whichpcs[0]}-PC{whichpcs[1]}_bootstrapped_{ntrans}_Area_Enclosing_Rates.csv'), index_col = 0)
-df.loc[:,'Treatment'] = pd.Categorical(df.Treatment.to_list(), categories=treatments, ordered=True)
-
-
-dflist = []
-for i, t in df.groupby(['Treatment','iter']):
-    t = t.rename(columns = {'cumulative_time':'time'})
-    t = t.sort_values('time').reset_index(drop=True)
-    #fit aer
-    rate_fit_dict = utils.fit_rates_linear(t,time_interval,['aer'])
-    id_dict = {'Treatment':i[0],'iter':i[1]}
-    id_dict.update(rate_fit_dict)
-    dflist.append(id_dict)
-avgdf = pd.DataFrame(dflist)
+df = pd.read_csv(dbbsdir.joinpath(f'PC{whichpcs[0]}-PC{whichpcs[1]}_bootstrapped_{ntrans}_Area_Enclosed_Linear_Reg.csv'), index_col = 0)
+df = df[df.Treatment.isin(treatments)].copy()
+df['Treatment'] = pd.Categorical(df.Treatment.to_list(), categories=treatments, ordered=True)
 
 
 avgdf_filtered = filter_extremes_based_on_percentile(
-    avgdf,
-    ['aercoef','aerresid'],
+    df,
+    ['aer_coeff','aer_fit'],
     1)
 
+
+print(f'{treatments[0]} AER mean is {df[df.Treatment == treatments[0]].aer_coeff.mean()}'
+          f' and median is {df[df.Treatment == treatments[0]].aer_coeff.median()}')
+print(f'{treatments[1]} AER mean is {df[df.Treatment == treatments[1]].aer_coeff.mean()}'
+          f' and median is {df[df.Treatment == treatments[1]].aer_coeff.median()}')
 
 
 ############### CELL AVERAGES OF SIGNIFICANT METRICS #################################
@@ -65,18 +62,18 @@ sns.set_palette(palette=colorlist)
 
 
 ##### stats for line fits
-stat, pval = stats.mannwhitneyu(avgdf[avgdf.Treatment == treatments[0]].aercoef.values,
-                            avgdf[avgdf.Treatment == treatments[1]].aercoef.values)
+stat, pval = stats.mannwhitneyu(df[df.Treatment == treatments[0]].aer_coeff.values,
+                            df[df.Treatment == treatments[1]].aer_coeff.values)
 print('Mann Whitney U test for AER coeff p value is ', pval)
 
 fig, ax = plt.subplots(1, 1, figsize=(4,5))#, sharex=True)
 linewid = 2
 # sns.swarmplot(data = avgcfdf, x='Treatment', y ='average_cf', color = 'grey', size = 3.5, alpha = 0.7, ax = ax)
-sns.violinplot(x = 'Treatment', y='aercoef', data = avgdf_filtered,
+sns.violinplot(x = 'Treatment', y='aer_coeff', data = avgdf_filtered,
                linewidth = 0, inner = None, ax=ax, )
 ax.collections[0].set_edgecolor('black')
 ax.collections[1].set_edgecolor('black')
-sns.boxplot(x = 'Treatment', y='aercoef', data = avgdf_filtered, width = 0.15, color = 'white',
+sns.boxplot(x = 'Treatment', y='aer_coeff', data = avgdf_filtered, width = 0.15, color = 'white',
             showcaps=False, showfliers=False,
             boxprops={
                 'fill': 'white',
@@ -125,18 +122,18 @@ plt.savefig(__file__.split('.')[0] + '_AER.png', dpi = 500, bbox_inches='tight')
 
 
 ##### stats for line fits
-stat, pval = stats.mannwhitneyu(avgdf[avgdf.Treatment == treatments[0]].aerresid.dropna().values,
-                   avgdf[avgdf.Treatment == treatments[1]].aerresid.dropna().values)
+stat, pval = stats.mannwhitneyu(df[df.Treatment == treatments[0]].aer_fit.dropna().values,
+                   df[df.Treatment == treatments[1]].aer_fit.dropna().values)
 print('Mann Whitney test for R squared p value is ',pval)
 
 fig, ax = plt.subplots(1, 1, figsize=(4,5))#, sharex=True)
 linewid = 2
 # sns.swarmplot(data = avgcfdf, x='Treatment', y ='average_cf', color = 'grey', size = 3.5, alpha = 0.7, ax = ax)
-sns.violinplot(x = 'Treatment', y='aerresid', data = avgdf_filtered,
+sns.violinplot(x = 'Treatment', y='aer_fit', data = avgdf_filtered,
                linewidth = 0, inner = None, ax=ax, )
 ax.collections[0].set_edgecolor('black')
 ax.collections[1].set_edgecolor('black')
-sns.boxplot(x = 'Treatment', y='aerresid', data = avgdf_filtered, width = 0.15, color = 'white',
+sns.boxplot(x = 'Treatment', y='aer_fit', data = avgdf_filtered, width = 0.15, color = 'white',
             showcaps=False, showfliers=False,
             boxprops={
                 'fill': 'white',

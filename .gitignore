@@ -1,5 +1,16 @@
-# ignore folders
-script_notebook
-old_figures
-paraview
-Visualizations
+# data extensions
+*.png
+*.vtp
+*.csv
+
+# Python cache
+**/__pycache__/
+**/*.pyc
+
+# Ignore some root folders
+data/
+.vscode/
+.git/
+*.egg-info/
+old_figures/
+script_notebook/

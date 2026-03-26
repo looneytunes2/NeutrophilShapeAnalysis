@@ -15,13 +15,12 @@ from scipy.spatial.transform import Rotation as R
 from ..aicssegmentation.core.utils import hole_filling, topology_preserving_thinning
 from ..aicssegmentation.core.vessel import filament_2d_wrapper
 from ..aicssegmentation.core.pre_processing_utils import intensity_normalization, image_smoothing_gaussian_3d
-from skimage.morphology import remove_small_objects     # function for post-processing (size filter)
+from skimage.morphology import remove_small_objects, dilation     # function for post-processing (size filter)
 from ..aicssegmentation.core.MO_threshold import MO
 from .utils import twodholefill, get_intensity_features
 from . import shtools_mod
 
 import skimage.measure
-import cv2
 
 import tifffile
 
@@ -62,10 +61,8 @@ def partial_cell_removal_caax(caax_ch, #raw data
     noise_positions = np.where(caax_ch<=noisemax)
     noise_sample = caax_ch[noise_positions[0],noise_positions[1],noise_positions[2]]
     #dilate image a bit so that the partial cell gets more completely removed
-    kern = np.ones((7,7), np.uint8)
-    new = np.zeros(im_labeled.shape)
-    for x in range(im_labeled.shape[0]):
-        new[x,:,:] = cv2.dilate(im_labeled[x,:,:].astype(np.uint8), kern, iterations = 1)
+    kern = np.ones((7,7,7), np.uint8)
+    new = dilation(im_labeled, footprint=kern)
     r_fill = np.random.choice(noise_sample, len(np.where(new ==num)[0]))
     caax_ch[np.where(new == num)] = r_fill
     return caax_ch
@@ -158,14 +155,14 @@ def segment_caax_hl60(img):
                               seg, background=0, return_num=True)
     if n_labels > 1:
         im_props = skimage.measure.regionprops(im_labeled)
-        tempdf = pd.DataFrame([])
+        tempdata = []
         for count, prop in enumerate(im_props):
             area = prop.area
-            tempdata = {'cell':count, 'area':area}
-            tempdf = tempdf.append(tempdata, ignore_index=True)
+            tempdata.append({'cell':count, 'area':area})
+        tempdf = pd.DataFrame(tempdata)
         minArea = int(tempdf.area.max()-2)
         # create segmentation mask               
-        seg = remove_small_objects(im_labeled, min_size=minArea, connectivity=1, in_place=False)
+        seg = remove_small_objects(im_labeled, min_size=minArea, connectivity=1)
 
     ## get image in 8-bit binary
     seg = seg.astype(np.uint8)

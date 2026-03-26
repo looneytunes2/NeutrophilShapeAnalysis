@@ -7,20 +7,6 @@ name = "neutrophil_shape"
 version = "1.0.0"
 description = "Analyze motile neutrophil morphology"
 dependencies = [
-    # "numpy",
-    # "pandas",
-    # "scipy",
-    # "scikit-learn",
-    # "matplotlib",
-    # "vtk",
-    # "scikit-image",
-    # "seaborn",
-    # "tifffile",
-    # "czifile",
-    # "aicsimageio",
-    # "aicspylibczi",
-    # "bottleneck",
-    # "pyshtools==4.14"
 ]
 authors = [
     {name = "Aaron van Loon", email = "apvl92@uw.edu"},

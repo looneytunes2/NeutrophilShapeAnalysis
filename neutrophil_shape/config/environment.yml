@@ -1,4 +1,4 @@
-name: nsa_env
+name: nsa
 channels:
 - conda-forge
 - defaults
@@ -9,14 +9,14 @@ dependencies:
 - pandas
 - scipy
 - scikit-learn
+- scikit-image
 - matplotlib
 - vtk
-- scikit-image
 - seaborn
 - tifffile
 - aicspylibczi
 - bottleneck
 - pyarrow
-- opencv
 - pyshtools
+- conda-lock
 - pip: []

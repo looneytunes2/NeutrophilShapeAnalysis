@@ -12,7 +12,6 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from scipy import stats
 from matplotlib.lines import Line2D
-from statsmodels.stats.multicomp import pairwise_tukeyhsd
 from neutrophil_shape.config.loader import load_config
 
 def get_stars(pv):
@@ -28,7 +27,7 @@ def get_stars(pv):
 
 
 treatments = ['Random','Galvanotaxis']
-whichpcs = (1,2)
+whichpcs = (2,8)
 config = load_config(microscope_type='confocal')
 config._alignment = 'trajectory'
 pc_combos = config.common.pc_combos
@@ -195,8 +194,8 @@ for i, (treat, tdf) in enumerate(transdf_sep.groupby('Treatment')):
 #create the difference heatmap
 differences = [h-hms[0] for h in hms[1:]][0]
 #print the results of the one-sample ttest
-print(stats.ttest_1samp(differences.flatten(), popmean=0))
-
+wilcox_result = stats.wilcoxon(differences.flatten())[1]
+print('Wilcoxon signed rank pval',wilcox_result)
 
 
 fig, ax = plt.subplots(1,1,figsize=(5,5))
@@ -438,13 +437,13 @@ ax.scatter(jittered_x, diffdf['diffs'], s=diffdf['counts']/3, c = colors, edgeco
             alpha=0.3, zorder = 2)
 ##get y limits for plotting significance stars later
 ymin, ymax = ax.get_ylim()
-# ax.set_ylim(-1.5,1.5)
+ax.set_ylim(-1.0,1.0)
 ### x axis labels
 ax.set_xticks(unique_x_pos)
 ax.set_xticklabels(['i','ii','iii','iv'])
 ### y axis fontsizes
-ax.set_yticks(np.arange(-2.0,1.5,0.5))
-ax.set_yticklabels(np.arange(-2.0,1.5,0.5))
+ax.set_yticks(np.arange(-1.0,1.5,0.5))
+ax.set_yticklabels(np.arange(-1.0,1.5,0.5))
 ax.tick_params('both', labelsize =14)
 
 ### yaxis label

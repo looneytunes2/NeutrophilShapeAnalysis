@@ -31,7 +31,7 @@ def get_stars(pv):
 
 #define some variables
 treatments = ['DMSO','Para-Nitro-Blebbistatin','CK666']
-whichpcs = (1,2)
+whichpcs = (2,8)
 config = load_config(microscope_type='confocal')
 config._alignment = 'trajectory'
 pc_combos = config.common.pc_combos
@@ -258,6 +258,7 @@ for i, ax in enumerate(axes):
 axes[0].set_ylabel(f'PC{whichpcs[1]}', fontsize = 24)
 
 # adjust colorbar tick label size
+cbar_ax.set_yticks(cbar_ax.get_yticks())
 cbar_ax.set_yticklabels(cbar_ax.get_yticklabels(),fontsize=14)
 cbar_ax.get_yaxis().labelpad = 22
 cbar_ax.set_ylabel('Relative Dwell Time (sec)', fontsize = 20, rotation=270)
@@ -356,8 +357,8 @@ ymin, ymax = ax.get_ylim()
 ax.set_xticks(unique_x_pos)
 ax.set_xticklabels(['i','ii','iii','iv']*2)
 ### y axis fontsizes
-ax.set_yticks(np.arange(-0.5,2.5,0.5))
-ax.set_yticklabels(np.arange(-0.5,2.5,0.5))
+ax.set_yticks(np.arange(-0.5,3.0,0.5))
+ax.set_yticklabels(np.arange(-0.5,3.0,0.5))
 ax.tick_params('both', labelsize =14)
 
     
@@ -398,8 +399,10 @@ for r, row in dunndf[dunndf['p-adj']<0.05].iterrows():
     pstar = get_stars(row['p-adj'])
     xp = np.sort(np.array([pos_keys[row.Treatment][row.group1],pos_keys[row.Treatment][row.group2]]))
     #increase the height if comparison isn't adjacent
-    if (xp[0] == unique_x_pos[1]) | (xp[1] == unique_x_pos[1]):
-        slv = 1.2
+    if (xp[0] == unique_x_pos[0]) | (xp[1] == unique_x_pos[0]):
+        slv = 1.6
+    elif (xp[0] == unique_x_pos[1]) | (xp[1] == unique_x_pos[1]):
+        slv = 0.8
     elif (xp[0] == unique_x_pos[2]) | (xp[1] == unique_x_pos[2]):
         slv = 0
     elif np.diff(xp)[0] > quad_spacing+0.0001:
@@ -411,6 +414,9 @@ for r, row in dunndf[dunndf['p-adj']<0.05].iterrows():
     #bar
     ax.plot([xp[0]+0.1,xp[1]-0.1], [ymax+(barinc*slv),ymax+(barinc*slv)], lw = 0.5, color = 'black')
 
+
+ymin, ymax = ax.get_ylim()
+ax.set_ylim(-0.5,ymax)
 
 #t-test for overall population different than zero
 sig = [stats.ttest_1samp(dif.flatten(), popmean=0)[1] for dif in differences]

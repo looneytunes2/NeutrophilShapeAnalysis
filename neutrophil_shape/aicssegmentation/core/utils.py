@@ -119,12 +119,9 @@ def absolute_eigenvaluesh(nd_array):
 
 
 def sortbyabs(a, axis=0):
-    """Sort array along a given axis by the absolute value
-    modified from: http://stackoverflow.com/a/11253931/4067734
-    """
-    index = list(np.ix_(*[np.arange(i) for i in a.shape]))
-    index[axis] = np.abs(a).argsort(axis)
-    return a[index]
+    """Sort array along a given axis by the absolute value"""
+    return np.take_along_axis(a, np.abs(a).argsort(axis=axis), axis=axis)
+
 
 def get_middle_frame(struct_img_smooth, method='z'):
 

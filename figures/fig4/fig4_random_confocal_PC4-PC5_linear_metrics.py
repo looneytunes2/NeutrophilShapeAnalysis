@@ -14,7 +14,6 @@ from CustomFunctions import linear_cycle_utils, utils
 import math
 from scipy import interpolate
 from matplotlib import cm
-from scipy.stats import t
 from pathlib import Path
 
 
@@ -76,7 +75,7 @@ angframe = pd.concat((angframe, zerobin))
 ### narrow down columns
 collist = angframe.columns.tolist()
 snippets = ['shcoeffs','Trajectory_','crop','Date','Experiment',
-            'Treatment','Axis','_X','_Y','_Z','bins',
+            'Treatment','bins',
             'cell','image','structure','frame','time','CellID','Cell_intensity','_raw']
 metlist = [x for x in collist if not any([y in x for y in snippets])]
 

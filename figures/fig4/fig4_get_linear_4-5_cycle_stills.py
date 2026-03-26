@@ -18,10 +18,11 @@ from pathlib import Path
 
 treatments = ['Random']
 time_interval = 10 #sec/frame
-whichpcs = [2,8]
-origin = [8, 8]
-binrange = 360/6
-direction = 'counterclockwise'
+whichpcs = [4,5]
+origin = [7, 8]
+nbins = 12
+binrange = 360/nbins
+direction = 'clockwise'
 zerostart = 'left'
 
 
@@ -58,7 +59,7 @@ angframe =  linear_cycle_utils.bin_angular_coord(
 for t, treat in angframe.groupby('Treatment'):
     linear_cycle_utils.animate_linear_cycle_shcoeffs(
                             treat,
-                            basedir.joinpath('random'),
+                            basedir.joinpath('random').as_posix(),
                             t,
                             whichpcs,
                             binrange,

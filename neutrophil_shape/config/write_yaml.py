@@ -10,7 +10,7 @@ pip_packages = data["dependencies"]["pip"]
 
 # Build YAML structure
 env = {
-    "name": "nsa_env",
+    "name": "nsa",
     "channels": ["conda-forge", "defaults"],
     "dependencies": conda_packages + [
         {"pip": pip_packages}
