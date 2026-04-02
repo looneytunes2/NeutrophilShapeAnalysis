@@ -35,8 +35,9 @@ def load_config(path: str = None, microscope_type: str = 'confocal') -> Config:
         im_params=im_params,
         db_params=db_params,
         experiment=Experiment(
-            galv=ImageDir(**data["galv"]),
-            ck666=ImageDir(**data["ck666"]),
-            pnb=ImageDir(**data["pnb"]),
+            galv=ImageDir(**data["data"]["galv"]),
+            ck666=ImageDir(**data["data"]["ck666"]),
+            pnb=ImageDir(**data["data"]["pnb"]),
+            lls=ImageDir(**data["data"]["lls"]),
         ),
     )

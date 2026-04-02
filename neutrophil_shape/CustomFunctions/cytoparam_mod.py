@@ -1,7 +1,7 @@
 import vtk
 import warnings
 import numpy as np
-from aicsimageio import AICSImage
+# from aicsimageio import AICSImage
 from . import shparam_mod, shtools_mod
 from scipy import interpolate as spinterp
 from typing import Optional, List, Dict, Tuple
@@ -385,7 +385,7 @@ def cellular_mapping(
         ch_names.append(ch_name)
 
     # Convert array into TIFF
-    code = AICSImage(code, channel_names=ch_names)
+    # code = AICSImage(code, channel_names=ch_names)
 
     return code
 
@@ -700,6 +700,6 @@ def cellular_mapping_nonuc(
         ch_names.append(ch_name)
 
     # Convert array into TIFF
-    code = AICSImage(code, channel_names=ch_names)
+    # code = AICSImage(code, channel_names=ch_names)
 
     return code

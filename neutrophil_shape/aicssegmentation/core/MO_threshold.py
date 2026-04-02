@@ -15,7 +15,7 @@ def MO(structure_img_smooth, global_thresh_method, object_minArea, extra_criteri
         th_low_level = (global_tri + global_median)/2
 
     bw_low_level = structure_img_smooth > th_low_level
-    bw_low_level = remove_small_objects(bw_low_level, min_size=object_minArea, connectivity=1)
+    bw_low_level = remove_small_objects(bw_low_level, max_size=object_minArea, connectivity=1)
     bw_low_level = dilation(bw_low_level, footprint=ball(2))
 
     bw_high_level = np.zeros_like(bw_low_level)
@@ -87,7 +87,7 @@ def MO_low_level_ma(
         th_low_level = (global_tri + global_median) / 2
 
     bw_low_level = structure_img_smooth.data > th_low_level
-    bw_low_level = remove_small_objects(bw_low_level, min_size=object_minArea, connectivity=1, in_place=True)
+    bw_low_level = remove_small_objects(bw_low_level, max_size=object_minArea, connectivity=1)
     if dilate:
         bw_low_level = dilation(bw_low_level, selem=ball(2))
 

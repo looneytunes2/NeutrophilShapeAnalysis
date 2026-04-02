@@ -12,8 +12,9 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from scipy import stats
 from matplotlib.lines import Line2D
-from statsmodels.stats.multicomp import pairwise_tukeyhsd
 from neutrophil_shape.config.loader import load_config
+import scikit_posthocs
+
 
 def get_stars(pv):
     if pv < 0.001:
@@ -32,7 +33,7 @@ whichpcs = (1,2)
 config = load_config(microscope_type='confocal')
 config._alignment = 'trajectory'
 pc_combos = config.common.pc_combos
-time_interval = config.im_params.time_interval
+nbins = config.db_params.nbins
 origin = config.db_params.origins[pc_combos.index(whichpcs)]
 vmin = -1.5 #lower bound for heatmap 
 vmax = 1.5 #upper bound for heatmap 
@@ -45,7 +46,6 @@ dbdir = savedir.joinpath('detailed_balance')
 
 #open the centers of the binned PCs
 centers = pd.read_csv(datadir.joinpath('PC_bin_centers.csv'), index_col=0)
-nbins = len(centers.iloc[:,0])
 #trim bins outside 2 std
 bintrim = 3
 nbins_trim = nbins - 2*bintrim
@@ -472,6 +472,29 @@ ax.legend(handles=handles,
 #remove box lines
 ax.spines['right'].set_visible(False)
 ax.spines['top'].set_visible(False)
+
+
+#plot significance stars
+#build x position keys
+pos_keys = {treat: {quad: unique_x_pos[j+4*i] for j, quad in enumerate(diffdf.quadrant.unique())} for i, treat in enumerate(treatments[1:])}
+for r, row in dunndf[dunndf['p-adj']<0.05].iterrows():
+    
+    pstar = get_stars(row['p-adj'])
+    xp = np.sort(np.array([pos_keys[row.Treatment][row.group1],pos_keys[row.Treatment][row.group2]]))
+    #increase the height if comparison isn't adjacent
+    if (xp[0] == unique_x_pos[1]) | (xp[1] == unique_x_pos[1]):
+        slv = 1.2
+    elif (xp[0] == unique_x_pos[2]) | (xp[1] == unique_x_pos[2]):
+        slv = 0
+    elif np.diff(xp)[0] > quad_spacing+0.0001:
+        slv = 1.2
+    else:
+        slv = 0
+    barinc = (ymax-ymin)*0.08
+    ax.text(xp.mean(), (ymax*0.985)+(barinc*slv), pstar, fontsize = 12, ha='center')
+    #bar
+    ax.plot([xp[0]+0.1,xp[1]-0.1], [ymax+(barinc*slv),ymax+(barinc*slv)], lw = 0.5, color = 'black')
+
 
 
 #line at zero

@@ -71,20 +71,25 @@ trajectory = [[9,10],[8,6],[8,9],[8,8],[8,8],[8,8],[9,7],
 
 
 
-[galv]
+[data.galv]
 serverdir = '//10.158.28.37/ExpansionHomesA/avlnas/HL60 Galv/'
-localdir = 'E:/Aaron/Galvanotaxis_Confocal_40x_37C_10s_test/'
+localdir = 'E:/Aaron/Galvanotaxis_Confocal_40x_37C_10s_dil/'
 dates = ['20231116','20231122']
 
-[ck666]
+[data.ck666]
 serverdir = '//10.158.28.37/ExpansionHomesA/avlnas/HL60 CK666/'
-localdir = 'E:/Aaron/CK666_Confocal_40x_37C_test/'
+localdir = 'E:/Aaron/CK666_Confocal_40x_37C_dil/'
 dates = ['20240610','20240617','20240620','20241205','20241209']
 
-[pnb]
+[data.pnb]
 serverdir = '//10.158.28.37/ExpansionHomesA/avlnas/HL60 ParaNitroBlebbistatin/'
-localdir = 'E:/Aaron/ParaNitroBlebbistatin_Confocal_40x_37C_test/'
+localdir = 'E:/Aaron/ParaNitroBlebbistatin_Confocal_40x_37C_dil/'
 dates = ['20240624','20240626','20240701','20241125','20241126','20241127']
+
+[data.lls]
+serverdir = '//10.158.28.35/TheriotLab_LLS7/Aaron/manual_crop_lls_decon'
+localdir = 'E:/Aaron/random_lls/'
+dates = []
 
 [dependencies]
 conda = [

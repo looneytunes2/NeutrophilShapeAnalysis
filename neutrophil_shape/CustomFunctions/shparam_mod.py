@@ -81,7 +81,7 @@ def get_long_axis_eulers_mesh(
     cell_coords = cell_coords - np.mean(cell_coords,axis = 1,keepdims=True)
 
     #get covariance matrix and find eigenvalues and vectors
-    cov = np.cov(cell_coords)
+    cov = np.cov(cell_coords.T)
     cell_evals, cell_evecs = np.linalg.eigh(cov)
     #make sure that the eigenvalues and vectors are in the order of highest to lowest
     idx = np.argsort(cell_evals)[::-1]
@@ -774,11 +774,10 @@ def get_shape_info(
 
     
     
-    #rotate and scale mesh
+    #rotate mesh
     mesh = shtools_mod.rotate_and_scale_mesh(
             mesh,
             rotations = euler_angles,
-            scale = np.array([xyres, xyres, zstep]), 
             )
     #################### normal rotation by provided angle ###############
     if normal_rotation!=0:        

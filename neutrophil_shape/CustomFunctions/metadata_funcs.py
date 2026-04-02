@@ -7,13 +7,13 @@ Created on Thu Jul 18 13:58:48 2024
 
 import re
 import xml.etree.ElementTree as ET
+from aicspylibczi.CziFile import CziFile
 
 
-
-def getmdroot(im, #image from aicsimageio CziReader
-              ):
-    tree = ET.ElementTree(im.metadata[0])
-    return tree.getroot()
+def getmdroot(
+        czi: CziFile, #image from aicsimageio CziReader
+        ):
+    return czi.meta.find('Metadata')
 
 
 

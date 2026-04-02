@@ -58,7 +58,6 @@ print(f'{treatments[1]} AER mean is {df[df.Treatment == treatments[1]].aer_coeff
 
 ############### CELL AVERAGES OF SIGNIFICANT METRICS #################################
 colorlist = ['0.65','#8adb93']
-sns.set_palette(palette=colorlist)
 
 
 ##### stats for line fits
@@ -70,9 +69,10 @@ fig, ax = plt.subplots(1, 1, figsize=(4,5))#, sharex=True)
 linewid = 2
 # sns.swarmplot(data = avgcfdf, x='Treatment', y ='average_cf', color = 'grey', size = 3.5, alpha = 0.7, ax = ax)
 sns.violinplot(x = 'Treatment', y='aer_coeff', data = avgdf_filtered,
-               linewidth = 0, inner = None, ax=ax, )
-ax.collections[0].set_edgecolor('black')
-ax.collections[1].set_edgecolor('black')
+               linewidth = 0, inner = None, ax=ax)
+for i, ac in enumerate(ax.collections):
+    ac.set_facecolor(colorlist[i])
+    ac.set_edgecolor('black')
 sns.boxplot(x = 'Treatment', y='aer_coeff', data = avgdf_filtered, width = 0.15, color = 'white',
             showcaps=False, showfliers=False,
             boxprops={
@@ -130,9 +130,10 @@ fig, ax = plt.subplots(1, 1, figsize=(4,5))#, sharex=True)
 linewid = 2
 # sns.swarmplot(data = avgcfdf, x='Treatment', y ='average_cf', color = 'grey', size = 3.5, alpha = 0.7, ax = ax)
 sns.violinplot(x = 'Treatment', y='aer_fit', data = avgdf_filtered,
-               linewidth = 0, inner = None, ax=ax, )
-ax.collections[0].set_edgecolor('black')
-ax.collections[1].set_edgecolor('black')
+               linewidth = 0, inner = None, ax=ax)
+for i, ac in enumerate(ax.collections):
+    ac.set_facecolor(colorlist[i])
+    ac.set_edgecolor('black')
 sns.boxplot(x = 'Treatment', y='aer_fit', data = avgdf_filtered, width = 0.15, color = 'white',
             showcaps=False, showfliers=False,
             boxprops={

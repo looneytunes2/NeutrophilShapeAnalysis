@@ -14,6 +14,7 @@ from scipy import stats
 from matplotlib.lines import Line2D
 from statsmodels.stats.multicomp import pairwise_tukeyhsd
 from neutrophil_shape.config.loader import load_config
+import scikit_posthocs
 
 def get_stars(pv):
     if pv < 0.001:

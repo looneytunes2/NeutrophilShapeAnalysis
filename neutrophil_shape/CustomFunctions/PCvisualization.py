@@ -7,7 +7,6 @@ Created on Wed Jul 19 15:55:43 2023
 
 ######### do contour integrals for all migration modes ################
 import vtk
-from aicsshparam import shtools
 import os
 import numpy as np
 from scipy import interpolate
@@ -19,18 +18,9 @@ import operator
 from functools import reduce
 import matplotlib.pyplot as plt
 import pandas as pd
-from CustomFunctions import shtools_mod
+from . import shtools_mod
 
-def save_mesh(mesh, savedir):
-    #delete file if it already exists
-    if os.path.exists(savedir):
-        os.remove(savedir)
-    #save mesh
-    writer = vtk.vtkXMLPolyDataWriter()
-    writer.SetFileName(savedir)
-    writer.SetInputData(mesh)
-    writer.Write()
-    return
+
 
 def mesh_from_bins(binpos,
                    whichpcs,
@@ -51,7 +41,7 @@ def mesh_from_bins(binpos,
     #inverse pca transform
     coeffs = pca.inverse_transform(temppcs)
     #get mesh from coeffs
-    mesh, _ = shtools.get_reconstruction_from_coeffs(coeffs.reshape(2,lmax+1,lmax+1))
+    mesh, _ = shtools_mod.get_reconstruction_from_coeffs(coeffs.reshape(2,lmax+1,lmax+1))
 
     #save mesh
     save_mesh(mesh, savedir)
@@ -71,7 +61,7 @@ def mesh_from_PCs(avgpcs, #average value for all PCs generated with the pca
     #inverse pca transform
     coeffs = pca.inverse_transform(temppcs)
     #get mesh from coeffs
-    mesh, _ = shtools.get_reconstruction_from_coeffs(coeffs.reshape(2,lmax+1,lmax+1))
+    mesh, _ = shtools_mod.get_reconstruction_from_coeffs(coeffs.reshape(2,lmax+1,lmax+1))
     return mesh
 
 def animate_PCs(avgpcs, #average value for all PCs generated with the pca

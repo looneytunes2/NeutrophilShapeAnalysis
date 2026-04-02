@@ -6,14 +6,10 @@ Created on Tue Oct 15 16:21:03 2024
 """
 import os
 import numpy as np
-from aicsimageio.writers.ome_tiff_writer import OmeTiffWriter
-from aicsimageio.readers.ome_tiff_reader import OmeTiffReader
-from aicscytoparam import cytoparam
-from CustomFunctions.PCvisualization import animate_PCs
-from CustomFunctions.shtools_mod import get_even_reconstruction_from_coeffs
-from CustomFunctions.PCvisualization import save_mesh
-from CustomFunctions.shparam_mod import read_vtk_polydata
-from CustomFunctions import PILRagg
+import tifffile
+from .PCvisualization import animate_PCs
+from .shtools_mod import get_even_reconstruction_from_coeffs, read_polydata, save_polydata
+from . import PILRagg, cytoparam_mod
 import multiprocessing
 import pickle as pk
 from pathlib import Path
@@ -25,7 +21,7 @@ import shutil
 
 
 
-#### CLOCKWISE angle in 360 degrees
+#### CLOCKWISE angle in 360 degrees beginning at +X axis
 def angle360(x,y):
     return abs(math.degrees(np.arctan2(y,x))) if y < 0 else abs(math.degrees(np.arctan2(y,x))-360)
 
@@ -33,8 +29,8 @@ def angle360(x,y):
 def linearize_cycle_continuous(
         df, #dataframe with the PCs in format 'PC_'
         centers, #dataframe with center values of the CGPS bins for the PCs
-        origin = list, #list of the coordinates in the CGPS in format [x,y]
-        whichpcs = list, #list of which PCs are represented by x and y in format [x,y] 
+        origin, #list of the coordinates in the CGPS in format [x,y]
+        whichpcs, #list of which PCs are represented by x and y in format [x,y] 
         zerostart = str, #start with zero degrees on the 'right' or 'left'
         direction = str, #string either 'clockwise' or 'counterclockwise'
         ):
@@ -45,8 +41,14 @@ def linearize_cycle_continuous(
     ### calculate angular coord and radius
     df.loc[:,f'PC{whichpcs[0]}_PC{whichpcs[1]}_Continuous_Radial_Coord'] = np.sqrt((x**2) + (y**2))
     angco = np.array([angle360(x1, y1) for x1, y1 in zip(x, y)])
-    if zerostart == 'left':
+    if zerostart == 'top':
+        angco -= 90
+        angco[angco<0] = angco[angco<0]+360
+    elif zerostart == 'left':
         angco -= 180
+        angco[angco<0] = angco[angco<0]+360
+    elif zerostart == 'bottom':
+        angco -= 270
         angco[angco<0] = angco[angco<0]+360
     if direction == 'counterclockwise':
         angco = -(angco-360)
@@ -131,17 +133,14 @@ def animate_linear_cycle_shcoeffs(
         whichpcs = list, #list of which PCs are represented by x and y in format [x,y] 
         binrange = int, #how big are the radial bins in degrees
         lmax: int=10,
-        smooth: bool=True, #whether or not to smoothen the shcoeff values along the cycle
+        smooth: bool=False, #whether or not to smoothen the shcoeff values along the cycle
         ):
 
     
     #make the directory to save this combined image
-    specificdir = savedir +f'/PC{whichpcs[0]}-PC{whichpcs[1]}_Cycle_AllSHCoeff_Visualization/{treatment}/'
-    if not os.path.exists(specificdir):
-        os.makedirs(specificdir)
-    else:
-        shutil.rmtree(specificdir)
-        os.makedirs(specificdir)
+    specificdir = savedir.joinpath(f'PC{whichpcs[0]}-PC{whichpcs[1]}_Cycle_AllSHCoeff_Visualization', treatment)
+    if not specificdir.exists():
+        specificdir.mkdir(parents=True)
         
     #use 1D gaussian smoothening to get average PC curves over the 1D cycle
     allinterpvals = []
@@ -161,11 +160,11 @@ def animate_linear_cycle_shcoeffs(
     
     for i, a in enumerate(np.array(allinterpvals).T):
         mesh, _ = get_even_reconstruction_from_coeffs(np.reshape(a, (2,lmax+1,lmax+1)), lmax)
-        save_mesh(mesh, specificdir + f'frame_{int(i)}_mesh.vtp')
+        save_polydata(mesh, specificdir.joinpath(f'frame_{int(i)}_mesh.vtp'))
     
     #get just the linearized cgps data
     angularframe = coeffframe[[x for x in coeffframe.columns.to_list() if f'PC{whichpcs[0]}_PC{whichpcs[1]}_Continuous' in x]+['cell']].copy()
-    angularframe.to_csv(specificdir+'linear_cycle_data.csv')
+    angularframe.to_csv(specificdir.joinpath('linear_cycle_data.csv'))
 
 
 
@@ -226,25 +225,25 @@ def get_linear_cycle_PILRs(
                 pagg_norm_avg = np.mean(pagg_norm, axis = 0)
                 dims = [['X', 'Y', 'Z', 'C', 'T'][d] for d in range(pagg_avg.ndim)]
                 dims = ''.join(dims[::-1])
-                OmeTiffWriter.save(pagg_avg, pilragg_fl.joinpath(f'frame_{b}_{t}_{s}_repsagg.tif'), dim_order=dims)
-                OmeTiffWriter.save(pagg_norm_avg, pilragg_fl.joinpath(f'frame_{b}_{t}_{s}_repsagg_norm.tif'), dim_order=dims)
+                tifffile.imwrite(pilragg_fl.joinpath(f'frame_{b}_{t}_{s}_repsagg.tif'), pagg_avg)
+                tifffile.imwrite(pilragg_fl.joinpath(f'frame_{b}_{t}_{s}_repsagg_norm.tif'), pagg_norm_avg)
         
         
-                mesh_outer = read_vtk_polydata(Path(specificdir,t,f'frame_{framenum}_mesh.vtp'))
-                domain, origin = cytoparam.voxelize_meshes([mesh_outer, spherepoly])
-                coords_param, _ = cytoparam.parameterize_image_coordinates(
+                mesh_outer = read_polydata(Path(specificdir,t,f'frame_{framenum}_mesh.vtp'))
+                domain, origin = cytoparam_mod.voxelize_meshes([mesh_outer, spherepoly])
+                coords_param, _ = cytoparam_mod.parameterize_image_coordinates(
                     seg_mem=(domain>0).astype(np.uint8),
                     seg_nuc=(domain>1).astype(np.uint8),
                     lmax=lmax,
                     nisos=nisos
                 )
         
-                morphed = cytoparam.morph_representation_on_shape(
+                morphed = cytoparam_mod.morph_representation_on_shape(
                             img=domain,
                             param_img_coords=coords_param,
                             representation=pagg_avg)
                 morphed = np.stack([domain, morphed])
-                OmeTiffWriter.save(morphed, pilragg_fl.joinpath(f'frame_{b}_{t}_{s}_aggmorph.tif'), dim_order='CZYX')
+                tifffile.imwrite(pilragg_fl.joinpath(f'frame_{b}_{t}_{s}_aggmorph.tif'), morphed)
                 print(f'Finished frame_{b}_{t}_{s}')
     
 
@@ -263,7 +262,7 @@ def combine_linear_PILRs(savedir,
     #read all of the frames into a list
     imlist = []
     for s in structlist:
-        imlist.append(OmeTiffReader(avgPILRs + s).data[0])
+        imlist.append(tifffile.imread(avgPILRs + s)[0])
     #get max dimensions of all the images
     maxshape = np.zeros((len(imlist),4))
     for i, ii in enumerate(imlist):
@@ -286,14 +285,13 @@ def combine_linear_PILRs(savedir,
                   ] = ii
     if 'sum' in projtype:
         sumprojim = np.sum(fullimage, axis = 2)
-        OmeTiffWriter.save(sumprojim, savedir + structure + '_sum_PILR.ome.tiff', dim_order='TCYX')
+        tifffile.imwrite(savedir + structure + '_sum_PILR.ome.tiff', sumprojim)
     if 'max' in projtype:
         maxprojim = np.max(fullimage, axis = 2)
-        OmeTiffWriter.save(maxprojim, savedir + structure + '_max_PILR.ome.tiff', dim_order='TCYX')
+        tifffile.imwrite(savedir + structure + '_max_PILR.ome.tiff', maxprojim)
     if 'mean' in projtype:
         maxprojim = np.mean(fullimage, axis = 2)
-        OmeTiffWriter.save(maxprojim, savedir + structure + '_mean_PILR.ome.tiff', dim_order='TCYX')
+        tifffile.imwrite(savedir + structure + '_mean_PILR.ome.tiff', maxprojim)
     if 'slice' in projtype:
         sliced = fullimage[:,:,round(fullimage.shape[-3]/2),:,:]
-        OmeTiffWriter.save(sliced, savedir + structure + '_midslice_PILR.ome.tiff', dim_order='TCYX')   
-        
+        tifffile.imwrite(savedir + structure + '_midslice_PILR.ome.tiff', sliced)   

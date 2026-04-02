@@ -20,13 +20,12 @@ from pathlib import Path
 treatments = ['Random']
 config = load_config(microscope_type='confocal')
 config._alignment = 'trajectory'
-whichpcs = (1,2)
+whichpcs = (2,8)
 pc_combos = config.common.pc_combos
 origin = config.db_params.origins[pc_combos.index(whichpcs)]
 binrange = 360/6
-direction = 'clockwise'
+direction = 'counterclockwise'
 zerostart = 'left'
-
 
 #get directories and open separated datasets
 basedir = Path('c:/Users/Aaron/NeutrophilShapeAnalysis/data/trajectory')
@@ -37,6 +36,7 @@ FullFrame = pd.read_csv(datadir.joinpath('All_Data_with_CGPS_bins.csv'), index_c
 #open the centers of the binned PCs
 centers = pd.read_csv(datadir.joinpath('PC_bin_centers.csv'), index_col=0)
 TotalFrame = FullFrame[FullFrame.Treatment.isin(treatments)].copy()
+
 
 angframe = linear_cycle_utils.linearize_cycle_continuous(
             TotalFrame, 
@@ -59,7 +59,7 @@ angframe =  linear_cycle_utils.bin_angular_coord(
 for t, treat in angframe.groupby('Treatment'):
     linear_cycle_utils.animate_linear_cycle_shcoeffs(
                             treat,
-                            os.getcwd(),
+                            Path(__file__).parent,
                             t,
                             whichpcs,
                             binrange,

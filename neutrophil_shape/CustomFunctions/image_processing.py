@@ -414,7 +414,7 @@ def get_normal_rotations(
     allresults = []
     for u in uniquelist:
         # get list of all frames I have trajectory info on with this cell
-        cellframelist = [c.name.split('_cell_info')[0] for c in csvdir.glob('*'+u+'_frame*')]
+        cellframelist = meshdir.glob('*'+u+'_frame*')
         
         ### calculate normal rotation if measuring by width perpendivular to trajectory
         if normal_method == 'width':
@@ -422,9 +422,9 @@ def get_normal_rotations(
             # cellseglist = [j for j in segimlist if j.split('_segmented')[0] in cellframelist]
             results = []
             pool = multiprocessing.Pool(processes=60)
-            for y in cellframelist:
-                # get path to segmented image
-                impath = meshdir.joinpath(y+'_cell_mesh.vtp')
+            for impath in cellframelist:
+                # # get path to segmented image
+                # impath = meshdir.joinpath(y+'_cell_mesh.vtp')
                 # put in the pool
                 result = pool.apply_async(shparam_mod.find_normal_width_peaks, args=(
                     impath,
@@ -600,33 +600,44 @@ def seg_to_mesh(
 
 ################ SEGMENT AND TRACK CELLS FROM MANUALLY CROPPED LLS MOVIES #############
 def segment_and_crop_LLS_manual(
-        mindir,  # base directory with save folder and info folder
-        raw_dir,  # directory where all of the cropped LLS images live
         cellstr,  # the name of the unique cell being cropped and segmented across multiple videos\
-        decon=True,  # are these images deconvolved?
-        orig_size=False,  # should we save the images at their original size?
-        xy_buffer=25,  # crop buffer in x-y
-        z_buffer=25,  # crrop buffer in z
-        hilo=True,  # whether or not to do multiple thresholds for segmenting secondary signals
-):
+        config: Config,
+        main_cell_only: bool = True,  # whether to only segment the main cell in the cropped movies or also segment secondary cells that are in the crop
+        ):
 
-    savedir = mindir.joinpath('processed_images')
-    posdir = mindir.joinpath('position_info')
-    # make the savedir if it doesn't exist
-    if not savedir.exists():
-        savedir.mkdir(parents=True)
+    decon=config.im_params.decon  # are these images deconvolved?
+    xyres=config.im_params.xyres
+    zstep=config.im_params.zstep
+    orig_size=config.im_params.orig_size  # should we save the images at their original size?
+    xy_buffer=config.im_params.xy_buffer  # crop buffer in x-y
+    z_buffer=config.im_params.z_buffer  # crrop buffer in z
+    hilo=config.im_params.hilo  # whether or not to do multiple thresholds for segmenting secondary signals
+
+    raw_dir = config.experiment.lls.serverdir
+    imdir = config.experiment.lls.localdir
+    procimdir = imdir.joinpath('processed_images')
+    posdir = imdir.joinpath('position_info')
+    meshdir = imdir.joinpath('meshes')
+    # make the dirs if they don't exist
+    if not procimdir.exists():
+        procimdir.mkdir(parents=True)
     if not posdir.exists():
         posdir.mkdir(parents=True)
+    if not meshdir.exists():
+        meshdir.mkdir(parents=True)
 
     # get all of the images from a particular cell I was following
     curimlist = [x.name for x in raw_dir.glob(f'*{cellstr}*')]
     # find the total number of cells I cropped while following the cell of interest
-    cellnums = list(set([re.findall(r'Subset-(\d+)', x)[0]
-                    for x in curimlist]))
-    cellnums.sort()
+    if main_cell_only:
+        cellnums = ['01']
+    else:
+        cellnums = list(set([re.findall(r'Subset-(\d+)', x)[0]
+                        for x in curimlist]))
+        cellnums.sort()
     for s in cellnums:
         # list to put all dataframes from all subsets
-        dflist = []
+        wholecelldflist = []
         # get all the images of a given cell
         curcell = [x for x in curimlist if f'Subset-{s}' in x]
         # sort the current cell to be in chronological order
@@ -635,7 +646,7 @@ def segment_and_crop_LLS_manual(
             celldir = raw_dir.joinpath(c)
             # open the image
             czi = CziFile(celldir)
-            imdata = czi.read_image()
+            imdata, _ = czi.read_image()
             # absolute timepoint of first image
             if n == 0:
                 timezero = metadata_funcs.adjustedstarttime(czi)
@@ -661,12 +672,8 @@ def segment_and_crop_LLS_manual(
             else:
                 struct = ''
 
-            # get the pixel size from the metadata
-            scale = metadata_funcs.getscale(czi)
-            xyres = scale[0]
-            zstep = scale[-1]
-            # set image shape
-            imshape = czi.shape
+            # set whole image shape
+            imshape = czi.size
             # get the actual frame numbers from the original video
             first, last = metadata_funcs.frame_range_in_subset(czi)
             framelist = list(range(first-1, last))
@@ -687,7 +694,7 @@ def segment_and_crop_LLS_manual(
 
                 # segment the cropped images
                 result = pool.apply_async(segment_LLS.LLSseg, args=(
-                    savedir,
+                    procimdir,
                     image_name,
                     row.to_dict(),
                     imdata[int(row.frame), :, :, :, :],
@@ -718,17 +725,13 @@ def segment_and_crop_LLS_manual(
                 print(str(bef-af)+' frames dropped from ' + image_name)
             if af > 0:
                 # aggregate the dataframe
-                df = pd.DataFrame()
-                for d in results:
-                    df = df.append(pd.DataFrame(
-                        d, columns=d.keys(), index=[0]))
-                df = df.sort_values(by='frame').reset_index(drop=True)
-                dflist.append(df)
+                df = pd.DataFrame([r for r in results])
+                wholecelldflist.append(df)
             else:
                 print(image_name + ' did not have enough segmented frames in movie')
-        if len(dflist) > 0:
+        if len(wholecelldflist) > 0:
             # combine all of the subset dataframes and save
-            fulldf = pd.concat(dflist).reset_index(drop=True)
+            fulldf = pd.concat(wholecelldflist).reset_index(drop=True)
             fulldf['CellID'] = [cellstr+f'_{s}']*len(fulldf)
             fulldf.to_csv(posdir.joinpath(cellstr + f'_{s}_cellpos.csv'))
         else:

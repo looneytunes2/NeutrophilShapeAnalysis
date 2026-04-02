@@ -155,14 +155,11 @@ def segment_caax_hl60(img):
                               seg, background=0, return_num=True)
     if n_labels > 1:
         im_props = skimage.measure.regionprops(im_labeled)
-        tempdata = []
-        for count, prop in enumerate(im_props):
-            area = prop.area
-            tempdata.append({'cell':count, 'area':area})
-        tempdf = pd.DataFrame(tempdata)
-        minArea = int(tempdf.area.max()-2)
+        tempdict = [{'cell':count, 'area':prop.area} for count, prop in enumerate(im_props)]
+        tempdf = pd.DataFrame(tempdict)
+        max_size = int(tempdf.area.max()-2)
         # create segmentation mask               
-        seg = remove_small_objects(im_labeled, min_size=minArea, connectivity=1)
+        seg = remove_small_objects(im_labeled, max_size=max_size, connectivity=1)
 
     ## get image in 8-bit binary
     seg = seg.astype(np.uint8)

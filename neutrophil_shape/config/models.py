@@ -75,6 +75,7 @@ class Experiment:
     galv: ImageDir
     ck666: ImageDir
     pnb: ImageDir
+    lls: ImageDir
 
 @dataclass
 class Config():
@@ -103,10 +104,10 @@ class Config():
         ### variably set the INDICIES of the PCs to flip the order of
         ### need to set indicies so that components of actual pca class
         ### can be flipped too
-        self.pcflips = {
-            'shape': [0,1,2,4,6],
-            'trajectory_shape': [0,1,2,3,6],
-            'trajectory': [0,1],
+        self.common.pc_flips = {
+            'shape': [],#0,1,2,4,6],
+            'trajectory_shape': [1,3,6,7],#0,1,2,3,6],
+            'trajectory': [1,3,7],
         }[value]
         ### variably set the alignment methods based on the overall alignment
         self.common.align_method = {
@@ -122,7 +123,8 @@ class Config():
         ### change the savedir based on the alignment
         self.common.savedir = self.common.basedir.joinpath(
             'data',
-            value)
+            value + '_' + self.microscope,
+            )
         self.common.savedir.mkdir(parents=True, exist_ok=True)
         ### set the origins from all_origins based on alignment
         self.db_params.origins = self.db_params.all_origins[value]

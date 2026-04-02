@@ -23,11 +23,11 @@ from pathlib import Path
 treatments = ['Random']
 config = load_config(microscope_type='confocal')
 config._alignment = 'trajectory'
-whichpcs = (1,2)
+whichpcs = (2,8)
 pc_combos = config.common.pc_combos
 origin = config.db_params.origins[pc_combos.index(whichpcs)]
 binrange = 20
-direction = 'clockwise'
+direction = 'counterclockwise'
 zerostart = 'left'
 
 
@@ -35,9 +35,9 @@ zerostart = 'left'
 basedir = Path('c:/Users/Aaron/NeutrophilShapeAnalysis/data/trajectory')
 datadir = basedir.joinpath('shape_data')
 savedir = basedir.joinpath('detailed_balance')
-
     
 FullFrame = pd.read_csv(datadir.joinpath('All_Data_with_CGPS_bins.csv'), index_col=0)
+nbins = np.max(FullFrame[[x for x in FullFrame.columns.to_list() if 'bin' in x]].to_numpy())
 #open the centers of the binned PCs
 centers = pd.read_csv(datadir.joinpath('PC_bin_centers.csv'), index_col=0)
 TotalFrame = FullFrame[FullFrame.Treatment.isin(treatments)].copy()
@@ -73,16 +73,16 @@ angframe = pd.concat((angframe, zerobin))
 
 
 
-#### narrow down columns
-# collist = angframe.columns.tolist()
-# snippets = ['shcoeffs','Trajectory_','crop','Date','Experiment',
-#             'Treatment','Axis','_X','_Y','_Z','bins',
-#             'cell','image','structure','frame','time','CellID','Cell_intensity']
-# metlist = [x for x in collist if not any([y in x for y in snippets])]
+### narrow down columns
+collist = angframe.columns.tolist()
+snippets = ['shcoeffs','Trajectory_','crop','Date','Experiment',
+            'Treatment','bins',
+            'cell','image','structure','frame','time','CellID','Cell_intensity','_raw']
+metlist = [x for x in collist if not any([y in x for y in snippets])]
 
-metlist = ['LengthAlongTrajectory','Cell_LeftRightAngle','directional_autocorrelation','speed']
+# metlist = ['LengthAlongTrajectory','Cell_LeftRightAngle','directional_autocorrelation','speed']
 
-labelz = ['Length Along\nTrajectory (µm)','Long-Axis X-Y\nAngle (°)','Persistence','Instantaneous\nSpeed (µm/sec)']
+# labelz = ['Length Along\nTrajectory (µm)','Long-Axis X-Y\nAngle (°)','Persistence','Instantaneous\nSpeed (µm/sec)']
 
 
 
@@ -102,7 +102,7 @@ discrete_colors = cmap(np.linspace(0,1,totalpoints))
 
 sq = math.ceil(np.sqrt(len(metlist)))
 
-fig, axes = plt.subplots(1, 4, figsize=(16,3), sharex = True)
+fig, axes = plt.subplots(sq, sq, figsize=(18,14), sharex = True)
 for i, ax in enumerate(axes.flatten()):
     if i>=len(metlist):
         ax.remove()
@@ -141,7 +141,7 @@ for i, ax in enumerate(axes.flatten()):
     ax.tick_params('x',labelsize=12)
     
     #change y axis labels and sizes
-    ax.set_ylabel(labelz[i], fontsize = 18)
+    # ax.set_ylabel(metlist[i], fontsize = 18)
     ax.set_xlabel('')
     
     

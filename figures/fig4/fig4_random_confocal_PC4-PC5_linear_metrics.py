@@ -7,10 +7,10 @@ Created on Wed Feb 12 15:35:03 2025
 
 import pandas as pd
 import numpy as np
-import os
 import matplotlib.pyplot as plt
 import seaborn as sns
-from CustomFunctions import linear_cycle_utils, utils
+from neutrophil_shape.CustomFunctions import linear_cycle_utils, utils
+from neutrophil_shape.config.loader import load_config
 import math
 from scipy import interpolate
 from matplotlib import cm
@@ -21,25 +21,26 @@ from pathlib import Path
 #get directories and open separated datasets
 
 treatments = ['Random']
-time_interval = 10 #sec/frame
-whichpcs = [4,5]
-origin = [7,8]
+config = load_config(microscope_type='confocal')
+config._alignment = 'trajectory'
+whichpcs = (4,5)
+pc_combos = config.common.pc_combos
+origin = config.db_params.origins[pc_combos.index(whichpcs)]
 binrange = 20
 direction = 'clockwise'
 zerostart = 'left'
 
 
 #get directories and open separated datasets
-basedir = Path('E:/Aaron/Combined_37C_Confocal_PCA_planar/')
-datadir = basedir.joinpath('Data_and_Figs')
-savedir = basedir.joinpath('Detailed_Balance')
-
+basedir = Path('c:/Users/Aaron/NeutrophilShapeAnalysis/data/trajectory')
+datadir = basedir.joinpath('shape_data')
+savedir = basedir.joinpath('detailed_balance')
     
 FullFrame = pd.read_csv(datadir.joinpath('All_Data_with_CGPS_bins.csv'), index_col=0)
 nbins = np.max(FullFrame[[x for x in FullFrame.columns.to_list() if 'bin' in x]].to_numpy())
 #open the centers of the binned PCs
 centers = pd.read_csv(datadir.joinpath('PC_bin_centers.csv'), index_col=0)
-TotalFrame = FullFrame[FullFrame.Treatment=='Random']
+TotalFrame = FullFrame[FullFrame.Treatment.isin(treatments)].copy()
 
 
 angframe = linear_cycle_utils.linearize_cycle_continuous(

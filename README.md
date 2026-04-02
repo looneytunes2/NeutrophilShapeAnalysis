@@ -1,6 +1,13 @@
 # NeutrophilShapeAnalysis
 This repository functions to reproduce the results published in ______.
 
+## Installation
+1. Clone the repo
+2. In a conda environment with conda-lock installed, navigate inside the local repo and run:
+	- conda-lock install -n YOUR_NEW_ENV_NAME conda-lock.yml 
+3. Activate your new environment inside the local repo and run:
+        - pip install -e .
+
 ## Workflow
 All of the image and data processing work are performed in jupyter notebooks found in 'Notebooks/' and are run in the following order:
 1. Segment_and_Track_Motility_Paper_Confocal_Data.ipynb / Segment_and_Track_Motility_Paper_LLS_Random_Only.ipynb

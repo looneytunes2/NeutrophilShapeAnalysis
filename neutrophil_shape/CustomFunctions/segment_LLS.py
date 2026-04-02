@@ -5,7 +5,6 @@ Created on Thu Jul 18 14:58:51 2024
 @author: Aaron
 """
 
-import os
 import re
 import multiprocessing
 import pandas as pd
@@ -13,12 +12,14 @@ import numpy as np
 import numpy.ma as ma
 import tifffile
 import skimage.measure
-import skimage.segmentation
+from pathlib import Path
 from skimage.morphology import remove_small_objects
+from skimage.segmentation import find_boundaries
 from ..aicssegmentation.core.MO_threshold import MO, MO_ma
 from ..aicssegmentation.core import vessel
 from ..aicssegmentation.core.pre_processing_utils import intensity_normalization, image_smoothing_gaussian_3d
 from scipy.spatial import distance
+from . import shtools_mod
 from .utils import twodholefill, get_intensity_features
 
 
@@ -95,11 +96,8 @@ def segment_caax_decon(im):
                               both, background=0, return_num=True)
     if n_labels > 1:
         im_props = skimage.measure.regionprops(im_labeled)
-        tempdf = pd.DataFrame([])
-        for count, prop in enumerate(im_props):
-            area = prop.area
-            tempdata = {'cell':count, 'area':area}
-            tempdf = tempdf.append(tempdata, ignore_index=True)
+        tempdict = [{'cell':count, 'area':prop.area} for count, prop in enumerate(im_props)]
+        tempdf = pd.DataFrame(tempdict)
         ### sort by area
         tempdf = tempdf.sort_values('area').reset_index(drop=True)
 
@@ -119,18 +117,13 @@ def segment_caax_decon(im):
             im_labeled, n_labels = skimage.measure.label(
                                       both, background=0, return_num=True)
             im_props = skimage.measure.regionprops(im_labeled)
-            tempdf = pd.DataFrame([])
-            for count, prop in enumerate(im_props):
-                area = prop.area
-                tempdata = {'cell':count, 'area':area}
-                tempdf = tempdf.append(tempdata, ignore_index=True)
-            ### sort by area
-            tempdf = tempdf.sort_values('area')
-                
+            tempdict = [{'cell':count, 'area':prop.area} for count, prop in enumerate(im_props)]
+            tempdf = pd.DataFrame(tempdict)
+                  
         # create segmentation mask  
         #get the area to 
-        minArea = int(tempdf.iloc[-1].area-2) 
-        both = remove_small_objects(im_labeled, min_size=minArea, connectivity=1, in_place=False)
+        max_size = int(tempdf.area.max()-2) 
+        both = remove_small_objects(im_labeled, max_size=max_size, connectivity=1)
     #fill holes in segmentation twice
     hole_max = 5000
     hole_min = 1
@@ -154,7 +147,7 @@ def segment_nuc_decon(im,
     # step 1: Masked-Object (MO) Thresholding
     thresh_img = MO(structure_img_smooth, global_thresh_method='tri', object_minArea=25000, local_adjust = 0.995)
     #remove small objects
-    thresh_img = remove_small_objects(thresh_img, min_size=25000, connectivity=1, in_place=False)
+    thresh_img = remove_small_objects(thresh_img, max_size=25000, connectivity=1)
     #fill holes in segmentation
     hole_max = 1000
     hole_min = 1
@@ -265,7 +258,7 @@ def getbb(im):
                               seg, background=0, return_num=True,  )
 
     im_props = skimage.measure.regionprops(im_labeled)
-    tempdf = pd.DataFrame([])
+    templist = []
     for count, prop in enumerate(im_props):
         z,y,x = prop.centroid*4
         thebox = np.array(prop.bbox)*4
@@ -275,8 +268,9 @@ def getbb(im):
                'z':z, 'y':y, 'x': x, 'z_range': seg.shape[-3], 'area':area}
         #ensure only things that aren't on the edge are chosen
         if (td['z_min']>0) and (td['y_min']>0) and (td['x_min']>0) and (td['z_max']/4<shape[-3]) and (td['y_max']/4<shape[-2]) and (td['x_max']/4<shape[-1]):
-            tempdf = tempdf.append(td, ignore_index=True)
-    
+            templist.append(td)
+    tempdf = pd.DataFrame(templist)
+
     if (len(tempdf)>0) and (tempdf.loc[tempdf['area'].idxmax(),'area']>50000):
         #return the largest object that isn't touching an edge    
         return tempdf.loc[tempdf['area'].idxmax()].to_dict()
@@ -300,7 +294,7 @@ def getbb_movie(
     ### get the skew planes for this image
     start_normal, start_point, end_normal, end_point = detect_skewed_image_bounds(im[0])
     #loop through time points to get bounding boxes
-    cropdf = pd.DataFrame()
+    croplist = []
     #dictionary with nan to append in cases of blanks
     nandict = {'cell':np.nan, 'z_min':np.nan, 'y_min':np.nan, 
             'x_min':np.nan,'z_max':np.nan, 'y_max':np.nan, 'x_max':np.nan,
@@ -314,13 +308,13 @@ def getbb_movie(
                                       seg, background=0, return_num=True,  )
         
             im_props = skimage.measure.regionprops(im_labeled)
-            tempdf = pd.DataFrame([])
+            templist = []
             for count, prop in enumerate(im_props):
                 z,y,x = np.array(prop.centroid)*4
                 thebox = np.array(prop.bbox)*4
                 area = prop.area * 64
                 ### get the surface coords in xyz order
-                boundaries = skimage.segmentation.find_boundaries(im_labeled  ==  (count+1), mode='outer')
+                boundaries = find_boundaries(im_labeled  ==  (count+1), mode='outer')
                 coords = np.flip(np.argwhere(boundaries), axis = 1)
                 # coords  =  np.flip(np.stack(np.where(im_labeled  ==  (count+1))).T, axis  =  1)*4
                 ### get the distance of this object to the skewed edges
@@ -336,51 +330,56 @@ def getbb_movie(
                 #ensure only things that aren't on the edge are chosen
                 #and are big enough
                 if (td['z_min']>0) and (td['y_min']>0) and (min_dist_start>1) and (td['z_max']<shape[-3]) and (td['y_max']<shape[-2]) and (min_dist_end>1) and (area>50000):
-                    tempdf = tempdf.append(td, ignore_index=True)
-    
+                    templist.append(td)
+            tempdf = pd.DataFrame(templist)
     
             if len(tempdf)>0:
                 #if there's only one option pick that
                 if len(tempdf)==1:
-                    cropdf = cropdf.append(tempdf, ignore_index=True)
+                    croplist.append(tempdf)
                 #if first frame get the closest object to the center
                 elif (it==0):
+                    image_center = np.array(shape)[-3:]/2
                     dists = []
                     for p, row in tempdf.iterrows():
-                        dists.append(distance.pdist([np.array(shape)[-3:]/2,
+                        dists.append(distance.pdist([image_center,
                                         row[['z','y','x']].values]))
-                    cropdf = cropdf.append(tempdf.iloc[np.argmin(dists)], ignore_index=True)
+                    croplist.append(tempdf.iloc[[np.argmin(dists)]])
                 #if it's any other frame get the closest object to the last pick
                 else:
+                    #get last non-nan pick
+                    lastpick = pd.concat(croplist, ignore_index=True).dropna().iloc[-1]
+                    lastpick_coords = lastpick[['x','y','z']].values
                     dists = []
                     for p, row in tempdf.iterrows():
-                        dists.append(distance.pdist([cropdf[['x','y','z']].dropna().iloc[-1].values,
+                        dists.append(distance.pdist([lastpick_coords,
                                         row[['x','y','z']].values]))
-                    cropdf = cropdf.append(tempdf.iloc[np.argmin(dists)], ignore_index=True)
+                    croplist.append(tempdf.iloc[[np.argmin(dists)]])
             #if there's no options fill the gap with nan
             else:
-                cropdf = cropdf.append(nandict, ignore_index=True)
+                croplist.append(pd.DataFrame([nandict]))
         else:
-            cropdf = cropdf.append(nandict, ignore_index=True)
+            croplist.append(pd.DataFrame([nandict]))
             
-    return cropdf
+    return pd.concat(croplist, ignore_index=True)
 
 
-def LLSseg(savedir:str,
-           image_name:str,
-           cropdict: dict,
-           im:np.array,
-           struct:str,
-           xyres:float,
-           zstep:float,
-           decon:bool,
-           orig_size:bool = False,
-           orig_shape: np.array = np.zeros(1),
-           xy_buffer: int = 20,
-           z_buffer: int = 20,
-           hilo: bool = False, #whether or not to do multiple different thresholds on the signal data
-           ):
-    
+def LLSseg(
+        procimdir:Path,
+        image_name:str,
+        cropdict: dict,
+        im:np.array,
+        struct:str,
+        xyres:float,
+        zstep:float,
+        decon:bool,
+        orig_size:bool = False,
+        orig_shape: np.array = np.zeros(1),
+        xy_buffer: int = 20,
+        z_buffer: int = 20,
+        hilo: bool = False, #whether or not to do multiple different thresholds on the signal data
+        save_mesh: bool = True,
+        ):
     # newcrop = getbb(im[1,:,:,:])
     #combine crop dictionaries
     # cropdict.update(newcrop)
@@ -455,37 +454,39 @@ def LLSseg(savedir:str,
     if orig_size:
         #make empty image of the original shape
         orig_im = np.zeros(orig_shape)
-        #get the right cropping boundaries
-        xmincrop = int(max(0, cropdict['x_min']-xy_buffer))
-        ymincrop = int(max(0, cropdict['y_min']-xy_buffer))
-        zmincrop = int(max(0, cropdict['z_min']-z_buffer))
-        zmaxcrop = int(min(cropdict['z_max']+z_buffer, orig_shape[-3]))
-        ymaxcrop = int(min(cropdict['y_max']+xy_buffer, orig_shape[-2])+1)
-        xmaxcrop = int(min(cropdict['x_max']+xy_buffer, orig_shape[-1])+1)
         #put segmented image into original empty image
         orig_im[:,
                 zmincrop:zmaxcrop,
                 ymincrop:ymaxcrop,
                 xmincrop:xmaxcrop] = out.copy()
         # remove file if it already exists
-        seg_file = savedir + cell_name + '_segmentedfull.tiff'
-        if os.path.exists(seg_file):
-            os.remove(seg_file)
-        tifffile.imwrite(seg_file, orig_im)
+        seg_file = procimdir.joinpath(cell_name + '_segmentedfull.ome.tiff')
+        tifffile.imwrite(seg_file, orig_im, metadata={'axes': 'CZYX'})
         
     # remove file if it already exists
-    seg_file = savedir + cell_name + '_segmented.tiff'
-    if os.path.exists(seg_file):
-        os.remove(seg_file)
-    tifffile.imwrite(seg_file, out)
+    seg_file = procimdir.joinpath(cell_name + '_segmented.ome.tiff')
+    tifffile.imwrite(seg_file, out, metadata={'axes': 'CZYX'})
     
     #SAVE THE RAW IMAGE
-    raw_file = savedir + cell_name + '_raw.tiff'
-    if os.path.exists(raw_file):
-        os.remove(raw_file)
-    tifffile.imwrite(raw_file, im)
+    raw_file = procimdir.joinpath(cell_name + '_raw.ome.tiff')
+    tifffile.imwrite(raw_file, im, metadata={'axes': 'CZYX'})
         
-    
+    #### SAVE A MESH IF SPECIFIED
+    if save_mesh:
+        #make mesh
+        mesh,_,_ = shtools_mod.get_mesh_from_image(out[0,:,:,:])
+        #scale mesh from pixels to microns
+        mesh = shtools_mod.rotate_and_scale_mesh(mesh,
+                                                    scale = np.array([xyres, xyres, zstep]),
+                                                )
+        #save mesh
+        meshdir = procimdir.parent / 'meshes'
+        mesh_file = meshdir.joinpath(cell_name + '_cell_mesh.vtp')
+        if mesh_file.exists():
+            mesh_file.unlink()
+        shtools_mod.save_polydata(mesh, mesh_file)
+
+
     ##### check that the shape isn't touching the border of the image
     edges = np.concatenate((
         out[1, 0, :, :],            # front face

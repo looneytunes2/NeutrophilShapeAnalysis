@@ -55,8 +55,6 @@ avgdf_filtered = filter_extremes_based_on_percentile(
 
 ############### CELL AVERAGES OF SIGNIFICANT METRICS #################################
 colorlist = ['#d1b59b','#f7bebe','#faf191']
-sns.set_palette(palette=colorlist)
-
 
 
 #separate dataframes
@@ -75,9 +73,10 @@ print(f'Mann Whitney U test for AER between {treatments[0]} and {treatments[2]} 
 fig, ax = plt.subplots(1, 1, figsize=(4,5))#, sharex=True)
 linewid = 2
 # sns.swarmplot(data = avgcfdf, x='Treatment', y ='average_cf', color = 'grey', size = 3.5, alpha = 0.7, ax = ax)
-sns.violinplot(x = 'Treatment', y='aer_coeff', data = avgdf_filtered, alpha = 0.4,
-               linewidth = 0, inner = None, ax=ax, )
-for ac in ax.collections:
+sns.violinplot(x = 'Treatment', y='aer_coeff', data = avgdf_filtered,
+               linewidth = 0, inner = None, ax=ax)
+for i, ac in enumerate(ax.collections):
+    ac.set_facecolor(colorlist[i])
     ac.set_edgecolor('black')
 sns.boxplot(x = 'Treatment', y='aer_coeff', data = avgdf_filtered, width = 0.15, color = 'white',
             showcaps=False, showfliers=False,
@@ -154,8 +153,9 @@ fig, ax = plt.subplots(1, 1, figsize=(4,5))#, sharex=True)
 linewid = 2
 # sns.swarmplot(data = avgcfdf, x='Treatment', y ='average_cf', color = 'grey', size = 3.5, alpha = 0.7, ax = ax)
 sns.violinplot(x = 'Treatment', y='aer_fit', data = avgdf_filtered,
-               linewidth = 0, inner = None, ax=ax, )
-for ac in ax.collections:
+               linewidth = 0, inner = None, ax=ax)
+for i, ac in enumerate(ax.collections):
+    ac.set_facecolor(colorlist[i])
     ac.set_edgecolor('black')
 sns.boxplot(x = 'Treatment', y='aer_fit', data = avgdf_filtered, width = 0.15, color = 'white',
             showcaps=False, showfliers=False,
@@ -188,10 +188,10 @@ ax.set_ylim(0,ymax)
 
 #DMSO to bleb
 ax.text(0.5,ymax*0.965,get_stars(pnbpval), fontsize=12, ha ='center')
-ax.plot([0,1],[ymax*0.97,ymax*0.97], color = 'black')
+ax.plot([0,1],[ymax*0.97,ymax*0.97], color = 'black', lw = 1)
 #DMSO to CK666
 ax.text(1,ymax*0.99,get_stars(ck666pval), fontsize=12, ha ='center')
-ax.plot([0,2],[ymax,ymax], color = 'black')
+ax.plot([0,2],[ymax*0.998,ymax*0.998], color = 'black', lw = 1)
 
 
 #ditch x axis label

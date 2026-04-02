@@ -11,33 +11,34 @@ import pandas as pd
 import matplotlib
 import matplotlib.pyplot as plt
 import seaborn as sns
-from CustomFunctions import utils
+from neutrophil_shape.CustomFunctions import utils
+from neutrophil_shape.config.loader import load_config
 from pathlib import Path
 
-time_interval = 5
-whichpcs = [1,2]
-ntrans = 1
-basedir = Path('E:/Aaron/Combined_37C_Confocal_PCA_planar_LLS_Apply')
-datadir = basedir.joinpath('Data_and_Figs')
-aerdir = basedir.joinpath('Detailed_Balance')
 
+config = load_config(microscope_type='lls')
+config._alignment = 'trajectory'
+time_interval = config.im_params.time_interval
+whichpcs = (1,2)
+ntrans = config.db_params.ntrans
+basedir = config.common.savedir
+datadir = basedir.joinpath('shape_data')
+dbdir = basedir.joinpath('detailed_balance')
+dbbsdir = dbdir.joinpath('separatedatabs')
 
 FullFrame = pd.read_csv(datadir.joinpath('All_Data_with_CGPS_bins.csv'), index_col = 0)
 FullFrame['real_time'] = FullFrame.time.copy()
-nbins = np.max(FullFrame[[x for x in FullFrame.columns.to_list() if 'bin' in x]].to_numpy())
-#open the centers of the binned PCs
-centers = pd.read_csv(datadir.joinpath('PC_bin_centers.csv'), index_col=0)
 
 #open aers previously calculated
-allaers = pd.read_csv(aerdir.joinpath(f'PC{whichpcs[0]}-PC{whichpcs[1]}_raw_transition_aer_cf.csv'), index_col = 0)
+allaers = pd.read_csv(dbdir.joinpath(f'PC{whichpcs[0]}-PC{whichpcs[1]}_raw_transition_aer_cf.csv'), index_col = 0)
 
 #merge aer and cf info
 TotalFrame = pd.merge(FullFrame, allaers[['aer','angular_velocity','CellID','real_time']],on=['CellID','real_time'],how='left')
 TotalFrame = TotalFrame.sort_values(['CellID','time'])
 
 #open all the bootstrapped realizations
-bsaers = pd.read_csv(aerdir.joinpath(f'PC{whichpcs[0]}-PC{whichpcs[1]}_{ntrans}_transition_Area_Enclosing_Rates.csv'), index_col = 0)
-bsgaps = pd.read_csv(aerdir.joinpath(f'PC{whichpcs[0]}-PC{whichpcs[1]}_{ntrans}_transition_Area_Enclosing_Rates_gaps.csv'), index_col = 0)
+bsaers = pd.read_csv(dbbsdir.joinpath(f'PC{whichpcs[0]}-PC{whichpcs[1]}_{ntrans}_transition_Area_Enclosing_Rates.csv'), index_col = 0)
+bsgaps = pd.read_csv(dbbsdir.joinpath(f'PC{whichpcs[0]}-PC{whichpcs[1]}_{ntrans}_transition_Area_Enclosing_Rates_gaps.csv'), index_col = 0)
 bsaers_gaps = bsaers.merge(bsgaps, on = ['iter','real_time'])
 
 #only use aers that are within the range of observed time of the real cells
@@ -51,12 +52,12 @@ bsaers_long = bsaers_gaps[bsaers_gaps.iter.isin(longiters)].copy()
 #calculate aer and fit for real cells
 dflist = []
 for i, t in TotalFrame.groupby('CellID'):
-    ### smoothen bootstrapped AE curve
-    # t,_,_ = utils.get_aer_state(t, time_interval)
+    ### get ID info
+    id_dict = {'CellID':i}
     #linear regression
-    aerresid, aercoef = utils.fit_AER(t,time_interval,'aer')
-    
-    dflist.append({'CellID':i,'aerresid':aerresid,'aercoef':aercoef})
+    fitdict = utils.fit_rates_linear(t, time_interval, ['aer'])
+    id_dict.update(fitdict)
+    dflist.append(id_dict)
 avgdf = pd.DataFrame(dflist)
 
 

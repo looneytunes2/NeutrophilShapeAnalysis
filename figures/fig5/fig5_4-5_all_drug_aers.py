@@ -75,9 +75,10 @@ print(f'Mann Whitney U test for AER between {treatments[0]} and {treatments[2]} 
 fig, ax = plt.subplots(1, 1, figsize=(4,5))#, sharex=True)
 linewid = 2
 # sns.swarmplot(data = avgcfdf, x='Treatment', y ='average_cf', color = 'grey', size = 3.5, alpha = 0.7, ax = ax)
-sns.violinplot(x = 'Treatment', y='aer_coeff', data = avgdf_filtered, alpha = 0.4,
-               linewidth = 0, inner = None, ax=ax, )
-for ac in ax.collections:
+sns.violinplot(x = 'Treatment', y='aer_coeff', data = avgdf_filtered,
+               linewidth = 0, inner = None, ax=ax)
+for i, ac in enumerate(ax.collections):
+    ac.set_facecolor(colorlist[i])
     ac.set_edgecolor('black')
 sns.boxplot(x = 'Treatment', y='aer_coeff', data = avgdf_filtered, width = 0.15, color = 'white',
             showcaps=False, showfliers=False,
@@ -154,8 +155,9 @@ fig, ax = plt.subplots(1, 1, figsize=(4,5))#, sharex=True)
 linewid = 2
 # sns.swarmplot(data = avgcfdf, x='Treatment', y ='average_cf', color = 'grey', size = 3.5, alpha = 0.7, ax = ax)
 sns.violinplot(x = 'Treatment', y='aer_fit', data = avgdf_filtered,
-               linewidth = 0, inner = None, ax=ax, )
-for ac in ax.collections:
+               linewidth = 0, inner = None, ax=ax)
+for i, ac in enumerate(ax.collections):
+    ac.set_facecolor(colorlist[i])
     ac.set_edgecolor('black')
 sns.boxplot(x = 'Treatment', y='aer_fit', data = avgdf_filtered, width = 0.15, color = 'white',
             showcaps=False, showfliers=False,

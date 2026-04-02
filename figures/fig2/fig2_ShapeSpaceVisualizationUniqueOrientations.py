@@ -10,7 +10,7 @@ import os
 import re
 import numpy as np
 
-meshdir = 'E:/Aaron/Combined_37C_Confocal_PCA_planar/Data_and_Figs/PC_Meshes/'
+meshdir = 'C:/Users/Aaron/NeutrophilShapeAnalysis/data/trajectory_confocal/shape_data/PC_Meshes/' #'E:/Aaron/Combined_37C_Confocal_PCA_planar/Data_and_Figs/PC_Meshes/'
 meshfl = os.listdir(meshdir)
 
 PCnum = 8

@@ -1,9 +1,3 @@
-# -*- coding: utf-8 -*-
-"""
-Created on Mon Apr 14 14:21:49 2025
-
-@author: Aaron
-"""
 
 import pandas as pd
 import numpy as np
@@ -11,78 +5,46 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle, Ellipse, FancyArrow
 import seaborn as sns
 from pathlib import Path
-from CustomFunctions import DetailedBalance
-
+from neutrophil_shape.CustomFunctions import DetailedBalance
+from neutrophil_shape.config.loader import load_config
 
 ####### load common directories and data
-time_interval = 10 #sec/frame
-ntrans = 1
-# inverse scale for arrows
+# inverse scale for flux arrows
 scale = 0.0008
-alignlist = ['Shape Only','Trajectory + Shape', 'Trajectory Only']
 
+#load the clonfig
+config = load_config(microscope_type='confocal')
 
-#manually define origins for all of the CGPSs
-allallorigins = [
-#### SHAPE alignment origins
-[[[8,8],[8,8],[8,8],[8,8],[8,7],[8,8],[8,8]],
-    [[8,8],[8,7],[8,8],[8,8],[8,8],[8,8]],
-        [[7,8],[6,8],[8,8],[8,8],[7,9]],
-            [[8,8],[8,8],[8,8],[8,8]],
-                [[8,8],[8,8],[8,8]],
-                    [[8,8],[8,8]],
-                        [[8,8]]],
+#load some constants
+nbins = config.db_params.nbins
+pc_combos = config.common.pc_combos
 
-
-#### WIDTH alignment origins
-[[[8,8],[8,8],[9,8],[8,8],[9,7],[9,8],[9,8]],
-    [[8,8],[8,8],[8,8],[8,8],[8,8],[8,8]],
-        [[8,8],[8,8],[8,8],[8,8],[8,8]],
-            [[8,8],[8,8],[8,8],[8,8]],
-                [[8,8],[8,8],[8,8]],
-                    [[6,8],[8,8]],
-                        [[8,8]]],
-
-#### PLANAR alignment origins
-[[[7,8],[8,6],[8,7],[8,8],[8,8],[8,8],[9,8]],
-    [[8,6],[8,7],[8,8],[8,7],[8,8],[8,8]],
-        [[8,8],[7,8],[8,8],[8,8],[9,8]],
-            [[7,8],[9,8],[8,8],[8,8]],
-                [[8,8],[8,8],[9,8]],
-                    [[8,7],[8,8]],
-                        [[8,8]]]
-]
-
-
-
-    
-for d, di in enumerate(['Combined_37C_Confocal_PCA_shape',
-                     'Combined_37C_Confocal_PCA_s5',
-                     'Combined_37C_Confocal_PCA_planar']):
-
-    basedir = Path('E:/Aaron',di)
-    datadir = basedir.joinpath('Data_and_Figs')
-    savedir = basedir.joinpath('Detailed_Balance')
+alignlist = ['shape','trajectory_shape','trajectory']
+for d, al in enumerate(alignlist):
+    ### first set the alignment
+    config._alignment = al
+    ## get the directories and some CGPS info
+    savedir = config.common.savedir
+    datadir = savedir.joinpath('shape_data')
+    dbdir = savedir.joinpath('detailed_balance')
     centers = pd.read_csv(datadir.joinpath('PC_bin_centers.csv'), index_col=0)
-    nbins = centers.shape[0]
-    binlist = centers.columns.to_list()
-
-    allorigins = allallorigins[d]
+    pclist = centers.columns.to_list()
+    origins = config.db_params.origins
 
     ########### ONE BIG DIAGONAL GRAPH OF ALL PC CGPS's ##############
-    fig, axes = plt.subplots(len(binlist),len(binlist), figsize = (40,40))
+    fig, axes = plt.subplots(len(pclist),len(pclist), figsize = (40,40))
     
     #single colorbar axis
     cbar_ax = fig.add_axes([.91, .303, .012, .376])
-    for xrow, bin1 in enumerate(binlist):
-        for ycol, bin2 in enumerate(binlist):
+    for xrow, bin1 in enumerate(pclist):
+        for ycol, bin2 in enumerate(pclist):
 
                 
             ax = axes[int(bin1.split('PC')[-1])-1,int(bin2.split('PC')[-1])-1]
     
             if savedir.joinpath(f'{bin1}-{bin2}_binned_transition_rates_separated.csv').exists():
-                transdf_sep = pd.read_csv(savedir.joinpath(f'{bin1}-{bin2}_interpolated_transitions_separated.csv'), index_col=0)
-                bsfield_sep = pd.read_csv(savedir.joinpath('alldatabs', f'{bin1}-{bin2}_bootstrapped_{ntrans}_transitions_average_currents.csv'), index_col=0)
+                transdf_sep = pd.read_csv(dbdir.joinpath(f'{bin1}-{bin2}_interpolated_transitions_separated.csv'), index_col=0)
+                bsfield_sep = pd.read_csv(dbdir.joinpath('alldatabs', f'{bin1}-{bin2}_bootstrapped_{config.db_params.ntrans}_transitions_average_currents.csv'), index_col=0)
                 print(f'Opened {bin1}-{bin2} transition rate files')
                 
     
@@ -145,22 +107,22 @@ for d, di in enumerate(['Combined_37C_Confocal_PCA_shape',
                                   zorder = 3)
     
     
-                        #determine ellipse width, height and angle
-                        #always set eval1 to width and adjust angle accordingly
-                        eh = np.sqrt(abs(current.eval2))*(2/scale)
-                        ew = np.sqrt(abs(current.eval1))*(2/scale)
-                        evec = current[['evec1x','evec1y']].values[0]
-                        evec = evec if evec[1]>0 else -evec
-                        eang = np.degrees(np.arctan2(evec[1],evec[0]))
+                        # #determine ellipse width, height and angle
+                        # #always set eval1 to width and adjust angle accordingly
+                        # eh = np.sqrt(abs(current.eval2))*(2/scale)
+                        # ew = np.sqrt(abs(current.eval1))*(2/scale)
+                        # evec = current[['evec1x','evec1y']].values[0]
+                        # evec = evec if evec[1]>0 else -evec
+                        # eang = np.degrees(np.arctan2(evec[1],evec[0]))
                 
-                        ell = Ellipse(xy=(x-0.5+(xcurrent.values*(1/scale)),y-0.5+(ycurrent.values*(1/scale))),
-                                      width=ew,
-                                      height=eh,
-                                      angle=eang,
-                                      color = 'lightblue',
-                                      alpha = 0.12,
-                                      zorder = 2)
-                        ax.add_artist(ell)
+                        # ell = Ellipse(xy=(x-0.5+(xcurrent.values*(1/scale)),y-0.5+(ycurrent.values*(1/scale))),
+                        #               width=ew,
+                        #               height=eh,
+                        #               angle=eang,
+                        #               color = 'lightblue',
+                        #               alpha = 0.12,
+                        #               zorder = 2)
+                        # ax.add_artist(ell)
                 
     
     
@@ -171,16 +133,15 @@ for d, di in enumerate(['Combined_37C_Confocal_PCA_shape',
                 ax.set_ylim(0,nbins+1)
     
     
-                ##### draw a little blue dot for the origin
+                ##### draw a little green dot for the origin
                 # if ycol!= 0:
-                    
-                orig = allorigins[int(xrow)][int(ycol-(1+xrow))]
-                ax.scatter(orig[0]-0.5, orig[1]-0.5, s = 90, color = '#11bd20', zorder=2)
+                origin = origins[pc_combos.index((int(xrow),int(ycol-(1+xrow))))]
+                ax.scatter(origin[0]-0.5, origin[1]-0.5, s = 90, color = '#11bd20', zorder=2)
     
     
-                if bin1 == binlist[0]:
+                if bin1 == pclist[0]:
                     ax.set_title(bin2, fontsize = 40)
-                    if bin2!=binlist[-1]:
+                    if bin2!=pclist[-1]:
                         ax.set_yticks([])
                         ax.set_yticklabels([])
                     else:
@@ -194,7 +155,7 @@ for d, di in enumerate(['Combined_37C_Confocal_PCA_shape',
     
                     ax.spines['top'].set_position(('outward', -24))
     
-                elif bin2 == binlist[-1]:
+                elif bin2 == pclist[-1]:
                     ax.set_xticks([])
                     ax.set_xticklabels([])
                     ax.tick_params(left=False, labelleft = False, right = True, labelright=True, labelsize = 16)
@@ -252,7 +213,7 @@ for d, di in enumerate(['Combined_37C_Confocal_PCA_shape',
     plt.subplots_adjust(wspace=0.01, hspace=0.01)
     
     
-    plt.savefig(__file__.split('.')[0]+f'_{alignlist[d]}.png', bbox_inches='tight', dpi = 500)
+    plt.savefig(__file__.split('.')[0]+f'_{al}.png', bbox_inches='tight', dpi = 500)
 
 
 
