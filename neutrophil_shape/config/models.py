@@ -106,7 +106,7 @@ class Config():
         ### can be flipped too
         self.common.pc_flips = {
             'shape': [],#0,1,2,4,6],
-            'trajectory_shape': [1,3,6,7],#0,1,2,3,6],
+            'trajectory_shape': [1,2,7],#0,1,2,3,6],
             'trajectory': [1,3,7],
         }[value]
         ### variably set the alignment methods based on the overall alignment

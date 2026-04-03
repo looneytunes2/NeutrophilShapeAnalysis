@@ -10,7 +10,7 @@ from neutrophil_shape.config.loader import load_config
 
 ####### load common directories and data
 # inverse scale for flux arrows
-scale = 0.0008
+scale = 0.0015
 
 #load the clonfig
 config = load_config(microscope_type='confocal')
@@ -42,9 +42,9 @@ for d, al in enumerate(alignlist):
                 
             ax = axes[int(bin1.split('PC')[-1])-1,int(bin2.split('PC')[-1])-1]
     
-            if savedir.joinpath(f'{bin1}-{bin2}_binned_transition_rates_separated.csv').exists():
+            if dbdir.joinpath(f'{bin1}-{bin2}_binned_transition_rates_separated.csv').exists():
                 transdf_sep = pd.read_csv(dbdir.joinpath(f'{bin1}-{bin2}_interpolated_transitions_separated.csv'), index_col=0)
-                bsfield_sep = pd.read_csv(dbdir.joinpath('alldatabs', f'{bin1}-{bin2}_bootstrapped_{config.db_params.ntrans}_transitions_average_currents.csv'), index_col=0)
+                # bsfield_sep = pd.read_csv(dbdir.joinpath('alldatabs', f'{bin1}-{bin2}_bootstrapped_{config.db_params.ntrans}_transitions_average_currents.csv'), index_col=0)
                 print(f'Opened {bin1}-{bin2} transition rate files')
                 
     
@@ -90,7 +90,7 @@ for d, al in enumerate(alignlist):
                 
                 ######################### vector map of probability flux ################
                 #combine relevant data
-                elldf = trans_rate_df_sep.merge(bsfield_sep, on = ['x','y'])
+                elldf = trans_rate_df_sep#.merge(bsfield_sep, on = ['x','y'])
                 for x in range(1,nbins+1):
                     for y in range(1,nbins+1):
                         current = elldf[(elldf['x'] == x) & (elldf['y'] == y)]
@@ -135,7 +135,7 @@ for d, al in enumerate(alignlist):
     
                 ##### draw a little green dot for the origin
                 # if ycol!= 0:
-                origin = origins[pc_combos.index((int(xrow),int(ycol-(1+xrow))))]
+                origin = origins[pc_combos.index((int(xrow+1),int(ycol+1)))]
                 ax.scatter(origin[0]-0.5, origin[1]-0.5, s = 90, color = '#11bd20', zorder=2)
     
     
@@ -212,7 +212,7 @@ for d, al in enumerate(alignlist):
     #     plt.tight_layout() 
     plt.subplots_adjust(wspace=0.01, hspace=0.01)
     
-    
+    plt.savefig('C:/Users/Aaron/Desktop/'+f'_{al}.png', bbox_inches='tight', dpi = 500)
     plt.savefig(__file__.split('.')[0]+f'_{al}.png', bbox_inches='tight', dpi = 500)
 
 

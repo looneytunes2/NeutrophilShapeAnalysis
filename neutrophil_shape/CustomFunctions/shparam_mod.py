@@ -78,7 +78,7 @@ def get_long_axis_eulers_mesh(
     ### flip to zyx order
     cell_coords = np.flip(cell_coords, axis = 1)
     ## center coords
-    cell_coords = cell_coords - np.mean(cell_coords,axis = 1,keepdims=True)
+    cell_coords = cell_coords - np.mean(cell_coords,axis = 0,keepdims=True)
 
     #get covariance matrix and find eigenvalues and vectors
     cov = np.cov(cell_coords.T)

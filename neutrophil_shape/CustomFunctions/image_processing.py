@@ -473,7 +473,9 @@ def get_normal_rotations(
             
         elif normal_method == 'planar':
             #read all the smoothened trajectory info about this cell into a dataframe
-            cellinfo = [pd.read_csv(csvdir.joinpath(c+'_cell_info.csv'), index_col = 0) for c in cellframelist]
+            cellinfo = [pd.read_csv(csvdir.joinpath(c.name.split('_cell_mesh')[0]+
+                                                    '_cell_info.csv'), index_col = 0) for c in cellframelist if
+                                                    csvdir.joinpath(c.name.split('_cell_mesh')[0]+'_cell_info.csv').exists()]
             infodf = pd.concat(cellinfo, ignore_index = True)
             
             #get the consecutive trajectory info and loop through those runs
@@ -539,7 +541,7 @@ def get_normal_rotations(
     bigdf.to_csv(datadir.joinpath(f'Closest_Width_Peaks_{imdir.name}.csv'))
 
 
-def seg_to_mesh(
+def extract_shape_metrics(
     imdir, # where to find the segmented images 
     config: Config,
     ):
