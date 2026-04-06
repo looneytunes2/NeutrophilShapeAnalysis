@@ -8,7 +8,7 @@ Created on Wed Jun 14 14:52:46 2023
 from scipy import interpolate
 import pandas as pd
 import numpy as np
-from random import shuffle
+import random
 from . import utils
 import multiprocessing
 import itertools
@@ -165,7 +165,7 @@ def interpolate_trajectory(
                 current_time = time_units[t] + (diag_trans_time_total/diag_num) * (d+1)
                 #get the randomized transition list
                 multi_cross = list(range(len(trans_template)))
-                shuffle(multi_cross)
+                random.shuffle(multi_cross)
                 #make a temporary coordinate to update as transitions happen randomly
                 tempcur = trans[-1][int(1+dims):int(1+2*dims)]
                 for m, mc in enumerate(multi_cross):
@@ -220,7 +220,7 @@ def interpolate_trajectory(
                     #### handle the diagonal border crossing
                     if multi_cross:
                         #randomize transition order
-                        shuffle(multi_cross)
+                        random.shuffle(multi_cross)
                         ## define time elapsed in each interpolated step
                         te = (current_time-time_units[t])/len(multi_cross) if i == 0 else (current_time-trans[-1][-1])/len(multi_cross)
                         #make a temporary coordinate to update as transitions happen randomly
@@ -306,73 +306,69 @@ def get_transition_counts(
 
 
 
-def bootstrap_trajectories(
+def bootstrap_trajectory(
         imap_args
         ):
         
     #unpack args
     # combodf: multi-indexed dataframe with tansition_combination and trandition_index names
     # ttot: int total time for the simulation
-    # ntrans: int number of consecutive transitions to sample
     # avoiddead: bool whether or not to avoid dead ends in the trajectory
-    combodf,ttot,ntrans,avoiddead = imap_args
-    
+    combodf,ttot,avoiddead = imap_args
+
     #get dims
     dims = [x.split('from_')[-1] for x in combodf.columns if 'from_' in x]
-    
+
     #get just the first transition of each combination
     firsttrans = combodf.xs(0,level='transition_index')
-    
-    #start time at 0
-    ct = 0
+
     #create an empty dataframe with the correct columns and indexing
-    allbs = pd.DataFrame(columns=combodf.columns)
-    allbs.index = pd.MultiIndex.from_arrays([[],[]], names = ['transition_combination','transition_index'])
+    allbs = []
     #find the first random position
     rando = combodf.index.levels[0].to_list()
-    shuffle(rando)
-    pick = combodf.loc[combodf.index.get_level_values('transition_combination') == rando[0]]
-    allbs = pd.concat((allbs, pick))
+    random_choice = random.choice(rando)
+    pick = combodf.loc[combodf.index.get_level_values('transition_combination') == random_choice]
+    allbs.append(pick)
+    ## start time with first pick
+    ct = pick.time_elapsed.sum()
     while ct<ttot:
         #find the next postition after the second transition
-        cur = allbs.iloc[-1][['to_'+c for c in dims]].values
-        #get all the transitions at the new position
+        cur = allbs[-1][['to_'+c for c in dims]].values[-1]
+        #get the indices of all the transitions at the new position
         frombool = np.array([firsttrans['from_'+dim] == cur[d] for d, dim in enumerate(dims)])
-        frommask = np.where(np.all(frombool, axis = 0))
-        allat = firsttrans.iloc[frommask]
-        
+        allat = np.where(np.all(frombool, axis = 0))[0]
+
         #if the next transition doesn't have any future transitions, don't go there and pick a new one
-        if allat.empty:
+        if len(allat) == 0:
             if avoiddead:
                 #drop the "dead" transition
-                allbs.drop(allbs.index[-ntrans:], inplace=True)
+                allbs = allbs[:-1]
                 #check is this happened at the beginning of the simulation and it needs to be started again 
                 #from another position, otherwise trim the last transition and continue
                 if len(allbs)==0:
-                    ct = 0
-                    allbs = pd.DataFrame(columns=combodf.columns)
-                    allbs.index = pd.MultiIndex.from_arrays([[],[]], names = ['transition_combination','transition_index'])
+                    allbs = []
                     #find the first random position
                     rando = combodf.index.levels[0].to_list()
-                    shuffle(rando)
-                    pick = combodf.loc[combodf.index.get_level_values('transition_combination') == rando[0]]
+                    random_choice = random.choice(rando)
+                    pick = combodf.loc[combodf.index.get_level_values('transition_combination') == random_choice]
+                    #restart time
+                    ct = pick.time_elapsed.sum()
                     #add the random pick to the dataframe
-                    allbs = pd.concat((allbs, pick))
+                    allbs.append(pick)
                 #subtract the time these transitions take
                 ct = ct - pick.time_elapsed.sum()
                 #set a timer for extreme cases of single transitions to deadends
                 loops = 0
-                while allat.empty:
+                while len(allat) == 0:
                     #find the next postition after the second transition
-                    cur = allbs.iloc[-1][['to_'+c for c in dims]].values
+                    cur = allbs[-1][['to_'+c for c in dims]].values[-1]
                     #get all the transitions at the new position
                     frombool = np.array([firsttrans['from_'+dim] == cur[d] for d, dim in enumerate(dims)])
-                    frommask = np.where(np.all(frombool, axis = 0))
-                    allat = firsttrans.iloc[frommask]
+                    allat = np.where(np.all(frombool, axis = 0))[0]
+
                     #randomly select a transition pair
-                    rando = allat.index.to_list()
-                    shuffle(rando)
-                    pick = combodf.loc[combodf.index.get_level_values('transition_combination') == rando[0]]
+                    random_choice = random.choice(allat)
+                    pick = combodf.loc[combodf.index.get_level_values('transition_combination') == random_choice]
                     #add to the timer for extreme cases
                     loops = loops + 1
                     #if the current position only has one transition (to the empty position)
@@ -381,61 +377,70 @@ def bootstrap_trajectories(
                     #back up an additional transition
                     if (len(allat)==1) or (loops == 20):
                         #subtract the time these transitions take
-                        ct = ct - allbs.iloc[-ntrans:].time_elapsed.sum()
+                        print('subtracting time for deadend')
+                        ct = ct - allbs[-1].time_elapsed.sum()
                         #delete a further two transitions
-                        allbs.drop(allbs.index[-ntrans:], inplace=True)
+                        allbs = allbs[:-1]
                         #check if this happened at the beginning of the simulation and it needs to be started again 
                         #from another position, otherwise trim the last transition and continue
                         if len(allbs)==0:
-                            ct = 0
-                            allbs = pd.DataFrame(columns=combodf.columns)
-                            allbs.index = pd.MultiIndex.from_arrays([[],[]], names = ['transition_combination','transition_index'])
+                            allbs = []
                             #find the first random position
                             rando = combodf.index.levels[0].to_list()
-                            shuffle(rando)
-                            pick = combodf.loc[combodf.index.get_level_values('transition_combination') == rando[0]]
+                            random_choice = random.choice(rando)
+                            pick = combodf.loc[combodf.index.get_level_values('transition_combination') == random_choice]
+                            #restart time
+                            ct = pick.time_elapsed.sum()
                             #add the random pick to the dataframe
-                            allbs = pd.concat((allbs, pick))
+                            allbs.append(pick)
                         #find the next postition after the second transition
-                        cur = allbs.iloc[-1][['to_'+c for c in dims]].values
+                        cur = allbs[-1][['to_'+c for c in dims]].values[-1]
                         #get all the transitions at the new position
                         frombool = np.array([firsttrans['from_'+dim] == cur[d] for d, dim in enumerate(dims)])
-                        frommask = np.where(np.all(frombool, axis = 0))
-                        allat = firsttrans.iloc[frommask]
+                        allat = np.where(np.all(frombool, axis = 0))[0]
+
                         #randomly select a transition pair
-                        rando = allat.index.to_list()
-                        shuffle(rando)
-                        pick = combodf.loc[combodf.index.get_level_values('transition_combination') == rando[0]]
+                        random_choice = random.choice(allat)
+                        pick = combodf.loc[combodf.index.get_level_values('transition_combination') == random_choice]
                 #append the pair of transitions to a list
-                allbs = pd.concat((allbs, pick))
+                allbs.append(pick)
                 #add the time these transitions take
                 ct = ct + pick.time_elapsed.sum()
             else:
                 break
         else:
             #randomly select a transition pair
-            rando = allat.index.to_list()
-            shuffle(rando)
-            pick = combodf.loc[combodf.index.get_level_values('transition_combination') == rando[0]]
+            random_choice = random.choice(allat)
+            pick = combodf.loc[combodf.index.get_level_values('transition_combination') == random_choice]
             #append the pair of transitions to a list
-            allbs = pd.concat((allbs, pick))
+            allbs.append(pick)
             #add the time these transitions take
             ct = ct + pick.time_elapsed.sum()
-    
+    #convert allbs list to a dataframe
+    allbs = pd.concat(allbs, ignore_index=True)
     #make cumulative time actually cumulative time
     allbs.loc[:,'cumulative_time'] = allbs['time_elapsed'].cumsum()
     #make a mock "real_time" so that simulated dataframes match real ones
     allbs.loc[:,'real_time'] = allbs.cumulative_time
 
-    return allbs.reset_index(drop=True)
+    return allbs
 
+
+def bootstrap_trajectory_wrapper(_):
+    return bootstrap_trajectory((shared_combodf, shared_ttot, shared_avoiddead))
+
+def bs_init_worker(combodf, ttot, avoiddead):
+    global shared_combodf, shared_ttot, shared_avoiddead
+    shared_combodf = combodf
+    shared_ttot = ttot
+    shared_avoiddead = avoiddead
 
 
 def transition_count_wrapper(
         args # tuple of arguments
         ):
     #unpack args from imap
-    #bsdf: transition dataframe from bootstrap_trajectories()
+    #bsdf: transition dataframe from bootstrap_trajectory()
     #nbins: bins in the CGPS
     # ct: the cumulative time actually observed during the simulation, especially important for simulations that terminate early
     bsdf, nbins, ct = args
@@ -736,19 +741,21 @@ def get_bootstrapped_cgps_trajectories(
     
     #bootstrap from raw trajectories
     for m, mig in rawtrans.groupby(group_factor):            
-        
-        combolist = []
-        for cidc, cell in mig.groupby('CellID'):
-            #sort data and get continuous transitions in order
-            cell, runs = utils.get_consecutive_transitions(cell)
-            for r in runs:
-                limdf = cell.iloc[r]
-                for i in range(len(limdf) - ntrans + 1):
-                    combo = limdf.iloc[i:i + ntrans].copy()
-                    combolist.append(combo)
+        if ntrans == 1:
+            combodf = mig.copy()
+        else:
+            combolist = []
+            for cidc, cell in mig.groupby('CellID'):
+                #sort data and get continuous transitions in order
+                cell, runs = utils.get_consecutive_transitions(cell)
+                for r in runs:
+                    limdf = cell.iloc[r]
+                    for i in range(len(limdf) - ntrans + 1):
+                        combo = limdf.iloc[i:i + ntrans].copy()
+                        combolist.append(combo)
 
-        # Combine into a single DataFrame with MultiIndex
-        combodf = pd.concat(combolist)
+            # Combine into a single DataFrame with MultiIndex
+            combodf = pd.concat(combolist)
 
         #create multiindex for the overall dataframe (mostly applies for multiple transitions)
         miarray = [np.repeat(range(int(len(combodf)/ntrans)),ntrans), np.tile(list(range(ntrans)),int(len(combodf)/ntrans))]
@@ -757,13 +764,18 @@ def get_bootstrapped_cgps_trajectories(
         #add correct multiindex to the dataframe of combinations
         combodf.index = miindex
         
-        #get list of tuples of arguments to pass to imap
-        mapargs = [(combodf,ttot,ntrans, False) for _ in range(bsiter)]
-        #boostrap with multiprocessing
-        print(f'Boostrapping trajectories with {ntrans} transition samples for {m}')
-        with multiprocessing.Pool(processes=60) as pool:
-            results = list(tqdm.tqdm(pool.imap(bootstrap_trajectories, mapargs), total=bsiter))
+        # #get list of tuples of arguments to pass to imap
+        # mapargs = [(combodf,ttot,False) for _ in range(bsiter)]
+        # #boostrap with multiprocessing
+        # print(f'Boostrapping trajectories with {ntrans} transition samples for {m}')
+        # with multiprocessing.Pool(processes=60) as pool:
+        #     results = list(tqdm.tqdm(pool.imap(bootstrap_trajectory, mapargs), total=bsiter))
         
+        with multiprocessing.Pool(processes=60,
+                                  initializer=bs_init_worker,
+                                  initargs=(combodf, ttot, False)) as pool:
+            results = list(tqdm.tqdm(pool.imap_unordered(bootstrap_trajectory_wrapper, range(bsiter)), total=bsiter))
+
         #get results
         migboot = pd.concat(results, ignore_index=True)
         migboot['iter'] = list(itertools.chain.from_iterable([[k]*len(res) for k,res in enumerate(results)]))

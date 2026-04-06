@@ -450,7 +450,10 @@ def LLSseg(
     out=bothch.astype(np.uint8)
     out[out>0]=255
     
-    
+    #ask if centroid inside the object
+    goodsh = False if out[0][tuple([int(u) for u in cent])]==0 else True
+
+
     if orig_size:
         #make empty image of the original shape
         orig_im = np.zeros(orig_shape)
@@ -501,37 +504,36 @@ def LLSseg(
         return None
     else:
         #save the info about cell
-        data = {'image': shortimname,
-                'cellnumber': cell_number,
-                'cell': cell_name,
-                'structure': struct,
-                'frame': cropdict['frame'],
-                'time': cropdict['time'],
-                'x':(cent[2]+cropdict['x_min'])*xyres, 
-                'y':(cent[1]+cropdict['y_min'])*xyres, 
-                'z':(cent[0]+cropdict['z_min'])*zstep,
-                'cropx (pixels)':cent[2], 
-                'cropy (pixels)':cent[1], 
-                'cropz (pixels)':cent[0],
-                'Cell_'+mem_keylist[0]: mem_feat[mem_keylist[0]],
-                'Cell_'+mem_keylist[1]: mem_feat[mem_keylist[1]],
-                'Cell_'+mem_keylist[2]: mem_feat[mem_keylist[2]],
-                'Cell_'+mem_keylist[3]: mem_feat[mem_keylist[3]],
-                'Cell_'+mem_keylist[4]: mem_feat[mem_keylist[4]],
-                'Cell_'+mem_keylist[5]: mem_feat[mem_keylist[5]],
-                'Structure_'+str_keylist[0]: str_feat[str_keylist[0]],
-                'Structure_'+str_keylist[1]: str_feat[str_keylist[1]],
-                'Structure_'+str_keylist[2]: str_feat[str_keylist[2]],
-                'Structure_'+str_keylist[3]: str_feat[str_keylist[3]],
-                'Structure_'+str_keylist[4]: str_feat[str_keylist[4]],
-                'Structure_'+str_keylist[5]: str_feat[str_keylist[5]],
-                'xmincrop':xmincrop,
-                'xmaxcrop':xmaxcrop,
-                'ymincrop':ymincrop,
-                'ymaxcrop':ymaxcrop,
-                'zmincrop':zmincrop,
-                'zmaxcrop':zmaxcrop
-                }
+        data = {
+            'image': shortimname,
+            'cellnumber': cell_number,
+            'cell': cell_name,
+            'structure': struct,
+            'frame': cropdict['frame'],
+            'time': cropdict['time'],
+            'x':(cent[2]+cropdict['x_min'])*xyres, 
+            'y':(cent[1]+cropdict['y_min'])*xyres, 
+            'z':(cent[0]+cropdict['z_min'])*zstep,
+            'Cell_'+mem_keylist[0]: mem_feat[mem_keylist[0]],
+            'Cell_'+mem_keylist[1]: mem_feat[mem_keylist[1]],
+            'Cell_'+mem_keylist[2]: mem_feat[mem_keylist[2]],
+            'Cell_'+mem_keylist[3]: mem_feat[mem_keylist[3]],
+            'Cell_'+mem_keylist[4]: mem_feat[mem_keylist[4]],
+            'Cell_'+mem_keylist[5]: mem_feat[mem_keylist[5]],
+            'Structure_'+str_keylist[0]: str_feat[str_keylist[0]],
+            'Structure_'+str_keylist[1]: str_feat[str_keylist[1]],
+            'Structure_'+str_keylist[2]: str_feat[str_keylist[2]],
+            'Structure_'+str_keylist[3]: str_feat[str_keylist[3]],
+            'Structure_'+str_keylist[4]: str_feat[str_keylist[4]],
+            'Structure_'+str_keylist[5]: str_feat[str_keylist[5]],
+            'xmincrop':xmincrop,
+            'xmaxcrop':xmaxcrop,
+            'ymincrop':ymincrop,
+            'ymaxcrop':ymaxcrop,
+            'zmincrop':zmincrop,
+            'zmaxcrop':zmaxcrop,
+            'centroid_inside': goodsh,
+            }
 
         return data
     
