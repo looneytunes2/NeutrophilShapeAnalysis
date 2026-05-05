@@ -1,6 +1,7 @@
 
 import math
 import numpy as np
+import pandas as pd
 import re
 import skimage.measure
 from scipy import interpolate
@@ -140,20 +141,15 @@ def filename_match_llscellid(
     return filematches
 
 
-
-
-def get_aer_state(
-        cell, #dataframe of the cell to be thresholded
-        time_interval, #imaging time interval
-        derivthresh = 0.0007, #derivative threshold to call increasing or decreasing aer
+def smoothen_aer(
+        cell, #dataframe with 'time', 'aer', and 'time_elapsed' columns for a single cell
         ):
-    
     #ensure the cell is in time order
-    cell = cell.sort_values('time').reset_index(drop=True)
+    cell_ = cell.sort_values('time').reset_index(drop=True)
     #get rid of NA in aer which will ruin cumulative sums etc.
-    cellnona = cell[~cell.aer.isna()].copy()
+    cellnona = cell_[~cell_.aer.isna()].copy()
     #get area enclosed from aer
-    cellnona['area_enclosed'] = cellnona.aer*time_interval
+    cellnona['area_enclosed'] = cellnona.aer * cellnona.time_elapsed.values
     #### weight the points near gaps more
     _, runs = get_consecutive_transitions(cellnona)
     #get the indicies before and after jumps
@@ -162,33 +158,127 @@ def get_aer_state(
     w = np.ones(cellnona.shape[0])
     w[gaps] = 3
 
-
     ####interpolation method
     #interpolate for smoothening
     tck, u = interpolate.splprep(np.array((cellnona.time.values,
-                                           cellnona.area_enclosed.cumsum().values)),
-                                 k=3, s = 15, w = w)#k=1, s=2, w = w)
+                                            cellnona.area_enclosed.cumsum().values)),
+                                    k=3, s = 30, w = w)#k=1, s=2, w = w)
     #get the derivative of the smoothened curve
     dx, dy = interpolate.splev(u, tck, der=1)
     #get derivative in correct units of time (area enclosed / sec)
-    deriv = dy/(cellnona.time.max() - cellnona.time.min())
+    deriv = dy/dx#(cellnona.time.max() - cellnona.time.min())
+
+    return pd.Series(deriv, index=cellnona.index), tck, w
+
+
+
+
+####### threshold smoothened area enclosing rate 
+def get_aer_state(
+        cell, #a dataframe with 'time', 'aer', and 'time_elapsed' columns for a single cell
+        low_thresh = 0.01, #threshold for low state in area enclosed rate
+        high_thresh = 0.05 #threshold for area enclosed "jumps"
+        ):
+    
+    cell_ = cell.reset_index(drop = True).copy()
+
+    ### get smoothened aer
+    smooth_aer,_,_ = smoothen_aer(cell)
 
     #threshold with np.select
-    threshs = [dy>=derivthresh, dy<=-derivthresh]
-    choices = ['increasing', 'decreasing']
-    statethresh = np.select(threshs, choices, default = 'unchanging')
+    threshs = [smooth_aer>=high_thresh, smooth_aer>=low_thresh]
+    choices = ['high', 'low']
+    statethresh = np.select(threshs, choices, default = 'zero')
     #add new values to dataframe
-    cell.loc[cellnona.index,'aer_smooth'] = deriv
-    cell.loc[cellnona.index,'aer_state'] = statethresh
+    cell_.loc[smooth_aer.index,'aer_smooth'] = smooth_aer
+    cell_.loc[smooth_aer.index,'aer_state'] = statethresh
 
-    return cell, tck, w
+    return cell_
 
+
+
+##### assign unique identifiers to a dataframe with aer_state chunks
+def get_aer_state_chunk_ids(
+    df, # dataframe with 'aer_state' and 'chunk_id' columns
+    group_factor = 'CellID', #factor that separates group of interest
+    ):
+    df_ = df.copy()
+    ### ensure the dataframe is sorted by cell and time
+    df_ = df_.sort_values([group_factor,'time']).reset_index(drop=True)
+    ### get where aer state changes or cell changes
+    run_change = pd.Series(False, index=df.index)
+    for col in ['aer_state',group_factor]:
+        run_change |= (df_[col] != df_[col].shift())
+    runs = run_change.cumsum()
+
+    ### add chunk_id
+    df_['chunk_id'] = runs
+
+    #### add chunk run info
+    df_['chunk_run_time'] = df_.groupby('chunk_id').time_elapsed.cumsum()
+    df_['chunk_run_time_norm'] = df_['chunk_run_time'] / df_.groupby("chunk_id")["time_elapsed"].transform("sum")
+
+    return df_
+
+
+######### 
+def get_observed_aer_state_chunk_starts_stops(
+    df, # dataframe with 'aer_state' and 'chunk_id' columns
+    group_factor = 'CellID', #factor that separates group of interest
+    ):
+
+    """
+    function to detect OBSERVED state starts
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Dataframe with 'aer_state' and 'chunk_id' columns.
+
+    Returns
+    -------
+    observedstarts : list
+        List of indices in the input dataframe where observed states start.
+    observedstops : list
+        List of indices in the input dataframe where observed states stop.
+    Other parameters
+    ----------------
+    group_factor : str, optional
+        Factor that separates groups of interest for creating the
+        mesh, default is 'CellID'.
+
+    Notes
+    -----
+
+    """
+    
+    df = df.sort_values(['chunk_id']).reset_index(drop=True)
+
+    observedstarts = []
+    observedstops = []
+    for _, cell in df.groupby(group_factor):
+        ##### get places where states start
+        statechangeforward = np.where(cell.aer_state != cell.aer_state.shift(1))[0]
+        for sc in statechangeforward:
+            if sc != 0:
+                ### only count non-nan states with non-nan before
+                if not any(cell.iloc[sc-1:sc+1].aer_state.isna()):
+                    observedstarts.append(cell.chunk_id.iloc[sc])
+        ##### get places where states stop
+        statechangebackward = np.where(cell.aer_state != cell.aer_state.shift(-1))[0]
+        for sc in statechangebackward:
+            if sc != cell.shape[0]-1:
+                ### only count non-nan states with non-nan afterwards
+                if not any(cell.iloc[sc:sc+2].aer_state.isna()):
+                    observedstops.append(cell.chunk_id.iloc[sc])
+
+    ### return chunk_ids where states start and stop
+    return observedstarts, observedstops
 
 
 ######## perform regression on AE over time in minutes
 def fit_rates_linear(
         df, # dataframe with 'time' in seconds
-        time_interval, #frame rate of 'time' data in df
         rate_cols, #iterable with column names of rate quantities to fit with lr
         ):
     #make sure data is sorted by time
@@ -199,8 +289,8 @@ def fit_rates_linear(
     for rc in rate_cols:
         #drop na
         dropdf = df[~df[rc].isna()].copy()
-        #get value per time interval instead of per sec
-        dropdf['value_per_time'] = dropdf[rc]*time_interval
+        #get value per time instead of per sec
+        dropdf['value_per_time'] = dropdf[rc].values*dropdf['time_elapsed'].values
         #linear regression
         reg = LinearRegression().fit(dropdf[time_col].values.reshape(-1, 1),
                                         dropdf.value_per_time.cumsum().values.reshape(-1, 1))
@@ -310,3 +400,7 @@ def align_vec_to_xaxis_euler(
     euler_angles = np.array([rotthing_euler[0], rotthing_euler[1], rotthing_euler[2]])
     
     return (euler_angles, rotationthing) if return_rotation_object else euler_angles 
+
+def whichpc_string(whichpcs):
+    return '-'.join(f"PC{w}" for w in whichpcs)
+

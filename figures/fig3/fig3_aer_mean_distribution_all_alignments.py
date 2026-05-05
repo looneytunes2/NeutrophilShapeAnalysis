@@ -9,19 +9,22 @@ Created on Mon Apr 14 14:33:38 2025
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
-from CustomFunctions import utils
-from CustomFunctions.shapePCAtools import filter_extremes_based_on_percentile
+from neutrophil_shape.CustomFunctions import utils
+from neutrophil_shape.CustomFunctions.shapePCAtools import filter_extremes_based_on_percentile
+from neutrophil_shape.config.loader import load_config
 from matplotlib.font_manager import FontProperties
 from matplotlib import cm
 from pathlib import Path
 
 ####### load common directories and data
-dirlist = ['Combined_37C_Confocal_PCA_shape','Combined_37C_Confocal_PCA_s5','Combined_37C_Confocal_PCA_planar']
+config = load_config(microscope_type = 'confocal')
+config._alignment = 'shape'
+
 alignlist = ['Shape Only','Trajectory + Shape', 'Trajectory Only']
-maxaerlist = [[1,5],[1,7],[1,2]]
+maxaerlist = [(1,2),(4,5),(2,8)]
 colorlist = cm.Set2.colors[:3][::-1]
-ntrans = 1
-time_interval = 10
+ntrans = config.db_params.ntrans
+time_interval = config.im_params.time_interval
 
 
 

@@ -13,28 +13,28 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from matplotlib.patches import Ellipse, Rectangle
 from pathlib import Path
+from neutrophil_shape.config.loader import load_config
 
 
+config = load_config(microscope_type='confocal')
 treatments = ['DMSO','Para-Nitro-Blebbistatin','CK666']
-time_interval = 10 #sec/frame
-whichpcs = [1,2]
-ntrans = 1
-time_interval = 10 #sec/frame
-
+time_interval = config.im_params.time_interval
+whichpcs = (1,2)
+ntrans = config.db_params.ntrans
 
 
 #get directories and open separated datasets
-basedir = Path('E:/Aaron/Combined_37C_Confocal_PCA_planar')
-datadir = basedir.joinpath('Data_and_Figs')
-savedir = basedir.joinpath('Detailed_Balance')
+savedir = config.common.savedir
+datadir = savedir / 'shape_data'
+dbdir = savedir / 'detailed_balance'
 
 #open the centers of the binned PCs
 centers = pd.read_csv(datadir.joinpath('PC_bin_centers.csv'), index_col=0)
-nbins = len(centers.iloc[:,0])
+nbins = config.db_params.nbins
 
 ######## open all of the data
 ########### interpolate all transitions so that only individual transitions are made ###########
-transdf_sep = pd.read_csv(savedir.joinpath(f'PC{whichpcs[0]}-PC{whichpcs[1]}_interpolated_transitions_separated.csv'), index_col=0)
+transdf_sep = pd.read_csv(dbdir.joinpath(f'PC{whichpcs[0]}-PC{whichpcs[1]}_interpolated_transitions_separated.csv'), index_col=0)
 transdf_sep = transdf_sep[transdf_sep.Treatment.isin(treatments)].copy()
 #ensure that DMSO is the first in order
 transdf_sep['Treatment'] = pd.Categorical(transdf_sep.Treatment, categories=treatments, ordered=True)

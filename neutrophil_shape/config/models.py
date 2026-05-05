@@ -105,7 +105,7 @@ class Config():
         ### need to set indicies so that components of actual pca class
         ### can be flipped too
         self.common.pc_flips = {
-            'shape': [],#0,1,2,4,6],
+            'shape': [2,4,6,7],#0,1,2,4,6],
             'trajectory_shape': [1,2,7],#0,1,2,3,6],
             'trajectory': [1,3,7],
         }[value]

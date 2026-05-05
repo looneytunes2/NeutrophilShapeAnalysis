@@ -12,29 +12,31 @@ import matplotlib.pyplot as plt
 from matplotlib import cm
 import matplotlib.patches as patches
 from pathlib import Path
+from neutrophil_shape.config.loader import load_config
 
-#get directories and open separated datasets
-fluxorigin = [7,8]
+#define some angular binning stuff
 binrange = 20
 bin_centers = np.arange(0, 360, binrange)
 bin_edges = np.unique([(round(b-binrange/2,4), round(b+binrange/2,4)) for b in bin_centers])
 
 
-
+### get info from config
 treatments = ['Random']
-time_interval = 10 #sec/frame
-whichpcs = [1,2]
+config = load_config(microscope_type='confocal')
+config._alignment = 'trajectory'
+time_interval = config.im_params.time_interval #sec/frame
+whichpcs = (1,2)
+nbins = config.db_params.nbins
+allorigins = config.db_params.origins
+pc_combos = config.common.pc_combos
+fluxorigin = allorigins[pc_combos.index(whichpcs)]
+
 
 #get directories and open separated datasets
-basedir = Path('E:/Aaron/Combined_37C_Confocal_PCA_planar')
-datadir = basedir.joinpath('Data_and_Figs')
-transdir = basedir.joinpath('Detailed_Balance')
+basedir = config.common.savedir
+datadir = basedir / 'shape_data'
+transdir = basedir / 'detailed_balance'
 
-
-
-#open the centers of the binned PCs
-centers = pd.read_csv(datadir.joinpath('PC_bin_centers.csv'), index_col=0)
-nbins = len(centers.iloc[:,0])
 
 
 
@@ -42,8 +44,7 @@ nbins = len(centers.iloc[:,0])
 trans_rate_df_sep = pd.read_csv(transdir.joinpath(f'PC{whichpcs[0]}-PC{whichpcs[1]}_binned_transition_rates_separated.csv'), index_col=0)
 #limit to treatments
 trans_rate_df_sep = trans_rate_df_sep[trans_rate_df_sep.Treatment.isin(treatments)]
-trans_rate_df_sep['Treatment'] = pd.Categorical(trans_rate_df_sep.Treatment, categories=treatments, ordered=True)
-trans_rate_df_sep = trans_rate_df_sep.sort_values(by='Treatment')
+
 
 
     

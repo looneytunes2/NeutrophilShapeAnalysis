@@ -559,20 +559,16 @@ def get_reconstruction_from_grid(grid: np.array, centroid: Tuple = (0, 0, 0)):
         x, y and z coordinates of the centroid where the mesh
         will be translated to, default is (0,0,0).
     """
-
     res_lat = grid.shape[0]
     res_lon = grid.shape[1]
 
-    # Creates an initial spherical mesh with right dimensions.
-    rec = vtk.vtkSphereSource()
-    rec.SetPhiResolution(res_lat + 2)
-    rec.SetThetaResolution(res_lon)
-    rec.Update()
-    rec = rec.GetOutput()
-
     grid_ = grid.T.flatten()
 
-    # Update the points coordinates of the spherical mesh according to the inout grid
+    points = vtk.vtkPoints()
+    polys = vtk.vtkCellArray()
+
+    # Add interior points
+    coords = []
     for j, lon in enumerate(np.linspace(0, 2 * np.pi, num=res_lon, endpoint=False)):
         for i, lat in enumerate(
             np.linspace(np.pi / (res_lat + 1), np.pi, num=res_lat, endpoint=False)
@@ -583,24 +579,60 @@ def get_reconstruction_from_grid(grid: np.array, centroid: Tuple = (0, 0, 0)):
             x = centroid[0] + grid_[k] * np.sin(theta) * np.cos(phi)
             y = centroid[1] + grid_[k] * np.sin(theta) * np.sin(phi)
             z = centroid[2] + grid_[k] * np.cos(theta)
-            rec.GetPoints().SetPoint(k + 2, x, y, z)
-    # Update coordinates of north and south pole points
-    north = grid_[::res_lat].mean()
-    south = grid_[(res_lat - 1) :: res_lat].mean()
-    rec.GetPoints().SetPoint(0, centroid[0] + 0, centroid[1] + 0, centroid[2] + north)
-    rec.GetPoints().SetPoint(1, centroid[0] + 0, centroid[1] + 0, centroid[2] - south)
+            coords.append((x, y, z))
+            points.InsertNextPoint(x, y, z)
 
-    # Compute normal vectors
+    # Add poles (indices: res_lat*res_lon = north, +1 = south)
+    north_r = grid_[::res_lat].mean()
+    south_r = grid_[(res_lat - 1)::res_lat].mean()
+    north_idx = points.InsertNextPoint(centroid[0], centroid[1], centroid[2] + north_r)
+    south_idx = points.InsertNextPoint(centroid[0], centroid[1], centroid[2] - south_r)
+
+    def idx(i, j):
+        return j * res_lat + i
+
+    # Interior quads — explicit outward winding order
+    for j in range(res_lon):
+        j_next = (j + 1) % res_lon
+        for i in range(res_lat - 1):
+            quad = vtk.vtkQuad()
+            quad.GetPointIds().SetId(0, idx(i,     j))
+            quad.GetPointIds().SetId(1, idx(i,     j_next))
+            quad.GetPointIds().SetId(2, idx(i + 1, j_next))
+            quad.GetPointIds().SetId(3, idx(i + 1, j))
+            polys.InsertNextCell(quad)
+
+    # North pole triangles
+    for j in range(res_lon):
+        j_next = (j + 1) % res_lon
+        tri = vtk.vtkTriangle()
+        tri.GetPointIds().SetId(0, north_idx)
+        tri.GetPointIds().SetId(1, idx(0, j_next))
+        tri.GetPointIds().SetId(2, idx(0, j))
+        polys.InsertNextCell(tri)
+
+    # South pole triangles
+    for j in range(res_lon):
+        j_next = (j + 1) % res_lon
+        tri = vtk.vtkTriangle()
+        tri.GetPointIds().SetId(0, south_idx)
+        tri.GetPointIds().SetId(1, idx(res_lat - 1, j))
+        tri.GetPointIds().SetId(2, idx(res_lat - 1, j_next))
+        polys.InsertNextCell(tri)
+
+    rec = vtk.vtkPolyData()
+    rec.SetPoints(points)
+    rec.SetPolys(polys)
+
     normals = vtk.vtkPolyDataNormals()
     normals.SetInputData(rec)
-    # Set splitting off to avoid output mesh from having different number of
-    # points compared to input
     normals.SplittingOff()
+    normals.ConsistencyOn()
+    normals.ComputePointNormalsOn()
+    normals.ComputeCellNormalsOff()
     normals.Update()
 
-    mesh = normals.GetOutput()
-
-    return mesh
+    return normals.GetOutput()
 
 
 def get_reconstruction_from_coeffs(coeffs: np.array, lrec: int = 0):

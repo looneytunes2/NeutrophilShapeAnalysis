@@ -1,14 +1,10 @@
-# -*- coding: utf-8 -*-
-"""
-Created on Wed Jul 19 15:55:43 2023
 
-@author: Aaron
-"""
 
 ######### do contour integrals for all migration modes ################
 import vtk
 import os
 import numpy as np
+import pickle as pk
 from scipy import interpolate
 from scipy.spatial import distance
 import re
@@ -19,6 +15,70 @@ from functools import reduce
 import matplotlib.pyplot as plt
 import pandas as pd
 from . import shtools_mod
+
+
+def get_shape_space(
+    datadir,
+    config,
+    nbins: int = 5,
+    npoints: int = 512,
+    ):
+    """
+    Parameters
+    ----------
+    datadir : pathlib.Path
+        Directory containing the data files.
+    config : Config
+        Configuration object containing the necessary parameters.
+
+    Returns
+    -------
+    coeffs_dict : dict
+        Dictionary with the spherical harmonics coefficients and the mean square
+        error between input and its parametrization
+
+
+    Other parameters
+    ----------------
+    nbins : int
+        Number of bins for each principal component
+    npoints : int
+        Number of points for the mesh reconstruction
+
+    """
+
+    #### open data needed for shape space
+    df_dig = pd.read_csv(datadir.joinpath('Shape_Space_Digitized_PCs.csv'), index_col = 0)
+    pca = pk.load(open(datadir.joinpath("pca.pkl"),'rb')) 
+    pcmeshdir = datadir.joinpath('PC_meshes')
+    npcs = config.common.npcs
+    lmax = config.common.l_order
+        
+    ################ RECONSTRUCT CELLS AT CERTAIN POINTS IN THE "SHAPE SPACE" ##################
+
+    ## for each PC axis
+    for pcaxis in range(1, npcs+1):
+        #### for each bin along pc axis
+        for bin in range(1,nbins+1):
+            #### get average for each PC calculated
+            recon_PCs = np.zeros((npcs))
+            for p, pc in enumerate(range(1, npcs+1)):
+                ### get average PC in bin
+                recon_PCs[p] = df_dig[df_dig[f'PC{pcaxis}_bins']==bin].loc[:,f'PC{pc}'].mean()
+
+
+            ### PCs to shcoeffs
+            recon_shcoeffs = pca.inverse_transform(recon_PCs)
+            
+            ## shcoeffs to mesh
+            mesh, _ = shtools_mod.get_even_reconstruction_from_coeffs(
+                                    recon_shcoeffs.reshape(2,lmax+1,lmax+1),
+                                    npoints,)
+            ### save mesh
+            shtools_mod.save_polydata(mesh, pcmeshdir.joinpath(f'PC{pcaxis}_{bin}.vtp'))
+    
+
+
 
 
 

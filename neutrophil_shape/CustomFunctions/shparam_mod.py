@@ -830,14 +830,14 @@ def get_shape_info(
     TopVolume = measure_volume_half(cell_mesh, 'z')
     
     
-    #get cell major, minor, and mini axes using the aligned mesh
+    #get cell major, median, and minor axes using the aligned mesh
     cell_coords = numpy_support.vtk_to_numpy(cell_mesh.GetPoints().GetData())
     alignlenfront = np.max(cell_coords[:,0])
     alignlenrear = np.min(cell_coords[:,0])
     alignwidleft = np.max(cell_coords[:,1])
     alignwidright = np.min(cell_coords[:,1])
-    alignheighttop = np.min(cell_coords[:,1])
-    alignheightbottom = np.min(cell_coords[:,1])
+    alignheighttop = np.max(cell_coords[:,2])
+    alignheightbottom = np.min(cell_coords[:,2])
     ##### measure length of cell along the trajectory axis
     alignlen = alignlenfront-alignlenrear
     alignwid = alignwidleft-alignwidright
@@ -854,33 +854,49 @@ def get_shape_info(
     idx = np.argsort(cell_evals)[::-1]
     cell_evals = cell_evals[idx]
     cell_evecs = cell_evecs[:,idx]
-    #rotate the cell coordinates to align the major axis with the x, the minor axis to the y and the "mini" axis to the z
+    ### enforce consistent directionality of the eigenvectors
+    # major axis points +x
+    if cell_evecs[0,0]<0:
+        cell_evecs[:,0] *= -1
+    # median axis points -y
+    if cell_evecs[1,1]>0:
+        cell_evecs[:,1] *= -1
+    # minor axis is right handed to the other two
+    righth = np.cross(cell_evecs[:,0], cell_evecs[:,1])
+    if (cell_evecs[2,2] * righth[2]) < 0:
+        cell_evecs[:,2] *= -1
+            
+
+    #rotate the cell coordinates to align the major axis with the x, the median axis to the y and the minor axis to the z
     rotationthing = R.align_vectors(np.array([[1,0,0],[0,1,0]]), cell_evecs.T[:2,:])
     cell_coords = rotationthing[0].apply(cell_coords)
     #get lengths of the cell's absolute axes
-    Cell_MajorAxis = np.max(cell_coords[:,0])-np.min(cell_coords[:,0])
-    Cell_MinorAxis = np.max(cell_coords[:,1])-np.min(cell_coords[:,1])
-    Cell_MiniAxis = np.max(cell_coords[:,2])-np.min(cell_coords[:,2])
-    
-    
+    Cell_MajorAxis_Length = np.max(cell_coords[:,0])-np.min(cell_coords[:,0])
+    Cell_MedianAxis_Length = np.max(cell_coords[:,1])-np.min(cell_coords[:,1])
+    Cell_MinorAxis_Length = np.max(cell_coords[:,2])-np.min(cell_coords[:,2])
+
+
     ######### Build dict of angles between principle axes relative to the alignment axis #############
     ax_angle_dict = {}
     ax_names = ['Major','Median','Minor']
     for a, arr in enumerate(cell_evecs.T):
-        #only use the orientation of these vectors in the +x domain
-        if arr[0] < 0:
-            arr = arr*-1
         #get angle between the vector and the planes
-        UpDownAngle = angle3D(arr[0], arr[1], arr[2], arr[0], arr[1], 0)
-        LeftRightAngle = angle3D(arr[0], arr[1], arr[2], arr[0], 0, arr[2])
-        Cell_TotalAngle = angle3D(arr[0], arr[1], arr[2], 1, 0, 0)
+        XYAngle = angle3D(arr[0], arr[1], 0, 1, 0, 0)
+        XZAngle = angle3D(arr[0], 0, arr[2], 1, 0, 0)
+        YZAngle = angle3D(0, arr[1], arr[2], 0, 1, 0)
+        TotalAngle = angle3D(arr[0], arr[1], arr[2], 1, 0, 0)
         #make sure the directionality is correct
-        Cell_UpDownAngle = UpDownAngle if arr[2]>0 else -1*UpDownAngle
-        Cell_LeftRightAngle = LeftRightAngle if arr[1]>0 else -1*LeftRightAngle
+        XYAngle = XYAngle if arr[1]>0 else -1*XYAngle
+        XZAngle = XZAngle if arr[2]>0 else -1*XZAngle
+        YZAngle = YZAngle if arr[2]>0 else -1*YZAngle
         ax_angle_dict.update({
-            'Cell_'+ax_names[a]+'Axis_TotalAngle': Cell_TotalAngle, # absolute angle between principal axis and cell's alignment axis
-            'Cell_'+ax_names[a]+'Axis_UpDownAngle': Cell_UpDownAngle, # X-Z angle between principal axis and cell's alignment axis
-            'Cell_'+ax_names[a]+'Axis_LeftRightAngle': Cell_LeftRightAngle, # X-Y angle between principal axis and cell's alignment axis
+            'Cell_'+ax_names[a]+'Axis_TotalAngle': TotalAngle, # absolute angle between principal axis and cell's alignment axis
+            'Cell_'+ax_names[a]+'Axis_XYAngle': XYAngle, # X-Y angle between principal axis and cell's alignment axis
+            'Cell_'+ax_names[a]+'Axis_XZAngle': XZAngle, # X-Z angle between principal axis and cell's alignment axis
+            'Cell_'+ax_names[a]+'Axis_YZAngle': YZAngle, # Y-Z angle between principal axis and cell's alignment axis
+            'Cell_'+ax_names[a]+'Axis_Vec_X': arr[0], #vector of the cell shape's absolute longest axis
+            'Cell_'+ax_names[a]+'Axis_Vec_Y': arr[1], #vector of the cell shape's absolute longest axis
+            'Cell_'+ax_names[a]+'Axis_Vec_Z': arr[2], #vector of the cell shape's absolute longest axis
             })
         
 
@@ -899,19 +915,10 @@ def get_shape_info(
                     'Volume_Top_Ratio': TopVolume/Cell_Volume,
                    'Cell_SurfaceArea': Cell_SurfaceArea,
                    'Cell_Sphericity': Cell_Sphericity,
-                   'Cell_MajorAxis': Cell_MajorAxis,
-                   'Cell_MajorAxis_Vec_X': cell_evecs[0,0], #vector of the cell shape's absolute longest axis
-                   'Cell_MajorAxis_Vec_Y': cell_evecs[1,0],
-                   'Cell_MajorAxis_Vec_Z': cell_evecs[2,0],
-                   'Cell_MinorAxis': Cell_MinorAxis,
-                   'Cell_MinorAxis_Vec_X': cell_evecs[0,1], #vector of the cell shape's second longest axis
-                   'Cell_MinorAxis_Vec_Y': cell_evecs[1,1],
-                   'Cell_MinorAxis_Vec_Z': cell_evecs[2,1],
-                   'Cell_MiniAxis': Cell_MiniAxis,
-                   'Cell_MiniAxis_Vec_X': cell_evecs[0,2], #vector of the cell shape's third longest axis
-                   'Cell_MiniAxis_Vec_Y': cell_evecs[1,2],
-                   'Cell_MiniAxis_Vec_Z': cell_evecs[2,2],
-                   'Cell_Aspect_Ratio': Cell_MajorAxis/Cell_MinorAxis, 
+                   'Cell_MajorAxis_Length': Cell_MajorAxis_Length,
+                   'Cell_MedianAxis_Length': Cell_MedianAxis_Length,
+                   'Cell_MinorAxis_Length': Cell_MinorAxis_Length,
+                   'Cell_Aspect_Ratio': Cell_MajorAxis_Length/Cell_MinorAxis_Length,
                    'OriginaltoReconError': OriginaltoReconError,
                    'RecontoOriginalError': RecontoOriginalError,
                    'LengthAlongTrajectory': alignlen,

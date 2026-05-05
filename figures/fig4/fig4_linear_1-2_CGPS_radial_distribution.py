@@ -10,32 +10,39 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
-from CustomFunctions import linear_cycle_utils
+from neutrophil_shape.CustomFunctions import linear_cycle_utils
 from matplotlib import cm
 from pathlib import Path
+from neutrophil_shape.config.loader import load_config
 
 #get directories and open separated datasets
 
 
 
 treatments = ['Random']
-time_interval = 10 #sec/frame
-whichpcs = [1,2]
-origin = [7, 8]
-binrange = 360/18
-direction = 'clockwise'
-zerostart = 'left'
+config = load_config(microscope_type='confocal')
+config._alignment = 'trajectory'
+time_interval = config.im_params.time_interval #sec/frame
+whichpcs = (1,2)
+allorigins = config.db_params.origins
+pc_combos = config.common.pc_combos
+origin = allorigins[pc_combos.index(whichpcs)]
+binrange = 360/18 # degrees / bin
+direction = 'clockwise' #direction of flux
+zerostart = 'left' #what 2D direction to call zero
 
 
 #get directories and open separated datasets
-basedir = Path('E:/Aaron/Combined_37C_Confocal_PCA_planar')
-datadir = basedir.joinpath('Data_and_Figs')
+basedir = config.common.savedir
+datadir = basedir / 'shape_data'
     
 FullFrame = pd.read_csv(datadir.joinpath('All_Data_with_CGPS_bins.csv'), index_col=0)
-nbins = np.max(FullFrame[[x for x in FullFrame.columns.to_list() if 'bin' in x]].to_numpy())
+##restrict to random treatment
+TotalFrame = FullFrame[FullFrame.Treatment=='Random'].reset_index(drop = True)
+
 #open the centers of the binned PCs
 centers = pd.read_csv(datadir.joinpath('PC_bin_centers.csv'), index_col=0)
-TotalFrame = FullFrame[FullFrame.Treatment=='Random']
+
 
 
 angframe = linear_cycle_utils.linearize_cycle_continuous(
@@ -46,8 +53,6 @@ angframe = linear_cycle_utils.linearize_cycle_continuous(
             zerostart,
             direction,)
 
-
-
 angframe =  linear_cycle_utils.bin_angular_coord(
         angframe,
         whichpcs,
@@ -55,7 +60,6 @@ angframe =  linear_cycle_utils.bin_angular_coord(
         )
 
 histdf = angframe[f'PC{whichpcs[0]}_PC{whichpcs[1]}_Continuous_Angular_Bins'].value_counts().sort_index().reset_index()
-histdf = histdf.rename(columns = {'index': 'angbins'})
 
 #get colors based on linear CGPS radial graphic
 cmap = cm.get_cmap('twilight', int(360/binrange+1))
@@ -63,7 +67,7 @@ discrete_colors = cmap(np.linspace(0,1,int(360/binrange+1))[:-1])
 
 fig, ax = plt.subplots(1, 1, figsize=(5,5))
 
-sns.barplot(data = histdf, x = 'angbins', y=f'PC{whichpcs[0]}_PC{whichpcs[1]}_Continuous_Angular_Bins',
+sns.barplot(data = histdf, x = f'PC{whichpcs[0]}_PC{whichpcs[1]}_Continuous_Angular_Bins', y='count',
             edgecolor = 'black', lw = 2, ax = ax)
 
 ## change bar color based on bin 

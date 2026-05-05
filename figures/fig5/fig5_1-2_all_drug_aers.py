@@ -25,7 +25,7 @@ def get_stars(pv):
     return stars
 
 treatments = ['DMSO','Para-Nitro-Blebbistatin','CK666']
-whichpcs = [1,2]
+whichpcs = (1,2)
 config = load_config(microscope_type='confocal')
 ntrans = config.db_params.ntrans
 time_interval = config.im_params.time_interval

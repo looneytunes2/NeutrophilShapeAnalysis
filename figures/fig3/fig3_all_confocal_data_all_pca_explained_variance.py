@@ -13,28 +13,34 @@ import matplotlib.pyplot as plt
 from matplotlib import cm
 import seaborn as sns
 from pathlib import Path
+from neutrophil_shape.config.loader import load_config
 
 
+### load config
+config = load_config(microscope_type='confocal')
+allalign = ['shape','trajectory_shape','trajectory']
 
 ####### load common directories and data
 basedir = Path('E:/Aaron')
 dirlist = ['Combined_37C_Confocal_PCA_shape','Combined_37C_Confocal_PCA_s5','Combined_37C_Confocal_PCA_planar']
 labeldict = {
-    'Combined_37C_Confocal_PCA_shape': 'Shape Only',
-    'Combined_37C_Confocal_PCA_s5': 'Trajectory + Shape',
-    'Combined_37C_Confocal_PCA_planar': 'Trajectory Only'
+    'shape': 'Shape Only',
+    'trajectory_shape': 'Trajectory + Shape',
+    'trajectory': 'Trajectory Only'
     }
 colorlist = cm.Set2.colors[:3][::-1]
 
 
 var_list = []
-for dirr in dirlist:
-    tempdir = basedir.joinpath(dirr,'Data_and_Figs','pca.pkl')
+for align in allalign:
+    config._alignment = align
+    datadir = config.common.savedir / 'shape_data'
+    tempdir = datadir.joinpath('pca.pkl')
     # open confocal pca model
     pca = pk.load(open(tempdir,'rb')) 
     # How much variance is explained?
     cell_variance = np.cumsum(pca.explained_variance_ratio_)
-    var_dict = [{'pca': dirr, 'pc': int(v+1), 'var': vv} for v, vv in enumerate(cell_variance)]
+    var_dict = [{'pca': align, 'pc': int(v+1), 'var': vv} for v, vv in enumerate(cell_variance)]
     var_list.extend(var_dict)
     
 vardf = pd.DataFrame(var_list)

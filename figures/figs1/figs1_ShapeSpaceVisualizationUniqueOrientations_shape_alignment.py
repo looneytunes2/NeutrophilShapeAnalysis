@@ -9,14 +9,15 @@ from paraview.simple import *
 import os 
 import re
 import numpy as np
+from pathlib import Path
 
-meshdir = 'C:/Users/Aaron/NeutrophilShapeAnalysis/data/shape_confocal/shape_data/PC_Meshes/' #'E:/Aaron/Combined_37C_Confocal_PCA_shape/Data_and_Figs/PC_Meshes/'
-meshfl = os.listdir(meshdir)
+meshdir = Path('C:/Users/Aaron/NeutrophilShapeAnalysis/data/shape_confocal/shape_data/PC_Meshes/') #'E:/Aaron/Combined_37C_Confocal_PCA_shape/Data_and_Figs/PC_Meshes/'
+meshfl = meshdir.glob('*.vtp')
 
 PCnum = 8
 framenumber = 100
-hspacing = 15.5*1.5
-vspacing = 11*1.5
+hspacing = 21.5
+vspacing = 15.5
 reconnum = 5
 
 if PCnum%2 == 0:
@@ -42,15 +43,15 @@ if not view:
     view = CreateRenderView()
 
 for p in meshfl:
-    PC = re.findall('(?<=PC)\d*', p)[0]
-    reader = XMLPolyDataReader(FileName=meshdir + p)
+    PC = re.findall('(?<=PC)\d*', p.stem)[0]
+    reader = XMLPolyDataReader(FileName=meshdir.joinpath(p).as_posix())
     obj = GetRepresentation(reader)
     if perspectives[int(PC)-1] == 'xz':
         obj.Orientation = [-90,0,0]
     elif perspectives[int(PC)-1] == 'yz':
         obj.Orientation = [180,90,90]
     # obj.Opacity = 0.7
-    binn = p.split('_')[-2]
+    binn = p.stem.split('_')[-1]
     #it says zpos but array meshes in xy
     obj.Position = [xarr[1,np.where(xarr==float(binn))[1][0]],zpos[int(PC)-1],0]
 

@@ -285,6 +285,7 @@ def quarter_scale(im):
 
 def getbb_movie(
         im, #image in TZYX
+        return_rescaled: bool = False, #whether or not to return the rescaled image along with the bounding box info
         ):
     ### start by segmenting the large image to get all of the "primary" cells' bounding boxes for further cropping
     with multiprocessing.Pool(processes=60) as pool: 
@@ -316,12 +317,11 @@ def getbb_movie(
                 ### get the surface coords in xyz order
                 boundaries = find_boundaries(im_labeled  ==  (count+1), mode='outer')
                 coords = np.flip(np.argwhere(boundaries), axis = 1)
-                # coords  =  np.flip(np.stack(np.where(im_labeled  ==  (count+1))).T, axis  =  1)*4
                 ### get the distance of this object to the skewed edges
                 min_dist_start = np.min(np.abs(np.dot(coords - start_point, start_normal)))
                 min_dist_end  =  np.min(np.abs(np.dot(coords - end_point, end_normal)))
-    
-                # z,y,x = (thebox[3]+thebox[0])/2,(thebox[4]+thebox[1])/2, (thebox[5]+thebox[2])/2
+
+                ### collect properites of this labeled object
                 area = prop.area * 64
                 intensity = np.mean(f[im_labeled==int(count+1)])
                 td = {'cell':count, 'z_min':thebox[0], 'y_min':thebox[1], 
@@ -360,8 +360,14 @@ def getbb_movie(
                 croplist.append(pd.DataFrame([nandict]))
         else:
             croplist.append(pd.DataFrame([nandict]))
-            
-    return pd.concat(croplist, ignore_index=True)
+    
+    ### make dataframe from list
+    cropdf  = pd.concat(croplist, ignore_index=True)
+
+    if return_rescaled:
+        return cropdf, rescaled
+    else:
+        return cropdf
 
 
 def LLSseg(

@@ -543,15 +543,12 @@ def get_area_enclosing_rate(
     #nbins, #number of bins in the CGPS
     #xyscaling = list, # list of the PC factors by which to scale the x and y coordinates of the CGPS in [x,y] format
     #center = 'center', or coordinates of origin
-    cell, nbins, xyscaling, center = args
+    cell, nbins, xyscaling, origin = args
     
     #get values to shift coordinates to the origin of the current
-    if type(center) == list:
-        shiftbyx = center[0]
-        shiftbyy = center[1]
-    elif center == 'center':
-        shiftbyx = round(nbins/2)
-        shiftbyy = round(nbins/2)
+    shiftbyx = origin[0]
+    shiftbyy = origin[1]
+
     #calculate aer per transition
     aerlist = []
     avlist = []
@@ -588,7 +585,7 @@ def rate_fit_bs_wrap(
     # df, #dataframe containing "iter" bootstrap iteration ID, some group_factor, and "aer"
     # group_factor,
     # time_interval, #time interval of the imaging data
-    df, group_factor, time_interval = args
+    df, group_factor = args
     
     ## create a dict with ID info
     id_dict = {
@@ -596,7 +593,7 @@ def rate_fit_bs_wrap(
         'iter': df.iloc[0].iter,
         }
     ## fit rate
-    rate_fit_dict = utils.fit_rates_linear(df, time_interval, ['aer','angular_velocity'])
+    rate_fit_dict = utils.fit_rates_linear(df, ['aer','angular_velocity'])
     ## update dict
     id_dict.update(rate_fit_dict)
     return id_dict
@@ -642,7 +639,7 @@ def get_raw_cgps_trajectories(
         migresults.append(rawtrans)
         
     rawtrans = pd.concat(migresults, ignore_index=True)
-    rawtrans.to_csv(dbsavedir.joinpath('-'.join(f"PC{w}" for w in whichpcs)+'_transitions_separated.csv'))
+    rawtrans.to_csv(dbsavedir.joinpath(utils.whichpc_string(whichpcs)+'_transitions_separated.csv'))
 
     print('Aggregated transitions')
     
@@ -679,7 +676,7 @@ def get_interpolated_cgps_trajectories(
         migresults.append(transdf_sep)
 
     transdf_sep = pd.concat(migresults)
-    transdf_sep.to_csv(dbsavedir.joinpath('-'.join(f"PC{w}" for w in whichpcs)+'_interpolated_transitions_separated.csv'))
+    transdf_sep.to_csv(dbsavedir.joinpath(utils.whichpc_string(whichpcs)+'_interpolated_transitions_separated.csv'))
     print('Finished interpolating trajectories')
     
     return transdf_sep
@@ -708,7 +705,7 @@ def aggregate_transition_counts(
         trresults.append(trans_rate_df_sep)
 
     trans_rate_df_sep = pd.concat(trresults)
-    trans_rate_df_sep.to_csv(dbsavedir.joinpath('-'.join(f"PC{w}" for w in whichpcs)+'_binned_transition_rates_separated.csv'))
+    trans_rate_df_sep.to_csv(dbsavedir.joinpath(utils.whichpc_string(whichpcs)+'_binned_transition_rates_separated.csv'))
     print('Finished finding transition rates')
     
     return trans_rate_df_sep
@@ -814,11 +811,11 @@ def get_bootstrapped_cgps_trajectories(
 
     ####### pull everything together and save
     bstrans = pd.concat(bstrans, ignore_index=True)
-    bstrans.to_csv(dbbssavedir.joinpath('-'.join(f"PC{w}" for w in whichpcs)+f'_bootstrapped_{ntrans}_transitions.csv'))
+    bstrans.to_csv(dbbssavedir.joinpath(utils.whichpc_string(whichpcs)+f'_bootstrapped_{ntrans}_transitions.csv'))
     bsint = pd.concat(bsint, ignore_index=True)
-    bsint.to_csv(dbbssavedir.joinpath('-'.join(f"PC{w}" for w in whichpcs)+f'_bootstrapped_{ntrans}_interpolated_transitions.csv'))
+    bsint.to_csv(dbbssavedir.joinpath(utils.whichpc_string(whichpcs)+f'_bootstrapped_{ntrans}_interpolated_transitions.csv'))
     bsframe_sep_full = pd.concat(bsframe_sep_full, ignore_index=True)
-    bsframe_sep_full.to_csv(dbbssavedir.joinpath('-'.join(f"PC{w}" for w in whichpcs)+f'_bootstrapped_{ntrans}_transition_rates.csv'))
+    bsframe_sep_full.to_csv(dbbssavedir.joinpath(utils.whichpc_string(whichpcs)+f'_bootstrapped_{ntrans}_transition_rates.csv'))
     print('Finished bootstrapping')
     
     return bstrans, bsint, bsframe_sep_full
@@ -859,7 +856,7 @@ def get_avg_current_error(
                               group_factor:m})
 
     bsfield_sep = pd.DataFrame(bsfield)
-    bsfield_sep.to_csv(dbbssavedir.joinpath('-'.join(f"PC{w}" for w in whichpcs)+f'_bootstrapped_{ntrans}_transitions_average_currents.csv'))
+    bsfield_sep.to_csv(dbbssavedir.joinpath(utils.whichpc_string(whichpcs)+f'_bootstrapped_{ntrans}_transitions_average_currents.csv'))
     
     return bsfield_sep
 
@@ -867,8 +864,6 @@ def get_avg_current_error(
 ########## calculate all the aers and cycling frequencies from the bootstrapped data
 def get_aer_cf(
         bstrans, #boostrapped transitions from get_bootstrapped_cgps_trajectories
-        xyscaling, #scaling of the bins in real units of whatever the CGPS axis parameters are
-        center, #origin in [x bin,y bin]
         whichpcs, #which two PCs to use in the cgps [x,y]
         config: Config,
         bssavedir: str, #where to save the bootstrapped dataframes
@@ -877,27 +872,38 @@ def get_aer_cf(
     
     ### get some settings from config
     time_interval = config.im_params.time_interval
-    dbbssavedir = config.common.savedir / 'detailed_balance' / bssavedir #where to save the aggregated counts
+    savedir = config.common.savedir
+    dbbssavedir = savedir / 'detailed_balance' / bssavedir #where to save the aggregated counts
     nbins = config.db_params.nbins #how many bins in the x and y cgps axes
     ntrans = config.db_params.ntrans #how many transitions to sample at each step
     bsiter = config.db_params.bsiter #number of times to bootstrap
+    pc_combos = config.common.pc_combos #unique PC pairs
+    origins = config.db_params.origins #flux origins for this dataset and alignment
+    origin = origins[pc_combos.index(whichpcs)]
+
+    ## open the CGPS bins to get scaling
+    datadir = savedir / 'shape_data'
+    centers = pd.read_csv(datadir.joinpath('PC_bin_centers.csv'), index_col=0)
+    #scaling of the bins in real units of whatever the CGPS axis parameters are
+    xyscaling = [centers[f'PC{wpc}'].diff().mean() for wpc in whichpcs]
+
 
     #make list of imap arguments
-    mapargs = [(df.sort_values('cumulative_time').reset_index(drop = True),nbins,xyscaling,center) for i, df in bstrans.groupby([group_factor,'iter'])]
+    mapargs = [(df.sort_values('cumulative_time').reset_index(drop = True),nbins,xyscaling,origin) for i, df in bstrans.groupby([group_factor,'iter'])]
 
     with multiprocessing.Pool(processes=60) as pool:
         results = list(tqdm.tqdm(pool.imap(get_area_enclosing_rate, mapargs), total=bsiter))
 
     allaers = pd.concat(results, ignore_index=True)
-    allaers.to_csv(dbbssavedir.joinpath('-'.join(f"PC{w}" for w in whichpcs)+f'_bootstrapped_{ntrans}_Area_Enclosing_Rates.csv'))
+    allaers.to_csv(dbbssavedir.joinpath(utils.whichpc_string(whichpcs)+f'_bootstrapped_{ntrans}_Area_Enclosing_Rates.csv'))
     
     ### get AE rate and fit 
-    lrmapargs = [(df.sort_values('cumulative_time').reset_index(drop = True),group_factor,time_interval) for i, df in allaers.groupby([group_factor,'iter'])]
+    lrmapargs = [(df.sort_values('cumulative_time').reset_index(drop = True),group_factor) for i, df in allaers.groupby([group_factor,'iter'])]
     with multiprocessing.Pool(processes=60) as pool:
         lrresults = list(tqdm.tqdm(pool.imap(rate_fit_bs_wrap, lrmapargs), total=bsiter))
 
     ## save the AE rate and fit
-    pd.DataFrame(lrresults).to_csv(dbbssavedir.joinpath('-'.join(f"PC{w}" for w in whichpcs)+f'_bootstrapped_{ntrans}_Area_Enclosed_Linear_Reg.csv'))
+    pd.DataFrame(lrresults).to_csv(dbbssavedir.joinpath(utils.whichpc_string(whichpcs)+f'_bootstrapped_{ntrans}_Area_Enclosed_Linear_Reg.csv'))
 
 
 def get_run_stats(
@@ -999,4 +1005,64 @@ def bootstrap_runs(
 
 
 
+def get_lls_gapped_bootstrap(
+    whichpcs: tuple, #which two PCs to use (x,y)
+    config: Config,
+    ):
 
+    #get constants from config
+    ntrans = config.db_params.ntrans #how many transitions to sample at each step
+
+    ## get directories from config
+    savedir = config.common.savedir
+    dbdir = savedir / 'detailed_balance'
+    dbbsdir = dbdir / 'separatedatabs'
+
+    justaers = pd.read_csv(dbdir.joinpath(utils.whichpc_string(whichpcs)+'_raw_transition_aer_cf.csv'), index_col = 0)
+
+    ########## measure gap frequency and duration
+    allrunlengths, allrunlengthmeans, allgaplengths, allgaplengthmeans, allgapfrequencies = get_run_stats(
+            justaers, #dataframe
+            'CellID', #what is the identifier to group by as a str
+            config, #frame rate of the data
+            )
+    print(f'Average track run length mean for real data is {np.mean(allrunlengthmeans)} and mean gap frequency is {np.mean(allgapfrequencies)})')
+
+    #### get bs data with gaps
+    bsaers = pd.read_csv(dbbsdir.joinpath(utils.whichpc_string(whichpcs)+f'_bootstrapped_{ntrans}_Area_Enclosing_Rates.csv'), index_col=0)
+    bstrans = pd.read_csv(dbbsdir.joinpath(utils.whichpc_string(whichpcs)+f'_bootstrapped_{ntrans}_transitions.csv'), index_col = 0)
+
+    bs_with_gaps = bootstrap_runs(
+        bsaers, #dataframe with bootstrap iterations (doesn't actually need aer)
+        allrunlengths, #the sample of movies lengths in seconds
+        allgaplengths, #the sample of non-movie gap lengths in seconds
+        )
+
+    ### measure the gap probability in the newly gapped bootstrap data
+    #change real_time to just time
+    bs_gap_measure = bs_with_gaps.merge(bsaers[['iter','real_time','cumulative_time','time_elapsed']], on = ['iter','real_time'], how = 'left')
+    #add dummy column
+    bs_gap_measure['aer'] = 0
+    bsallrunlengths, bsallrunlengthmeans, bsallgaplengths, bsallgaplengthmeans, bsallgapfrequencies = get_run_stats(
+            bs_gap_measure, #dataframe
+            'iter', #what is the identifier to group by as a str
+            config, #frame rate of the data
+            )
+
+    print(f'Average track run length mean for bootstrapped data is {np.mean(bsallrunlengthmeans)} and mean gap frequency is {np.mean(bsallgapfrequencies)})')
+
+    ### save the gapped bootstrap data
+    bs_with_gaps.to_csv(dbbsdir.joinpath(utils.whichpc_string(whichpcs)+f'_bootstrapped_{ntrans}_Area_Enclosing_Rates_gaps.csv'))
+
+
+    ### merged gaps with actual bootstrapped aers so we can do linear regression with the gapped data
+    aers_with_gaps = bs_with_gaps.merge(bsaers, on = ['iter','real_time'], how = 'left')
+
+    ### get AE rate and fit 
+    lrmapargs = [(df.sort_values('cumulative_time').reset_index(drop = True),'Treatment') for i, df in aers_with_gaps.groupby(['Treatment','iter'])]
+    with multiprocessing.Pool(processes=60) as pool:
+        lrresults = list(tqdm.tqdm(pool.imap(rate_fit_bs_wrap, lrmapargs), total=config.db_params.bsiter))
+
+    ## save the AE rate and fit
+    fitframe = pd.DataFrame(lrresults)
+    fitframe.to_csv(dbbsdir.joinpath(utils.whichpc_string(whichpcs)+f'_bootstrapped_{ntrans}_Area_Enclosed_Linear_Reg_gaps.csv'))

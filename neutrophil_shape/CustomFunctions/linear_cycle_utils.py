@@ -35,6 +35,9 @@ def linearize_cycle_continuous(
         direction = str, #string either 'clockwise' or 'counterclockwise'
         ):
     
+    #avoid modifying original df
+    df = df.copy()
+
     ### get centered PC bins first
     x = df[f'PC{whichpcs[0]}'].values-centers[f'PC{whichpcs[0]}'].iloc[origin[0]-1]
     y = df[f'PC{whichpcs[1]}'].values-centers[f'PC{whichpcs[1]}'].iloc[origin[1]-1]
@@ -61,6 +64,9 @@ def bin_angular_coord(
         binrange = int, #how big are the radial bins in degrees
         ):
     
+    #avoid modifying original df
+    df = df.copy()
+
     bin_centers = np.arange(0, 360, binrange)
     bin_edges = np.unique([(round(b-binrange/2,4), round(b+binrange/2,4)) for b in bin_centers])
     ### "bin" the Angular coord
@@ -159,7 +165,7 @@ def animate_linear_cycle_shcoeffs(
             allinterpvals.append(ra[s].values)
     
     for i, a in enumerate(np.array(allinterpvals).T):
-        mesh, _ = get_even_reconstruction_from_coeffs(np.reshape(a, (2,lmax+1,lmax+1)), lmax)
+        mesh, _ = get_even_reconstruction_from_coeffs(np.reshape(a, (2,lmax+1,lmax+1)), npoints = 4096)
         save_polydata(mesh, specificdir.joinpath(f'frame_{int(i)}_mesh.vtp'))
     
     #get just the linearized cgps data
@@ -258,7 +264,7 @@ def combine_linear_PILRs(savedir,
     #get all structure images
     structlist = [x for x in os.listdir(avgPILRs) if structure in x and 'aggmorph' in x]
     #sort the structlist by frame
-    structlist.sort(key=lambda x: float(re.findall('(?<=frame_)\d*', x)[0]))
+    structlist.sort(key=lambda x: float(re.findall(r'(?<=frame_)\d*', x)[0]))
     #read all of the frames into a list
     imlist = []
     for s in structlist:

@@ -9,28 +9,36 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
-from CustomFunctions.shapePCAtools import filter_extremes_based_on_percentile
+from neutrophil_shape.CustomFunctions.shapePCAtools import filter_extremes_based_on_percentile
+from neutrophil_shape.config.loader import load_config
 from matplotlib import cm
 from pathlib import Path
 from matplotlib.colors import LinearSegmentedColormap
 
 ####### load common directories and data
-dirlist = ['Combined_37C_Confocal_PCA_shape','Combined_37C_Confocal_PCA_s5','Combined_37C_Confocal_PCA_planar']
 alignlist = ['Shape Only','Trajectory + Shape', 'Trajectory Only']
 colorlist = cm.Set2.colors[:3][::-1]
-ntrans = 1
-time_interval = 10 #sec/frame
 
 
     
-    
-for d, di in enumerate(dirlist):
-    
-    ### get directories and constants
-    basedir = Path('E:/Aaron',di)
-    aerdir = basedir.joinpath('Detailed_Balance','alldatabs')
-    centers = pd.read_csv(basedir.joinpath('Data_and_Figs/PC_bin_centers.csv'), index_col=0)
+#load the clonfig
+config = load_config(microscope_type='confocal')
+
+#load some constants
+ntrans = config.db_params.ntrans
+
+alignlist = ['shape','trajectory_shape','trajectory']
+for d, al in enumerate(alignlist):
+    ### first set the alignment
+    config._alignment = al
+    ## get the directories and some CGPS info
+    savedir = config.common.savedir
+    datadir = savedir.joinpath('shape_data')
+    dbdir = savedir.joinpath('detailed_balance')
+    dbbsdir = dbdir.joinpath('alldatabs')
+    centers = pd.read_csv(datadir.joinpath('PC_bin_centers.csv'), index_col=0)
     binlist = centers.columns.to_list()
+
         
     ########### ONE BIG DIAGONAL GRAPH OF ALL PC CGPS's ##############    
     fig, axes = plt.subplots(len(binlist),len(binlist), figsize = (40,40), sharex=True, sharey=True)
@@ -44,7 +52,7 @@ for d, di in enumerate(dirlist):
             #define axis
             ax = axes[xrow, ycol]
             #get hypothetical directory for this PC pair
-            dfdir = aerdir.joinpath(f'{bin1}-{bin2}_bootstrapped_{ntrans}_Area_Enclosed_Linear_Reg.csv')
+            dfdir = dbbsdir.joinpath(f'{bin1}-{bin2}_bootstrapped_{ntrans}_Area_Enclosed_Linear_Reg.csv')
         
             #Plot the data if this PC pair exists
             if dfdir.exists():
@@ -108,7 +116,7 @@ for d, di in enumerate(dirlist):
                     label.set_horizontalalignment('right')
                 
                 if ycol == 0:
-                    ax.set_ylabel(bin2, fontsize = 40)
+                    ax.set_ylabel(bin2, fontsize = 40, labelpad = 53)
                     if xrow == range(len(binlist))[-1]:
                         ax.set_xlabel('')
         
@@ -121,7 +129,7 @@ for d, di in enumerate(dirlist):
         
             #keep the upper right plot but remove plot box
             elif (ycol==0) & (xrow==0):
-                ax.set_ylabel(bin2, fontsize = 40, labelpad = 24)
+                ax.set_ylabel(bin2, fontsize = 40, labelpad = 83)
                 ax.spines['top'].set_visible(False)
                 ax.spines['bottom'].set_visible(False)
                 ax.spines['left'].set_visible(False)
@@ -140,7 +148,8 @@ for d, di in enumerate(dirlist):
     ##### add common x axis label
     fig.text(0.5, 0.075, "Area Enclosing Rate (PC units²/sec)", fontsize = 40, ha='center')
     ##### add common y axis label
-    fig.text(0.083, 0.5, "Cycle Period (min/cycle)", fontsize = 40, rotation = 90, va='center')
+    #0.083
+    fig.text(0.097, 0.5, "Cycle Period (min/cycle)", fontsize = 40, rotation = 90, va='center')
                             
     
     # remove tick stuff from the upper right plot, but maintain the sharex sharey

@@ -8,15 +8,20 @@ Created on Wed Mar 19 10:13:06 2025
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
-from aicsimageio.readers.tiff_reader import TiffReader
+import tifffile
+from neutrophil_shape.config.loader import load_config
 
-basedir = 'E:/Aaron/random_lls/'
-imdir = basedir + 'processed_images/'
+#get directories and open separated datasets
+config = load_config(microscope_type='lls')
+config._alignment = 'trajectory'
+
+basedir = config.experiment.lls.localdir
+imdir = basedir / 'processed_images/'
 cellname = '20240520_488_EGFP-CAAX_561_mysoin-mApple_37C_cell2-04-Subset-01_frame_29'
-im = TiffReader(imdir + cellname + '_raw.tiff').data
+im = tifffile.imread(imdir.joinpath(cellname + '_raw.ome.tiff'))
 
-time_interval = 5
-resolution = 0.145 #um/pixel
+time_interval = config.im_params.time_interval #sec/frame
+resolution = config.im_params.xyres #um/pixel
 
 
 

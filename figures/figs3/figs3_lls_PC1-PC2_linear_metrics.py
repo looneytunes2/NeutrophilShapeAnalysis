@@ -1,43 +1,45 @@
 # -*- coding: utf-8 -*-
 """
-Created on Fri Mar 14 10:18:37 2025
+Created on Wed Feb 12 15:35:03 2025
 
 @author: Aaron
 """
 
 import pandas as pd
 import numpy as np
-import os
 import matplotlib.pyplot as plt
 import seaborn as sns
-from CustomFunctions import linear_cycle_utils, utils
+from neutrophil_shape.CustomFunctions import linear_cycle_utils, utils
+from neutrophil_shape.config.loader import load_config
 import math
 from scipy import interpolate
 from matplotlib import cm
-from scipy.stats import t
+
+
 
 #get directories and open separated datasets
 
-
 treatments = ['Random']
-whichpcs = [1,2]
-origin = [9,10]
+config = load_config(microscope_type='lls')
+config._alignment = 'trajectory'
+whichpcs = (1,2)
+pc_combos = config.common.pc_combos
+origin = config.db_params.origins[pc_combos.index(whichpcs)]
 binrange = 20
 direction = 'clockwise'
 zerostart = 'left'
 
 
 #get directories and open separated datasets
-basedir = 'E:/Aaron/Combined_37C_Confocal_PCA_planar_LLS_apply/'
-datadir = basedir + 'Data_and_Figs/'
-savedir = basedir + 'random/'
-if not os.path.exists(savedir):
-    os.makedirs(savedir)
+basedir = config.common.savedir
+datadir = basedir.joinpath('shape_data')
+savedir = basedir.joinpath('detailed_balance')
+
     
-FullFrame = pd.read_csv(datadir + 'All_Data_with_CGPS_bins.csv', index_col=0)
+FullFrame = pd.read_csv(datadir.joinpath('All_Data_with_CGPS_bins.csv'), index_col=0)
 #open the centers of the binned PCs
-centers = pd.read_csv(datadir+'PC_bin_centers.csv', index_col=0)
-TotalFrame = FullFrame[FullFrame.Treatment=='Random']
+centers = pd.read_csv(datadir.joinpath('PC_bin_centers.csv'), index_col=0)
+TotalFrame = FullFrame[FullFrame.Treatment.isin(treatments)].copy()
 
 
 angframe = linear_cycle_utils.linearize_cycle_continuous(
@@ -55,6 +57,7 @@ angframe =  linear_cycle_utils.bin_angular_coord(
         whichpcs,
         binrange,
         )
+
 
 
 
@@ -76,9 +79,9 @@ angframe = pd.concat((angframe, zerobin))
 #             'cell','image','structure','frame','time','CellID','Cell_intensity']
 # metlist = [x for x in collist if not any([y in x for y in snippets])]
 
-metlist = ['LengthAlongTrajectory','Cell_LeftRightAngle','directional_autocorrelation','speed']
+metlist = ['Cell_MajorAxis_Vec_X','Cell_MajorAxis_Vec_Y','directional_autocorrelation','speed']
 
-labelz = ['Length Along\nTrajectory (µm)','Long-Axis X-Y\nAngle (°)','Persistence','Instantaneous\nSpeed (µm/sec)']
+labelz = ['Major Axis\nX Component','Major Axis\nY Component','Persistence','Instantaneous\nSpeed (µm/sec)']
 
 
 

@@ -14,9 +14,9 @@ from matplotlib import cm
 
 #get some directories
 
-basedir = Path('E:/Aaron/Combined_37C_Confocal_PCA_planar_LLS_apply')
-meshdir = basedir.joinpath('Meshes')
-df = pd.read_csv(basedir.joinpath('data_and_figs','all_data_with_cgps_bins.csv'), index_col = 0)
+datadir = Path('C:/Users/Aaron/NeutrophilShapeAnalysis/data/trajectory_lls/shape_data')
+meshdir = Path('E:/Aaron/random_lls/meshes')
+df = pd.read_csv(datadir.joinpath('All_Data_with_CGPS_bins.csv'), index_col = 0)
 cellname = '20240520_488_EGFP-CAAX_561_mysoin-mApple_37C_cell2-04-Subset-01_frame_29'
 celldf = df[df.cell == cellname].copy()
 meshfl = meshdir.joinpath(cellname+'_cell_mesh.vtp')
@@ -34,17 +34,7 @@ reader = vtk.vtkXMLPolyDataReader()
 reader.SetFileName(meshfl)
 reader.Update()
 mesh = reader.GetOutput()
-#### transform the mesh
-transformation = vtk.vtkTransform()
-#rotate the shape
-transformation.RotateWXYZ(-Euler_Angles[0], 1, 0, 0)
-transformation.RotateWXYZ(-Euler_Angles[2], 0, 0, 1)
-transformation.RotateWXYZ(-wideroll, 1, 0, 0)
-transformFilter = vtk.vtkTransformPolyDataFilter()
-transformFilter.SetTransform(transformation)
-transformFilter.SetInputData(mesh)
-transformFilter.Update()
-mesh = transformFilter.GetOutput()
+
 
 source = TrivialProducer()
 source.GetClientSideObject().SetOutput(mesh)

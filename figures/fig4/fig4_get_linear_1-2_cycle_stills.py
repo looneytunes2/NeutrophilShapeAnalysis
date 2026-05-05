@@ -1,9 +1,3 @@
-# -*- coding: utf-8 -*-
-"""
-Created on Mon Jul 24 12:15:45 2023
-
-@author: Aaron
-"""
 
 
 import os 
@@ -29,7 +23,7 @@ zerostart = 'left'
 
 
 #get directories and open separated datasets
-basedir = Path('c:/Users/Aaron/NeutrophilShapeAnalysis/data/trajectory')
+basedir = config.common.savedir
 datadir = basedir.joinpath('shape_data')
 
     
@@ -59,7 +53,7 @@ angframe =  linear_cycle_utils.bin_angular_coord(
 for t, treat in angframe.groupby('Treatment'):
     linear_cycle_utils.animate_linear_cycle_shcoeffs(
                             treat,
-                            os.getcwd(),
+                            Path(__file__).parent,
                             t,
                             whichpcs,
                             binrange,

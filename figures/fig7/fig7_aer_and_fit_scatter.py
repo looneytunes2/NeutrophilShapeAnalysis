@@ -1,9 +1,3 @@
-# -*- coding: utf-8 -*-
-"""
-Created on Thu Apr  3 16:18:51 2025
-
-@author: Aaron
-"""
 
 
 import numpy as np
@@ -13,7 +7,6 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from neutrophil_shape.CustomFunctions import utils
 from neutrophil_shape.config.loader import load_config
-from pathlib import Path
 
 
 config = load_config(microscope_type='lls')
@@ -30,22 +23,22 @@ FullFrame = pd.read_csv(datadir.joinpath('All_Data_with_CGPS_bins.csv'), index_c
 FullFrame['real_time'] = FullFrame.time.copy()
 
 #open aers previously calculated
-allaers = pd.read_csv(dbdir.joinpath(f'PC{whichpcs[0]}-PC{whichpcs[1]}_raw_transition_aer_cf.csv'), index_col = 0)
+allaers = pd.read_csv(dbdir.joinpath(utils.whichpc_string(whichpcs) + '_raw_transition_aer_cf.csv'), index_col = 0)
 
 #merge aer and cf info
-TotalFrame = pd.merge(FullFrame, allaers[['aer','angular_velocity','CellID','real_time']],on=['CellID','real_time'],how='left')
+TotalFrame = FullFrame.merge(allaers, on=['CellID','real_time','frame'] ,how='left')
 TotalFrame = TotalFrame.sort_values(['CellID','time'])
 
-#open all the bootstrapped realizations
-bsaers = pd.read_csv(dbbsdir.joinpath(f'PC{whichpcs[0]}-PC{whichpcs[1]}_{ntrans}_transition_Area_Enclosing_Rates.csv'), index_col = 0)
-bsgaps = pd.read_csv(dbbsdir.joinpath(f'PC{whichpcs[0]}-PC{whichpcs[1]}_{ntrans}_transition_Area_Enclosing_Rates_gaps.csv'), index_col = 0)
-bsaers_gaps = bsaers.merge(bsgaps, on = ['iter','real_time'])
+#open bootstrapped gaps and fits with gaps
+bsgaps = pd.read_csv(dbbsdir.joinpath(utils.whichpc_string(whichpcs) + f'_bootstrapped_{ntrans}_Area_Enclosing_Rates_gaps.csv'), index_col = 0)
+bsdf = pd.read_csv(dbbsdir.joinpath(utils.whichpc_string(whichpcs) + f'_bootstrapped_{ntrans}_Area_Enclosed_Linear_Reg_gaps.csv'), index_col = 0)
+
 
 #only use aers that are within the range of observed time of the real cells
 minmaxtime = TotalFrame.groupby('CellID').time.max().min()
-itertime = bsaers_gaps.groupby('iter').cumulative_time.max()
+itertime = bsgaps.groupby('iter').real_time.max()
 longiters = itertime[itertime>=minmaxtime].index.to_list()
-bsaers_long = bsaers_gaps[bsaers_gaps.iter.isin(longiters)].copy()
+bsaers_long = bsdf[bsdf.iter.isin(longiters)].copy()
 
 
 
@@ -55,24 +48,13 @@ for i, t in TotalFrame.groupby('CellID'):
     ### get ID info
     id_dict = {'CellID':i}
     #linear regression
-    fitdict = utils.fit_rates_linear(t, time_interval, ['aer'])
+    fitdict = utils.fit_rates_linear(t, ['aer','angular_velocity'])
     id_dict.update(fitdict)
     dflist.append(id_dict)
 avgdf = pd.DataFrame(dflist)
 
 
-#calculate aer and fit for bootstrapped cells
-bslist = []
-for i, t in bsaers_long.groupby('iter'):
-    ### smoothen bootstrapped AE curve
-    #first rename time
-    t = t.rename(columns={'real_time':'time'})
-    # t,_,_ = utils.get_aer_state(t, time_interval)
-    #linear regression
-    aerresid, aercoef = utils.fit_AER(t,time_interval,'aer')
-    
-    bslist.append({'iter':i,'aerresid':aerresid,'aercoef':aercoef})
-bsdf = pd.DataFrame(bslist)
+### open bootstrapped data
 
 
 
@@ -90,18 +72,18 @@ new_cmap = matplotlib.colors.ListedColormap(
 
 
 ### probability density proportions to use as levels for the kde plot
-lvls = [0.01,0.2,0.4,0.6,0.8,1]
+lvls = [0.05,0.2,0.4,0.6,0.8,1]
 
 ### plot the stuff
 fig, ax = plt.subplots()
 cbar_ax = fig.add_axes([.98, .24, .03, .6])
 
 #individual dots
-sns.scatterplot(y = 'aerresid', x = 'aercoef', data = avgdf, hue = 'CellID',
+sns.scatterplot(y = 'aer_fit', x = 'aer_coeff', data = avgdf, hue = 'CellID',
                 s = 100, edgecolor = '0.4', ax = ax, zorder = 2)
 
 #density plot of the bootstrapped data
-sns.kdeplot(data = bsdf, x = 'aercoef', y = 'aerresid', levels = lvls, fill = True,
+sns.kdeplot(data = bsaers_long, x = 'aer_coeff', y = 'aer_fit', levels = lvls, fill = True,
             cmap = new_cmap, cbar = True, cbar_ax = cbar_ax, ax = ax, zorder = 1)
 
 ax.set_ylabel('Area Enclosing Rate R$^2$', fontsize = 18)
@@ -110,7 +92,7 @@ ax.set_xlabel('Area Enclosing Rate (PC units²/sec)', fontsize = 18)
 #change fontsize on axis ticks
 ax.tick_params(labelsize = 8)
 
-ax.set_xlim(0,0.0315)#(0.0085,0.0315)
+ax.set_xlim(0,0.029)#(0.0085,0.0315)
 ax.set_ylim(0,1.03)#(0.93,1.005)
 
 ax.spines['top'].set_visible(False)
@@ -125,7 +107,9 @@ cbar_ax.set_ylabel('Bootstrapped Density Proportion', fontsize = 10,
                    rotation=-90, labelpad = 13)
 
 
-plt.tight_layout()
+# plt.tight_layout()
+# plt.show()
+
 
 
 plt.savefig(__file__.split('.')[0] + '.png', dpi = 500, bbox_inches='tight')

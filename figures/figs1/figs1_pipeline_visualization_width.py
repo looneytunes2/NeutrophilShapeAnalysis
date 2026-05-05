@@ -14,11 +14,12 @@ from pathlib import Path
 
 
 #get some directories
-basedir = Path('E:/Aaron/Combined_37C_Confocal_PCA_s5/')
-meshdir = basedir.joinpath('Meshes')
-df = pd.read_csv(basedir.joinpath('Data_and_Figs','All_Data_with_CGPS_bins.csv'), index_col = 0)
-cellname = '20231116_488EGFP-CAAX_3mA_37C_1_cell_79_frame_145'
+datadir = Path('C:/Users/Aaron/NeutrophilShapeAnalysis/data/trajectory_shape_confocal/shape_data')
+meshdir = Path('E:/Aaron/Galvanotaxis_Confocal_40x_37C_10s_dil/meshes')
+df = pd.read_csv(datadir.joinpath('All_Data_with_CGPS_bins.csv'), index_col = 0)
+cellname = '20231116_488EGFP-CAAX_3mA_37C_1_cell_79_frame_144'
 cellinfo = df[df.cell == cellname].copy() #pd.read_csv(infodir.joinpath(cellname+'_cell_info.csv'), index_col = 0)
+
 
 
 
@@ -84,6 +85,8 @@ trajar.TipLength = 0.3
 trajar.TipRadius = 0.2
 trajar.TipResolution = 1000
 
+
+### get the trajectory display object
 trajar_display = Show(trajar)
 trajar_display.Orientation = [0, -arrow_orient_y, arrow_orient_z]
 trajar_display.Scale = [5,5,5]
@@ -94,7 +97,14 @@ trajar_display.AmbientColor = arcolor
 #turn off shininess
 trajar_display.Specular = 5.0
 trajar_display.SpecularPower = 65
-trajar_display.Position = [-6,5.5,0]
+unrotated_traj_arrow_position = [-6.5,4,0]
+trajar_display.Position = unrotated_traj_arrow_position
+
+
+# #### also make a next trajectory arrow
+# trajat_unit_vec = vec/np.linaglg.norm(vec)
+
+
 
 
 
@@ -106,22 +116,10 @@ mesh = mreader.GetOutput()
 # mesh = translate_to_origin(mesh)
 
 
-################# undo ALL the rotations
-transformation = vtk.vtkTransform()
-#rotate the shape
-transformation.RotateWXYZ(-Euler_Angles[0], 1, 0, 0)
-transformation.RotateWXYZ(-Euler_Angles[2], 0, 0, 1)
-transformation.RotateWXYZ(-wideroll, 1, 0, 0)
-transformFilter = vtk.vtkTransformPolyDataFilter()
-transformFilter.SetTransform(transformation)
-transformFilter.SetInputData(mesh)
-transformFilter.Update()
-unrot = transformFilter.GetOutput()
-
+######### fully rotated mesh
 unrotsource = TrivialProducer()
-unrotsource.GetClientSideObject().SetOutput(unrot)
+unrotsource.GetClientSideObject().SetOutput(mesh)
 unrotobj = GetRepresentation(unrotsource)
-# unrotobj.Position = [pos[0],0,0]
 ColorBy(unrotobj, None)
 
 
@@ -141,11 +139,10 @@ for ar in [xax,yax,zax]:
     ar.TipResolution = 100
 
 
-xyz_orient_pos = [-8,-14,0]
-xyzprops = {'Scale':[[5,5,5], [5,5,5], [5,5,5]],
-            'Color':[red, yellow, blue],
+xyzprops = {'Scale': [[5,5,5]]*3,
+            'Color': [red, yellow, blue],
             'Orientation': [[0,0,0], [-90,-90,0], [0,-90,90]],
-            'Position': [xyz_orient_pos]*3}
+            'Position': [[-9,-13.5,0]]*3}
 
 xax_display = Show(xax)
 xax_display.Orientation = xyzprops['Orientation'][0]
@@ -177,10 +174,11 @@ Hide(tube)
 
 
 
-############## undo the width rotation
+############## Perform the trajectory rotation
 transformation = vtk.vtkTransform()
 #rotate the shape
-transformation.RotateWXYZ(-wideroll, 1, 0, 0)
+transformation.RotateWXYZ(Euler_Angles[2], 0, 0, 1)
+transformation.RotateWXYZ(Euler_Angles[0], 1, 0, 0)
 transformFilter = vtk.vtkTransformPolyDataFilter()
 transformFilter.SetTransform(transformation)
 transformFilter.SetInputData(mesh)
@@ -214,6 +212,7 @@ trajar_display.Position = [-4,-9,0]
 Render()
     
 WriteImage(__file__.split('.')[0] + '_first_rotated.png')
+
 Hide(trajrotsource)
 Hide(xax)
 Hide(yax)
@@ -223,19 +222,27 @@ Hide(zax)
 
 
 
-
-Render()
     
 # WriteImage(__file__.split('.')[0] + '_unrotated.png')
 # Hide(tube)
 
 
-######### fully rotated mesh
+
+
+################# Perform WiDTH the rotations
+transformation = vtk.vtkTransform()
+#rotate the shape
+transformation.RotateWXYZ(wideroll, 1, 0, 0)
+transformFilter = vtk.vtkTransformPolyDataFilter()
+transformFilter.SetTransform(transformation)
+transformFilter.SetInputData(trajrot)
+transformFilter.Update()
+fullrot = transformFilter.GetOutput()
+
 fullrotsource = TrivialProducer()
-fullrotsource.GetClientSideObject().SetOutput(mesh)
+fullrotsource.GetClientSideObject().SetOutput(fullrot)
 fullrotobj = GetRepresentation(fullrotsource)
 ColorBy(fullrotobj, None)
-
 
 
 

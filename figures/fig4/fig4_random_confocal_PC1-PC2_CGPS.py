@@ -13,29 +13,34 @@ import matplotlib.transforms
 import seaborn as sns
 from cmocean import cm
 from matplotlib.patches import Ellipse, Rectangle
-
+from neutrophil_shape.config.loader import load_config
+from neutrophil_shape.CustomFunctions import linear_cycle_utils, utils
 
 
 #get directories and open separated datasets
-
-
 treatments = ['Random']
-time_interval = 10 #sec/frame
-whichpcs = [1,2]
-ntrans = 1
+config = load_config(microscope_type='confocal')
+config._alignment = 'trajectory'
+whichpcs = (1,2)
+pc_combos = config.common.pc_combos
+origin = config.db_params.origins[pc_combos.index(whichpcs)]
+binrange = 20
+direction = 'clockwise'
+zerostart = 'left'
+ntrans = config.db_params.ntrans
+time_interval = config.im_params.time_interval #sec/frame
+
 
 #get directories and open separated datasets
-basedir = Path('E:/Aaron/Combined_37C_Confocal_PCA_planar/')
-datadir = basedir.joinpath('Data_and_Figs')
-savedir = basedir.joinpath('Detailed_Balance')
+basedir = config.common.savedir
+datadir = basedir.joinpath('shape_data')
+savedir = basedir.joinpath('detailed_balance')
 
 
 FullFrame = pd.read_csv(datadir.joinpath('All_Data_with_CGPS_bins.csv'), index_col=0)
 nbins = np.max(FullFrame[[x for x in FullFrame.columns.to_list() if 'bin' in x]].to_numpy())
 #open the centers of the binned PCs
 centers = pd.read_csv(datadir.joinpath('PC_bin_centers.csv'), index_col=0)
-
-
 
 
 

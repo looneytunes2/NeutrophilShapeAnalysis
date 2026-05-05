@@ -14,7 +14,6 @@ from neutrophil_shape.config.loader import load_config
 import math
 from scipy import interpolate
 from matplotlib import cm
-from pathlib import Path
 
 
 
@@ -32,7 +31,7 @@ zerostart = 'left'
 
 
 #get directories and open separated datasets
-basedir = Path('c:/Users/Aaron/NeutrophilShapeAnalysis/data/trajectory')
+basedir = config.common.savedir
 datadir = basedir.joinpath('shape_data')
 savedir = basedir.joinpath('detailed_balance')
 
@@ -80,9 +79,9 @@ angframe = pd.concat((angframe, zerobin))
 #             'cell','image','structure','frame','time','CellID','Cell_intensity']
 # metlist = [x for x in collist if not any([y in x for y in snippets])]
 
-metlist = ['LengthAlongTrajectory','Cell_LeftRightAngle','directional_autocorrelation','speed']
+metlist = ['Cell_MajorAxis_Vec_X','Cell_MajorAxis_Vec_Y','directional_autocorrelation','speed']
 
-labelz = ['Length Along\nTrajectory (µm)','Long-Axis X-Y\nAngle (°)','Persistence','Instantaneous\nSpeed (µm/sec)']
+labelz = ['Major Axis\nX Component','Major Axis\nY Component','Persistence','Instantaneous\nSpeed (µm/sec)']
 
 
 

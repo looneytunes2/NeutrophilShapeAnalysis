@@ -7,19 +7,21 @@ Created on Mon Jun 23 11:07:51 2025
 
 import numpy as np
 import pandas as pd
-from CustomFunctions import utils
+from neutrophil_shape.CustomFunctions import utils
 import matplotlib.pyplot as plt
 import seaborn as sns
 from matplotlib.lines import Line2D
-from pathlib import Path
+from neutrophil_shape.config.loader import load_config
 
-time_interval = 10 #sec/frame
-
+treatments = ['Random']
 
 
 #get directories and open separated datasets
-basedir = Path('E:/Aaron/Combined_37C_Confocal_PCA_planar')
-datadir = basedir.joinpath('Data_and_Figs')
+config = load_config(microscope_type='confocal')
+config._alignment = 'trajectory'
+datadir = config.common.savedir / 'shape_data'
+time_interval = config.im_params.time_interval
+
 
 FullFrame = pd.read_csv(datadir.joinpath('All_Data_with_CGPS_bins.csv'), index_col=0)
 

@@ -756,3 +756,122 @@ def segment_and_crop_LLS_manual(
 
 #     pilrframe = pd.DataFrame(results).reset_index(drop=True)
 #     pilrframe.to_csv(datadir.joinpath('PILR_regions.csv'))
+
+
+
+
+def construct_full_lls_movie(
+        cellname: str,
+        config: Config,
+        xy_buffer: int = 7,
+        z_buffer: int = 7,
+        ):
+    ##### directories from config
+    serverdir = config.experiment.lls.serverdir
+    savedir = config.experiment.lls.localdir
+
+    ### build list of images to open
+    namesplit = cellname.split('_')
+    image_prefix = '_'.join(namesplit[:-1])
+    cellnum = namesplit[-1]
+    ## get list of unique movies and sort by movie number
+    lst = set([x for x in serverdir.glob(f'{image_prefix}*') if f'Subset-{cellnum}' in x.name])
+    sortedlst = sorted(lst, key=lambda x: int(re.findall(r'\d*(?=-Subset)', x.name)[0]))
+
+    ####### loop through all of the movies that captured the cell of interest
+    ####### MODIFIED FROM segment_LLS.getbb_movie
+    centroids = []
+    imagelist = []
+    framelist = []
+    for l in sortedlst:
+        ## read the image
+        big = CziFile(l)
+        bigim, _ = big.read_image()
+
+        ### get the bounding box info and the rescaled membrane channel
+        cropdf, rescaled = segment_LLS.getbb_movie(bigim[:,1,:,:,:],return_rescaled = True)
+        ### also rescale secondary channel
+        with multiprocessing.Pool(processes=60) as pool: 
+            rescaledother = pool.map(segment_LLS.quarter_scale, [i for i in bigim[:,0,:,:,:]])
+        ### stack the rescaled channels back together
+        rescaledall = np.stack((rescaled,rescaledother))
+        ### get the shape of the rescaled to use later to leave out objects
+        shape = rescaledall.shape
+
+        
+
+        ###aggregate cropping info from this particular image
+        #first adjust the coordinates of the crop from original image to the rescaled image
+        quarter_column_list = ['x','y','z','x_min','y_min','z_min','x_max','y_max','z_max']
+        for qcl in quarter_column_list:
+            cropdf[qcl] = (cropdf[qcl]/4)
+
+        ### get the aggregate mins and maxes
+        cropdf['x_min'] = int(max(0, cropdf['x_min'].min()-xy_buffer))
+        cropdf['y_min'] = int(max(0, cropdf['y_min'].min()-xy_buffer))
+        cropdf['z_min'] = int(max(0, cropdf['z_min'].min()-z_buffer))
+        cropdf['z_max'] = int(min(cropdf['z_max'].max()+z_buffer, shape[-3]))
+        cropdf['y_max'] = int(min(cropdf['y_max'].max()+xy_buffer, shape[-2])+1)
+        cropdf['x_max'] = int(min(cropdf['x_max'].max()+xy_buffer, shape[-1])+1)
+        mincrop = np.min(cropdf[['z_min','y_min','x_min']].values, axis = 0)
+        maxcrop = np.max(cropdf[['z_max','y_max','x_max']].values, axis = 0)
+
+        ## append the cropped image and the centroids of the cropped cell
+        imagelist.append(rescaledall[:,:,
+                                mincrop[0]:maxcrop[0],
+                              mincrop[1]:maxcrop[1],
+                              mincrop[2]:maxcrop[2]])
+        centroids.append(cropdf[['z','y','x']].values-np.array([mincrop[0],mincrop[1],mincrop[2]]))
+        #append all of the frame numbers and names that were used to compile this video
+        framelist.extend([l.name+'_frame_'+'{:03d}'.format(r) for r in range(len(rescaled))])
+        print(f'finished cropping move {l.name}')
+    ###pull all the images into one movie with minimal dimensions
+    #first make sure there's no nan, if there is replace it with the centroid before it
+    #or the index after it if the nan is at 0
+    for i, ce in enumerate(centroids):
+        if np.any(np.isnan(ce)):
+            naninds = np.unique(np.where(np.isnan(ce))[0])
+            nanreplace = naninds-1
+            if bool(0 in naninds):
+                nanreplace[nanreplace==-1] = 1
+            centroids[i][naninds] = centroids[i][nanreplace]
+    #then get the relative positions of the first frames
+    newc = []
+    for u, c in enumerate(centroids):
+        if u!=0:
+            newc.append(centroids[u-1][-1]-c[0])
+        else:
+            newc.append(np.zeros(3))
+    zeropos = np.stack(newc)
+    zeropos = np.cumsum(zeropos,axis=0)
+    zeropos = np.round(zeropos + abs(zeropos.min())+0.0001)
+    shapes = [x.shape for x in imagelist]
+    totalshape = np.round(np.max(zeropos + np.array(shapes)[:,-3:], axis = 0)-np.min(zeropos,axis=0)+0.001)
+    finalimage = np.zeros((np.concatenate([[sum([x[1]for x in shapes])],[2],totalshape]).astype(int)))
+    timecount = 0
+    shifts = zeropos-np.min(zeropos,axis=0)
+    for r in range(len(shapes)):
+        s = shapes[r]
+        z = shifts[r].astype(int)
+        finalimage[timecount:timecount+s[1],
+                   :,
+                   z[-3]:z[-3]+s[-3],
+                   z[-2]:z[-2]+s[-2],
+                   z[-1]:z[-1]+s[-1],
+                  ] = np.swapaxes(imagelist[r],0,1)
+        timecount = timecount+s[1]
+
+    indivdir = savedir / 'singlecells' / cellname
+    if not indivdir.exists():
+        indivdir.mkdir(parents=True)
+    #save full image
+    tifffile.imwrite(indivdir / f'{cellname}_full_movie.ome.tiff',
+                     finalimage.astype('uint16'),
+                     metadata={'axes': 'TCZYX'})
+    #save maximum intensity projection
+    maxproj = np.max(finalimage, axis = 2)
+    tifffile.imwrite(indivdir / f'{cellname}_full_movie_maxproj.ome.tiff',
+                     maxproj.astype('uint16'),
+                     metadata={'axes': 'TCYX'})
+    #save which frames from which videos were actually used
+    pd.Series(framelist).to_csv(indivdir / f'{cellname}_framelist.csv')

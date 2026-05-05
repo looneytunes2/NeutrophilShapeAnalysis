@@ -10,22 +10,23 @@ import pandas as pd
 import re
 import matplotlib.pyplot as plt
 import seaborn as sns
+from neutrophil_shape.config.loader import load_config
+from pathlib import Path
 
+### load config
+config = load_config(microscope_type='confocal')
+config._alignment = 'trajectory'
+npcs = config.common.npcs
 
 #get directories and open separated datasets
-basedir = 'E:/Aaron/Combined_37C_Confocal_PCA_s5/'
-datadir = basedir + 'Data_and_Figs/'
-TotalFrame = pd.read_csv(datadir + 'All_Data_with_CGPS_bins.csv', index_col=0)
-# make sure all categories are ordered
-TotalFrame['Treatment'] = pd.Categorical(TotalFrame.Treatment.to_list(), categories=['Random','Pre-Galvanotaxis','Galvanotaxis','DMSO','CK666','Para-Nitro-Blebbistatin'], ordered=True)
-TotalFrame['Experiment'] = pd.Categorical(TotalFrame.Experiment.to_list(), categories=['Galvanotaxis','Drug'], ordered=True)
-
+savedir = config.common.savedir
+datadir = savedir / 'shape_data'
+TotalFrame = pd.read_csv(datadir / 'All_Data_with_CGPS_bins.csv', index_col=0)
 
 
 
 #get PCs in order
-PCs = list(np.unique([re.search('PC\d*',x)[0] for x in TotalFrame.columns.to_list() if re.search('PC\d*',x) is not None]))
-PCs.sort(key=lambda x: float(x.split('PC')[1]))
+PCs = ['PC'+str(i) for i in range(1,npcs+1)]
 #add them together and select them in the dataframe
 pcframe = TotalFrame[PCs]
 

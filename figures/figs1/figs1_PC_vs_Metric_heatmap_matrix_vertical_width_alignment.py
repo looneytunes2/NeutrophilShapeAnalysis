@@ -1,17 +1,10 @@
-# -*- coding: utf-8 -*-
-"""
-Created on Sun Jun  1 16:05:31 2025
-
-@author: Aaron
-"""
 
 
 import numpy as np
 import pandas as pd
-import re
 import matplotlib.pyplot as plt
 import seaborn as sns
-from pathlib import Path
+from neutrophil_shape.config.loader import load_config
 
 def closest(lst, K):  
     return lst[min(range(len(lst)), key = lambda i: abs(lst[i]-K))]
@@ -22,32 +15,76 @@ color_scale = pd.DataFrame({'color':list(sns.diverging_palette(20, 220, n=200).a
 
 
 #get directories and open separated datasets
-basedir = Path('E:/Aaron/Combined_37C_Confocal_PCA_s5/')
-datadir = basedir.joinpath('Data_and_Figs')
+#get directories and open separated datasets
+config = load_config(microscope_type='confocal')
+config._alignment = 'trajectory_shape'
+datadir = config.common.savedir / 'shape_data'
 TotalFrame = pd.read_csv(datadir.joinpath('All_Data_with_CGPS_bins.csv'), index_col=0)
 
 
 
-
 #all the metrics we want to plot by their name in the dataframe
-metrics =  [['Cell_Volume','Cell_SurfaceArea','Volume_Front_Ratio','Volume_Left_Ratio','Volume_Top_Ratio','Cell_Sphericity'],
-            ['Cell_MajorAxis','Cell_MinorAxis','Cell_MiniAxis','Cell_Aspect_Ratio','Cell_UpDownAngle','Cell_LeftRightAngle','Cell_TotalAngle','LengthAlongTrajectory'],
-            ['speed','directional_autocorrelation']
+metrics =  [['Cell_Volume',
+             'Cell_SurfaceArea',
+             'Volume_Front_Ratio',
+             'Volume_Left_Ratio',
+             'Volume_Top_Ratio',
+             'Cell_Sphericity',
+             ],
+            ['Cell_MajorAxis_Length',
+             'Cell_MedianAxis_Length',
+             'Cell_MinorAxis_Length',
+             'Cell_Aspect_Ratio',
+             'Cell_MajorAxis_Vec_X',
+            'Cell_MajorAxis_Vec_Y',
+            'Cell_MajorAxis_Vec_Z',
+            'Cell_MedianAxis_Vec_X',
+            'Cell_MedianAxis_Vec_Y',
+            'Cell_MedianAxis_Vec_Z',
+            'Cell_MinorAxis_Vec_X',
+            'Cell_MinorAxis_Vec_Y',
+            'Cell_MinorAxis_Vec_Z',
+             ],
+            ['speed',
+             'directional_autocorrelation']
             ]
 
-labelz = [['Cell Volume (µm$^3$)','Cell Surface\nArea (µm$^2$)','Front-Back Volume\nRatio','Left-Right Volume\nRatio','Top-Bottom Volume\nRatio','Cell Sphericity'],
-          ['Cell Major Axis\nLength (µm)','Cell Minor Axis\nLength (µm)','Cell Mini Axis\nLength (µm)','Aspect Ratio','Long-Axis X-Z\nAngle (°)','Long-Axis X-Y\nAngle (°)','Long-Axis Total\nAngle (°)','Length Along\nTrajectory (µm)'],
-          ['Instantaneous\nSpeed (µm/sec)','Persistence']#,'Directional Autocorrelation',
+labelz = [['Cell Volume (µm$^3$)',
+           'Cell Surface\nArea (µm$^2$)',
+           'Front-Back Volume\nRatio',
+           'Left-Right Volume\nRatio',
+           'Top-Bottom Volume\nRatio',
+           'Cell Sphericity',
+           ],
+          ['Cell Major Axis\nLength (µm)',
+           'Cell Median Axis\nLength (µm)',
+           'Cell Minor Axis\nLength (µm)',
+           'Aspect Ratio',
+           'Major Axis X\nComponent',
+           'Major Axis Y\nComponent',
+           'Major Axis Z\nComponent',
+           'Median Axis X\nComponent',
+           'Median Axis Y\nComponent',
+           'Median Axis Z\nComponent',
+           'Minor Axis X\nComponent',
+           'Minor Axis Y\nComponent',
+           'Minor Axis Z\nComponent',
+           ],
+          ['Instantaneous\nSpeed (µm/sec)',
+           'Persistence',
+           ]#,'Directional Autocorrelation',
           ]
 #get PCs in order
-PCs = list(np.unique([re.search('PC\d*',x)[0] for x in TotalFrame.columns.to_list() if re.search('PC\d*',x) is not None]))
-PCs.sort(key=lambda x: float(x.split('PC')[1]))
+npcs = config.common.npcs
+PCs = ['PC'+str(i) for i in range(1,npcs+1)]
 #add them together and select them in the dataframe
 totalcorr = TotalFrame[[x for y in metrics for x in y]+PCs].corr()
 PCsAndMetrics = totalcorr.loc[:,PCs]
 PCsAndMetrics = PCsAndMetrics.drop(index=PCs)
 
-fig, axes = plt.subplots(len(metrics), 1, figsize=(15,25), gridspec_kw={'height_ratios':[len(x) for x in metrics]})
+fig, axes = plt.subplots(len(metrics), 1, figsize=(15,25),
+                         gridspec_kw={'height_ratios':[len(x) for x in metrics],
+                                      'hspace':0.05})
 for i, m in enumerate(metrics):
     ax = axes[i]
     temp = PCsAndMetrics.loc[m,:].copy()
@@ -68,7 +105,7 @@ for i, m in enumerate(metrics):
     if  i == 0:
         ax.set_xticklabels(
             PCs,
-            fontsize = 28
+            fontsize = 26
         )
         ax.tick_params('x',top=True, labeltop=True, bottom=False, labelbottom=False ,length=6, width=3)
     else:
@@ -79,7 +116,7 @@ for i, m in enumerate(metrics):
         labelz[i],
         # rotation=45,
         # horizontalalignment='right',
-        fontsize = 28
+        fontsize = 26
     )
     
     
@@ -101,15 +138,29 @@ for i, m in enumerate(metrics):
     #     pos = ax.get_position()
     #     ax.set_position([pos.x0 - 0.3, pos.y0, pos.width, pos.height])
 
+# Get the bounding boxes of the first and last heatmap axes
+top_ax_pos    = axes[0].get_position()
+bottom_ax_pos = axes[-1].get_position()
+
+# Extract left edge and width from the heatmap axes
+hm_left  = top_ax_pos.x0
+hm_width = top_ax_pos.width
+
+# Place colorbar just below the bottom heatmap
+cbar_bottom = bottom_ax_pos.y0 - 0.02  # gap below last heatmap
+cbar_height = 0.013
+
+cbar_ax = fig.add_axes([hm_left, cbar_bottom, hm_width, cbar_height])
+
 # cbar_ax = fig.add_axes([0.84, 0.3, 0.027, 0.30])  # [left, bottom, width, height]
-cbar_ax = fig.add_axes([0.2298, 0.09, 0.5655, 0.013]) 
+# cbar_ax = fig.add_axes([0.2798, 0.09, 0.4455, 0.013]) 
 
 
 # Add the colorbar to the new axis
 cbar = fig.colorbar(axes[-1].collections[0], cax=cbar_ax, orientation='horizontal')
-cbar.set_label('Pearson Coefficient', fontsize=28)
+cbar.set_label('Pearson Coefficient', fontsize=26)
 cbar.ax.xaxis.set_label_position('bottom')
-cbar.ax.set_xticklabels(np.linspace(-1,1,len(cbar.ax.get_xticklabels())).astype(str),fontsize=22)
+cbar.ax.set_xticklabels(np.linspace(-1,1,len(cbar.ax.get_xticklabels())).astype(str),fontsize=20)
 
 
 plt.savefig(__file__.split('.')[0]+'.png', bbox_inches='tight', dpi=500)

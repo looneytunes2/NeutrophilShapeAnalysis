@@ -10,7 +10,7 @@ from neutrophil_shape.config.loader import load_config
 
 ####### load common directories and data
 # inverse scale for flux arrows
-scale = 0.0015
+scale = 0.0008
 
 #load the clonfig
 config = load_config(microscope_type='confocal')
@@ -44,7 +44,7 @@ for d, al in enumerate(alignlist):
     
             if dbdir.joinpath(f'{bin1}-{bin2}_binned_transition_rates_separated.csv').exists():
                 transdf_sep = pd.read_csv(dbdir.joinpath(f'{bin1}-{bin2}_interpolated_transitions_separated.csv'), index_col=0)
-                # bsfield_sep = pd.read_csv(dbdir.joinpath('alldatabs', f'{bin1}-{bin2}_bootstrapped_{config.db_params.ntrans}_transitions_average_currents.csv'), index_col=0)
+                bsfield_sep = pd.read_csv(dbdir.joinpath('alldatabs', f'{bin1}-{bin2}_bootstrapped_{config.db_params.ntrans}_transitions_average_currents.csv'), index_col=0)
                 print(f'Opened {bin1}-{bin2} transition rate files')
                 
     
@@ -61,14 +61,13 @@ for d, al in enumerate(alignlist):
                 ########### PDFs AND PROBABILITY FLUX OF THE SEPARATED MIGRATION MODES #############
     
                 ################ heatmap of probability density #############
-                ttot = transdf_sep.time_elapsed.sum()
                 #make numpy array with heatmap data
                 bighm = np.zeros((nbins,nbins))
                 #get total time observed in the system
     
                 for x in range(nbins):
                     for y in range(nbins):
-                        current =  transdf_sep[(transdf_sep['from_x'] == x+1) & (transdf_sep['from_y'] == y+1)]
+                        current = transdf_sep[(transdf_sep['from_x'] == x+1) & (transdf_sep['from_y'] == y+1)]
                         if current.empty:
                             bighm[y,x] = 0
                         else:
@@ -90,12 +89,12 @@ for d, al in enumerate(alignlist):
                 
                 ######################### vector map of probability flux ################
                 #combine relevant data
-                elldf = trans_rate_df_sep#.merge(bsfield_sep, on = ['x','y'])
+                elldf = trans_rate_df_sep.merge(bsfield_sep, on = ['x','y'])
                 for x in range(1,nbins+1):
                     for y in range(1,nbins+1):
                         current = elldf[(elldf['x'] == x) & (elldf['y'] == y)]
-                        xcurrent = (current.x_plus_rate - current.x_minus_rate)/2
-                        ycurrent = (current.y_plus_rate - current.y_minus_rate)/2
+                        xcurrent = ((current.x_plus_rate - current.x_minus_rate)/2).iloc[0]
+                        ycurrent = ((current.y_plus_rate - current.y_minus_rate)/2).iloc[0]
                         ax.quiver(x-0.5,
                                     y-0.5, 
                                     xcurrent,
@@ -107,22 +106,24 @@ for d, al in enumerate(alignlist):
                                   zorder = 3)
     
     
-                        # #determine ellipse width, height and angle
-                        # #always set eval1 to width and adjust angle accordingly
-                        # eh = np.sqrt(abs(current.eval2))*(2/scale)
-                        # ew = np.sqrt(abs(current.eval1))*(2/scale)
-                        # evec = current[['evec1x','evec1y']].values[0]
-                        # evec = evec if evec[1]>0 else -evec
-                        # eang = np.degrees(np.arctan2(evec[1],evec[0]))
+                        #determine ellipse width, height and angle
+                        #always set eval1 to width and adjust angle accordingly
+                        ex = xcurrent*(1/scale)
+                        ey = ycurrent*(1/scale)
+                        eh = np.sqrt(abs(current.eval2.iloc[0]))*(2/scale)
+                        ew = np.sqrt(abs(current.eval1.iloc[0]))*(2/scale)
+                        evec = current[['evec1x','evec1y']].values[0]
+                        evec = evec if evec[1]>0 else -evec
+                        eang = np.degrees(np.arctan2(evec[1],evec[0]))
                 
-                        # ell = Ellipse(xy=(x-0.5+(xcurrent.values*(1/scale)),y-0.5+(ycurrent.values*(1/scale))),
-                        #               width=ew,
-                        #               height=eh,
-                        #               angle=eang,
-                        #               color = 'lightblue',
-                        #               alpha = 0.12,
-                        #               zorder = 2)
-                        # ax.add_artist(ell)
+                        ell = Ellipse(xy=(x-0.5+ex,y-0.5+ey),
+                                      width=ew,
+                                      height=eh,
+                                      angle=eang,
+                                      color = 'lightblue',
+                                      alpha = 0.12,
+                                      zorder = 2)
+                        ax.add_artist(ell)
                 
     
     

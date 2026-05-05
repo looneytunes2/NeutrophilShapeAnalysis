@@ -10,17 +10,16 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 import matplotlib.lines as mlines
-from pathlib import Path
-
-#get directories and open separated datasets
-
+from neutrophil_shape.config.loader import load_config
 
 treatments = ['Random']
 
 
 #get directories and open separated datasets
-basedir = Path('E:/Aaron/Combined_37C_Confocal_PCA_planar')
-datadir = basedir.joinpath('Data_and_Figs')
+config = load_config(microscope_type='confocal')
+config._alignment = 'trajectory'
+datadir = config.common.savedir / 'shape_data'
+
 
 FullFrame = pd.read_csv(datadir.joinpath('All_Data_with_CGPS_bins.csv'), index_col=0)
 #restrict dataframe to only random experiments

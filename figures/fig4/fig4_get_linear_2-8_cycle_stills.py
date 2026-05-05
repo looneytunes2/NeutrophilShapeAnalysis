@@ -24,11 +24,11 @@ whichpcs = (2,8)
 pc_combos = config.common.pc_combos
 origin = config.db_params.origins[pc_combos.index(whichpcs)]
 binrange = 360/6
-direction = 'counterclockwise'
+direction = 'clockwise'
 zerostart = 'left'
 
 #get directories and open separated datasets
-basedir = Path('c:/Users/Aaron/NeutrophilShapeAnalysis/data/trajectory')
+basedir = config.common.savedir
 datadir = basedir.joinpath('shape_data')
 
     
