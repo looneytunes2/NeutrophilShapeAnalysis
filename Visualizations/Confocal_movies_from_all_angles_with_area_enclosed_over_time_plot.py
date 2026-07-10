@@ -12,54 +12,98 @@ from matplotlib.animation import FuncAnimation
 import tifffile
 import matplotlib.gridspec as gridspec
 from neutrophil_shape.config.loader import load_config
+from neutrophil_shape.config.models import Config
 from neutrophil_shape.CustomFunctions import utils
+import dataclasses
 
 
 whichpcs = (1,2)
 
 ### open config and get directories
-config = load_config(microscope_type='lls')
+config = load_config(microscope_type='confocal')
 config._alignment = 'trajectory'
+xyres = config.im_params.xyres
+zstep = config.im_params.zstep
 savedir = config.common.savedir
-localdir = config.experiment.lls.localdir
-moviedir = localdir / 'singlecells'
 time_interval = config.im_params.time_interval
 
 
-dirs = [d for d in moviedir.glob("*/") if d.is_dir()]
-# dirs = [d for d in moviedir.glob('*') if '20240611_488_EGFP-CAAX_640_actin-halotag_cell2_01' in d.name]
-for d in dirs:
-    cellname = d.name
-    image = tifffile.imread(d / f'{cellname}_full_movie.ome.tiff')
-    framelist = pd.read_csv(d / f'{cellname}_framelist.csv', index_col = 0)
-    framelist = framelist[framelist.columns[0]]
+    
+def get_exp_from_name(
+        cellname: str, 
+        config: Config = config,
+        ):
+    
+    date = cellname.split('_')[0]
+    
+    dir_dict = dataclasses.asdict(config.experiment)
+    for key in dir_dict.keys():
+        datelist = dir_dict[key]['dates']
+        if date in datelist:
+            exp = key
+    return exp
+    
+def generate_confocal_ae_movie(
+        cellname: str,
+        ):
+    ### if cellname isn't provided, randomly use one with at least 30 frames
+    
+    exp = get_exp_from_name(cellname)
+    localdir = getattr(config.experiment, exp).localdir
+    ## get directory to save movie in the local data dir
+    moviedir = localdir / 'singlecells' / cellname
+    if not moviedir.exists():
+        moviedir.mkdir(parents = True)
+
     #open all of the data
     posinfo = pd.read_csv(localdir / 'position_info' / f'{cellname}_cellpos.csv', index_col = 0)
+    posinfo['time'] = posinfo.frame * time_interval
     aers = pd.read_csv(savedir / 'detailed_balance' / f'{utils.whichpc_string(whichpcs)}_raw_transition_aer_cf.csv', index_col = 0)
     aers = aers.rename(columns={'real_time':'time'})
     TotalFrame = pd.merge(posinfo, aers, on=['CellID','time'], how = 'left')
     TotalFrame = TotalFrame[TotalFrame.CellID==cellname].sort_values('time').reset_index(drop=True)
-    #add a movie column
-    TotalFrame['Movie'] = [x.split('_frame')[0] for x in TotalFrame.cell.to_list()]
     TotalFrame['time_min'] = TotalFrame.time.values/60
     TotalFrame['area_enclosed'] = TotalFrame.aer.values * TotalFrame.time_elapsed.values
-    #get times for all the frames included in the movie
-    #(which may have been dropped from dataframes in analysis)
-    times = np.array([])
-    for m, mov in TotalFrame.groupby('image'):
-        row = mov.iloc[0]
-        leng = len([x for x in framelist if row.image in x])
-        start = row.time
-        # if row.frame != 0:
-        #     start = row.time - (row.frame*time_interval)
-        #     print(row.time)
-        times = np.concatenate((times, np.arange(start, row.time+(leng)*time_interval, time_interval)))
+    
+    times = TotalFrame.time
+
+
+
+    
+    #get the min and max positions in the original image for this particular cell
+    #and this particular timeframe
+    maxarr = np.max(posinfo[['xmaxcrop','ymaxcrop','zmaxcrop']].values,axis = 0)
+    minarr = np.min(posinfo[['xmincrop','ymincrop','zmincrop']].values,axis = 0)
+    croparr = np.array([minarr[0],maxarr[0],minarr[1],maxarr[1],minarr[2],maxarr[2]])
+    
+    
+    #make the image that is the size of the crop
+    cropim = np.zeros((len(posinfo),
+                        len(range(croparr[4],croparr[5])),
+                        len(range(croparr[2],croparr[3])),
+                        len(range(croparr[0],croparr[1])),
+                        ))
+    
+    #iterate through the frames in the minidf
+    for i, row in posinfo.iterrows():
+        #open the cropped image for this frame
+        tempim = tifffile.imread(localdir / 'processed_images' / f'{row.cell}_raw.tiff')
+        #get the cropped coordinates of the cropped image
+        x = row.xmincrop-croparr[0]
+        y = row.ymincrop-croparr[2]
+        z = row.zmincrop-croparr[4]
+        #insert the cropped image into the new total cropped movie
+        cropim[i,
+               z:z+tempim.shape[-3],
+               y:y+tempim.shape[-2],
+               x:x+tempim.shape[-1]] = tempim
+
 
 
     #make all of the max projections
-    xyproj = np.max(image[:,0,:,:,:], axis = 1)
-    xzproj = np.max(image[:,0,:,:,:], axis = 2)
-    yzproj = np.max(image[:,0,:,:,:], axis = 3)
+    xyproj = np.max(cropim, axis = 1)
+    xzproj = np.max(cropim, axis = 2)
+    yzproj = np.max(cropim, axis = 3)
     #flip the yx projection to be portrait orientation
     yzproj = np.rot90(yzproj, axes=(2,1))
     
@@ -71,23 +115,19 @@ for d in dirs:
     linearmaxes = np.linspace(xyproj[0].max(),xyproj[-1].max(), len(xyproj))
     for n in range(len(xyproj)):
         #all images have a min of zero so just divide by max
-        xyproj_bc[n] = xyproj[n]/linearmaxes[n]
-        xzproj_bc[n] = xzproj[n]/linearmaxes[n]
-        yzproj_bc[n] = yzproj[n]/linearmaxes[n]
+        xyproj_bc[n] = (xyproj[n] - xyproj[n].min())/(linearmaxes[n] - xyproj[n].min())
+        xzproj_bc[n] = (xzproj[n] - xzproj[n].min())/(linearmaxes[n] - xzproj[n].min())
+        yzproj_bc[n] = (yzproj[n] - yzproj[n].min())/(linearmaxes[n] - yzproj[n].min())
 
             
         
-    
-    # #adjust the b+c of all of the projections (also normalize I suppose)
-    # xyproj_bc = intensity_normalization(xyproj, [0,10])
-    # xzproj_bc = 
-    # yzproj_bc = 
-    
-    # Create a figure
+
+
+    ##### Create a figure
     fig = plt.figure(figsize=(7, 7))
     # Create a GridSpec with 2 rows and 2 columns
-    gs = gridspec.GridSpec(2, 2, width_ratios=[image.shape[-3], image.shape[-1]],
-                           height_ratios=[image.shape[-2], image.shape[-3]],
+    gs = gridspec.GridSpec(2, 2, width_ratios=[cropim.shape[-3] * zstep, cropim.shape[-1] * xyres],
+                           height_ratios=[cropim.shape[-2] * xyres, cropim.shape[-3] * zstep],
                            wspace = 0.01,
                            hspace = 0.05,
                            figure=fig)
@@ -125,18 +165,18 @@ for d in dirs:
     
     #all the images
     xyimsh = ax2.imshow(xyproj_bc[0], cmap = 'gray', zorder = 1)
-    xzimsh = ax3.imshow(xzproj_bc[0], cmap = 'gray', zorder = 1)
-    yzimsh = ax1.imshow(yzproj_bc[0], cmap = 'gray', zorder = 1)
+    xzimsh = ax3.imshow(xzproj_bc[0], cmap = 'gray', zorder = 1, aspect = zstep/xyres)
+    yzimsh = ax1.imshow(yzproj_bc[0], cmap = 'gray', zorder = 1, aspect = xyres/zstep)
     
     #aer graph
-    aerplot = ax4.plot(TotalFrame.time_min, TotalFrame.area_enclosed.cumsum(), color = 'white', zorder = 2)
+    ax4.plot(TotalFrame.time_min, TotalFrame.area_enclosed.cumsum(), color = 'white', zorder = 2)
     ax4.set_xlabel('Time (min)', color = 'white')
     ax4.set_ylabel('Area Enclosed', color = 'white')
     ax4.set_facecolor('black')
     ax4.tick_params(axis='x', colors='white')
     ax4.tick_params(axis='y', colors='white')
-    ax4.set_xticks(range(0,65,5))
-    ax4.set_xticklabels(np.arange(0,65,5).astype(str), fontsize = 8)
+    # ax4.set_xticks(range(0,65,5))
+    ax4.tick_params('x', size = 8)
     for spine in ax4.spines.values():
         spine.set_edgecolor('white')
         spine.set_linewidth(1)
@@ -164,7 +204,7 @@ for d in dirs:
         yzimsh.set_zorder(0)
         
         #animate the vline on the aer plot
-        vtime = times[i]/60
+        vtime = TotalFrame.time_min[i]
         vline.set_xdata([vtime])
         
         ### scale bar info
@@ -190,10 +230,21 @@ for d in dirs:
                         frames=len(xyproj),)
     
     
-    plt.show()
+    # plt.show()
     
-
-    ani.save(d.joinpath(cellname + f'_{utils.whichpc_string(whichpcs)}_animated_allaxes.mp4'), fps=10, dpi = 300)#, extra_args=['-vcodec', 'libx264'])
-
-    
+    ani.save(moviedir.joinpath(cellname + '_allaxes_aeplot.mp4'), fps=4, dpi = 300)#, extra_args=['-vcodec', 'libx264'])
     plt.close(fig)
+
+
+cellname = '20231116_488EGFP-CAAX_3mA_37C_1_cell_0'
+
+FullFrame = pd.read_csv(savedir / 'shape_data' / 'All_Data_with_CGPS_bins.csv', index_col = 0)
+randomframe = FullFrame[FullFrame.Treatment == 'Random'].copy()
+framecounts = randomframe.value_counts('CellID')
+celllist = framecounts[framecounts>=30].index.tolist()
+
+for cellname in celllist[:20]:
+    generate_confocal_ae_movie(cellname)
+
+
+    

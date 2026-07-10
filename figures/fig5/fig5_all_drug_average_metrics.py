@@ -1,9 +1,4 @@
-# -*- coding: utf-8 -*-
-"""
-Created on Thu Feb 13 13:26:03 2025
 
-@author: Aaron
-"""
 
 
 
@@ -16,7 +11,8 @@ import statsmodels.api as sm
 from statsmodels.formula.api import ols 
 import matplotlib.pyplot as plt
 import seaborn as sns
-from CustomFunctions import utils
+from neutrophil_shape.CustomFunctions import utils
+from neutrophil_shape.config.loader import load_config
 from pathlib import Path
 
 def get_stars(pv):
@@ -32,12 +28,11 @@ def get_stars(pv):
 
 #get directories and open separated datasets
 treatments = ['DMSO','Para-Nitro-Blebbistatin','CK666']
-time_interval = 10 #sec/frame
+config = load_config(microscope_type='confocal')
+config._alignment = 'trajectory'
+time_interval = config.im_params.time_interval
+datadir = config.common.savedir / 'shape_data'
 
-
-#get directories and open separated datasets
-basedir = Path('E:/Aaron/Combined_37C_Confocal_PCA_planar')
-datadir = basedir.joinpath('Data_and_Figs')
 
 FullFrame = pd.read_csv(datadir.joinpath('All_Data_with_CGPS_bins.csv'), index_col=0)
 #limit data to the Para-Nitro-Blebbistatin experiments
@@ -49,14 +44,16 @@ TotalFrame['Treatment'] = pd.Categorical(TotalFrame.Treatment.to_list(), categor
 TotalFrame_filtered = TotalFrame[TotalFrame['CellID'].map(TotalFrame['CellID'].value_counts()) >= 10].copy()
 
 #get cell averages
-avgdf_filtered = TotalFrame_filtered.groupby(['Treatment','CellID']).mean().reset_index(level='Treatment')
+avgdf_filtered = TotalFrame_filtered.groupby(['Treatment','CellID']).mean(numeric_only=True).reset_index(level='Treatment')
 #change the rear length to abs
 avgdf_filtered.loc[:,'LengthAlongTrajectoryRear'] = avgdf_filtered.LengthAlongTrajectoryRear.abs()
 
 ############### get list of metrics that are significant ttest of CELL AVERAGES ############
-metriclist = ['Treatment','Cell_Volume','Volume_Front_Ratio','Cell_SurfaceArea','Cell_Sphericity','Cell_Aspect_Ratio',
-               'LengthAlongTrajectory','LengthAlongTrajectoryFront','LengthAlongTrajectoryRear','WidthAlongTrajectory',
-               'speed'] #'Turn_Angle',
+substrings = ['Axis_Vec', 'Axis_Length', '_Ratio',]
+single_metric_additions = ['Treatment','Cell_Volume','Cell_SurfaceArea','Cell_Sphericity','speed']
+group_metrics = [s for s in TotalFrame.columns if any(sub in s for sub in substrings)]
+metriclist = single_metric_additions + group_metrics
+## get just the straight PC values as well
 pclist = [x for x in TotalFrame.columns.to_list() if 'PC' in x and 'bin' not in x]
 includelist = metriclist + pclist
 
@@ -100,6 +97,8 @@ print(allsiglist)
 
 siglist = [
     'speed',
+    'Cell_MajorAxis_Vec_X',
+    'Cell_MajorAxis_Vec_Y',
     'PC1',
     'PC2',
     'PC3',
@@ -108,6 +107,8 @@ siglist = [
 
 ylabels = [
     'Instantaneous\nSpeed (µm/s)',
+    'Major Axis X\nComponent',
+    'Major Axis Y\nComponent',
     'PC1',
     'PC2',
     'PC3',
@@ -116,16 +117,17 @@ ylabels = [
 
 ############### CELL AVERAGES OF SIGNIFICANT METRICS #################################
 colorlist = ['#9c836b','#faa7a7','#faf191']
-sns.set_palette(palette=colorlist)
+# sns.set_palette(palette=colorlist)
 
 scale = int(len(siglist)/2)
 linewid= 1.2
 
-fig, axes = plt.subplots(1,len(siglist),figsize=(15,4))
+fig, axes = plt.subplots(1,len(siglist),figsize=(3*len(siglist),4))
 for i, sig in enumerate(siglist):
     ax = axes.flatten()[i]
-    sns.swarmplot(x = 'Treatment', y = sig, data = avgdf_filtered, size = 1.3, ax = ax, zorder = 1)
-    sns.boxplot(x = 'Treatment', y = sig, data = avgdf_filtered, width = 0.5,
+    sns.swarmplot(data = avgdf_filtered, x = 'Treatment', y = sig, hue = 'Treatment', palette=colorlist,
+                    size = 1.3, ax = ax, zorder = 1)
+    sns.boxplot(data = avgdf_filtered, x = 'Treatment', y = sig, width = 0.5,
                 boxprops={
                     'fill': False,
                     'linewidth': linewid,

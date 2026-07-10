@@ -17,10 +17,6 @@ import math
 from matplotlib import cm
 import seaborn as sns
 
-def format_seconds(seconds):
-    minutes = int(seconds // 60)
-    secs = int(seconds % 60)
-    return f"{minutes:02}:{secs:02}"
 
 def color_interpolation(pointarray):
     timepoints = np.unique(pointarray[:,0])
@@ -41,7 +37,7 @@ def color_interpolation(pointarray):
 
 
 
-whichpcs = (1,2)
+whichpcs = (2,8)
 
 ## choose a cmap
 cmap = cm.Greys_r
@@ -298,7 +294,7 @@ for cellname in aers.CellID.unique():
     plt.show()
 
 
-    ani.save(moviedir.joinpath(cellname, cellname + '_animated_CGPS_and_AER.mp4'), fps=30, dpi = 300)#, extra_args=['-vcodec', 'libx264'])
+    ani.save(moviedir.joinpath(cellname, cellname + f'_animated_{utils.whichpc_string(whichpcs)}_CGPS_and_AER.mp4'), fps=30, dpi = 300)#, extra_args=['-vcodec', 'libx264'])
 
 
     plt.close(fig)

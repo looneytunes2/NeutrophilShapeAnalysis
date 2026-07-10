@@ -3,11 +3,14 @@ import math
 import numpy as np
 import pandas as pd
 import re
+import tifffile
 import skimage.measure
 from scipy import interpolate
+from scipy.ndimage import affine_transform
 from sklearn.linear_model import LinearRegression
 from ..aicssegmentation.core.utils import hole_filling
 from scipy.spatial.transform import Rotation as R
+from ..config.models import Config
 
 def running_mean_withna(x, N):
     means = []
@@ -401,6 +404,123 @@ def align_vec_to_xaxis_euler(
     
     return (euler_angles, rotationthing) if return_rotation_object else euler_angles 
 
+
+### takes an interable and reformats to a PC string
 def whichpc_string(whichpcs):
     return '-'.join(f"PC{w}" for w in whichpcs)
 
+
+#### takes integer number of seconds and returns MM:SS for movies
+def format_seconds(seconds):
+    minutes = int(seconds // 60)
+    secs = int(seconds % 60)
+    return f"{minutes:02}:{secs:02}"
+
+
+# Permutation: numpy axis order is ZYX, scipy/rotation is XYZ
+P = np.array([[0, 0, 1],   # Z → X
+              [0, 1, 0],   # Y → Y
+              [1, 0, 0]])  # X → Z
+def to_numpy_basis(mat_xyz):
+    """Convert an XYZ rotation matrix to ZYX (numpy) basis."""
+    return P @ mat_xyz @ P.T   # P.T == P here since P is symmetric
+
+
+### rotate LLS image to shape alignment frame
+def align_raw_image(
+        cell: str,
+        trajectory_eulers: np.array,
+        normal_angle: float,
+        config: Config,
+        down_factor: int = 2,
+        ):
+    #get directory
+    localdir = config.experiment.lls.localdir
+    imdir = localdir / 'processed_images'
+    #open image
+    im = tifffile.imread(imdir.joinpath(cell + '_raw.ome.tiff'))
+    #optionally shrink image
+    if down_factor>1:
+        downlist = []
+        for c in range(im.shape[-4]):
+            downlist.append(skimage.transform.rescale(im[c], 1/down_factor, preserve_range=True))
+        im = np.stack(downlist)
+        
+    center = (np.array(im.shape[-3:])-1)/2
+    imshape = np.array(im.shape)
+    maxdim = np.repeat(np.max(imshape[-3:])*1.5,3).astype(np.uint16)
+    maxcenter = (maxdim - 1)/ 2
+    ###### get rotation matrices
+    firstmatrix  = to_numpy_basis(R.from_euler('xyz', trajectory_eulers,  degrees=True).as_matrix()).T
+    secondmatrix = to_numpy_basis(R.from_euler('x', normal_angle,  degrees=True).as_matrix()).T
+
+    rotated_img = np.zeros(np.insert(maxdim, 0, imshape[-4]))
+    ### rotate each channel individually
+    for c in range(imshape[0]):
+        ### apply both rotations
+        #### trajectory rotation
+        firstoffset = center - firstmatrix @ maxcenter
+        rot1 = affine_transform(
+            im[c],
+            firstmatrix,
+            offset = firstoffset,
+            output_shape = maxdim,
+            order=0,
+            mode='constant',
+            cval=0,
+            )
+        
+        ### normal rotation
+        secondoffset = maxcenter - secondmatrix @ maxcenter
+        rot2 = affine_transform(
+            rot1,
+            secondmatrix,
+            offset = secondoffset,
+            # output_shape = np.array([maxdim]*3),
+            # # output = rotated_img[frame,c],
+            order=0,
+            mode='constant',
+            cval=0,
+            )
+        rotated_img[c] = rot2
+    
+    return rotated_img
+
+
+
+
+#wrapper for get_shape_info_nonuc for imap
+def align_raw_image_imap(args):
+    return align_raw_image(*args)
+
+
+## quick image normalization
+def normalize_channel(ch, pmin=0.5, pmax=99.5):
+    lo, hi = np.percentile(ch, (pmin, pmax))
+    ch = np.clip((ch - lo) / (hi - lo), 0, 1)
+    return ch
+
+## convert two-channel image into rgb
+def multichannel_to_rbg(
+        img,
+        color1: np.array,
+        color2: np.array,
+        ):
+    
+    ch1 = img[0].astype(float)
+    ch2 = img[1].astype(float)
+    
+    ## adjust channel values and 
+    ch1_n = normalize_channel(ch1)
+    ch2_n = normalize_channel(ch2)
+
+    
+    rgb = (ch1_n[..., np.newaxis] * color1) + (ch2_n[..., np.newaxis] * color2)
+    rgb = np.clip(rgb, 0, 1)
+    
+    rgb_8bit = (rgb * 255).astype(np.uint8)
+    
+    return rgb_8bit
+
+def multichannel_to_rbg_imap(args):
+    return multichannel_to_rbg(*args)

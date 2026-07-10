@@ -7,53 +7,72 @@ Created on Sat Apr 26 10:11:37 2025
 
 import numpy as np
 import pandas as pd
+import os
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
+from matplotlib.collections import LineCollection
+import seaborn as sns
 import tifffile
 import matplotlib.gridspec as gridspec
 from neutrophil_shape.config.loader import load_config
 from neutrophil_shape.CustomFunctions import utils
 
 
-whichpcs = (1,2)
+whichpcs = (4,5)
 
-### open config and get directories
+down_factor = 2
 config = load_config(microscope_type='lls')
 config._alignment = 'trajectory'
-savedir = config.common.savedir
+time_interval = config.im_params.time_interval
+origins = config.db_params.origins
+basedir = config.common.savedir
+datadir = basedir.joinpath('shape_data')
+dbdir = basedir.joinpath('detailed_balance')
 localdir = config.experiment.lls.localdir
 moviedir = localdir / 'singlecells'
-time_interval = config.im_params.time_interval
+xyres = config.im_params.xyres
+
+
+state_order = ['zero','low','high']
+
+FullFrame = pd.read_csv(datadir.joinpath('All_Data_with_CGPS_bins.csv'), index_col = 0)
+FullFrame['real_time'] = FullFrame.time.copy()
+
+#open aers previously calculated
+allaers = pd.read_csv(dbdir.joinpath(utils.whichpc_string(whichpcs) + '_raw_transition_aer_cf.csv'), index_col = 0)
+
+#merge aer and cf info
+TotalFrame = pd.merge(FullFrame, allaers,on=['CellID','real_time','frame'],how='left')
+TotalFrame = TotalFrame.sort_values(['CellID','time'])
+
+
+############# GET aer_state for REAL DATA
+
+real_states = TotalFrame.groupby('CellID').apply(utils.get_aer_state).reset_index(level=1, drop=True).reset_index()
+real_states = utils.get_aer_state_chunk_ids(real_states, group_factor = 'CellID')
+observedstarts, observedstops = utils.get_observed_aer_state_chunk_starts_stops(real_states, group_factor = 'CellID')
+
+### get chunks where both start and stop are observed
+whole_chunks = [o for o in observedstarts if o in observedstops]
+whole_chunk_real_states = real_states[real_states.chunk_id.isin(whole_chunks)].copy()
+highdf = whole_chunk_real_states[whole_chunk_real_states.aer_state == 'high'].copy()
 
 
 dirs = [d for d in moviedir.glob("*/") if d.is_dir()]
 # dirs = [d for d in moviedir.glob('*') if '20240611_488_EGFP-CAAX_640_actin-halotag_cell2_01' in d.name]
 for d in dirs:
     cellname = d.name
-    image = tifffile.imread(d / f'{cellname}_full_movie.ome.tiff')
+    image = tifffile.imread(d / f'{cellname}_traj_aligned.ome.tiff')
     framelist = pd.read_csv(d / f'{cellname}_framelist.csv', index_col = 0)
     framelist = framelist[framelist.columns[0]]
     #open all of the data
-    posinfo = pd.read_csv(localdir / 'position_info' / f'{cellname}_cellpos.csv', index_col = 0)
-    aers = pd.read_csv(savedir / 'detailed_balance' / f'{utils.whichpc_string(whichpcs)}_raw_transition_aer_cf.csv', index_col = 0)
-    aers = aers.rename(columns={'real_time':'time'})
-    TotalFrame = pd.merge(posinfo, aers, on=['CellID','time'], how = 'left')
-    TotalFrame = TotalFrame[TotalFrame.CellID==cellname].sort_values('time').reset_index(drop=True)
+    celldf = real_states[real_states.CellID==cellname].sort_values('time').reset_index(drop=True)
     #add a movie column
-    TotalFrame['Movie'] = [x.split('_frame')[0] for x in TotalFrame.cell.to_list()]
-    TotalFrame['time_min'] = TotalFrame.time.values/60
-    TotalFrame['area_enclosed'] = TotalFrame.aer.values * TotalFrame.time_elapsed.values
+    celldf['Movie'] = [x.split('_frame')[0] for x in celldf.cell.to_list()]
+    celldf['time_min'] = celldf.time.values/60
+    celldf['area_enclosed'] = celldf.aer.values * celldf.time_elapsed.values
     #get times for all the frames included in the movie
-    #(which may have been dropped from dataframes in analysis)
-    times = np.array([])
-    for m, mov in TotalFrame.groupby('image'):
-        row = mov.iloc[0]
-        leng = len([x for x in framelist if row.image in x])
-        start = row.time
-        # if row.frame != 0:
-        #     start = row.time - (row.frame*time_interval)
-        #     print(row.time)
-        times = np.concatenate((times, np.arange(start, row.time+(leng)*time_interval, time_interval)))
+    times = celldf.time
 
 
     #make all of the max projections
@@ -61,7 +80,7 @@ for d in dirs:
     xzproj = np.max(image[:,0,:,:,:], axis = 2)
     yzproj = np.max(image[:,0,:,:,:], axis = 3)
     #flip the yx projection to be portrait orientation
-    yzproj = np.rot90(yzproj, axes=(2,1))
+    yzproj = yzproj[..., ::-1]
     
     
     #bleaching correction
@@ -77,12 +96,6 @@ for d in dirs:
 
             
         
-    
-    # #adjust the b+c of all of the projections (also normalize I suppose)
-    # xyproj_bc = intensity_normalization(xyproj, [0,10])
-    # xzproj_bc = 
-    # yzproj_bc = 
-    
     # Create a figure
     fig = plt.figure(figsize=(7, 7))
     # Create a GridSpec with 2 rows and 2 columns
@@ -128,8 +141,46 @@ for d in dirs:
     xzimsh = ax3.imshow(xzproj_bc[0], cmap = 'gray', zorder = 1)
     yzimsh = ax1.imshow(yzproj_bc[0], cmap = 'gray', zorder = 1)
     
-    #aer graph
-    aerplot = ax4.plot(TotalFrame.time_min, TotalFrame.area_enclosed.cumsum(), color = 'white', zorder = 2)
+    # #aer graph
+    # aerplot = sns.lineplot(data = celldf, x = 'time_min', y = celldf.area_enclosed.cumsum(),hue = 'aer_state', ax = ax4)#ax4.plot(celldf.time_min, celldf.area_enclosed.cumsum(), color = 'white', zorder = 2)
+    
+
+
+    x = celldf.time_min.to_numpy()
+    y = celldf.area_enclosed.cumsum().to_numpy()
+    factors = celldf.aer_state.to_numpy()
+
+    # if color_map is None:
+    categories = pd.unique(factors)
+    # palette = plt.cm.tab10.colors
+    zero_color = '#a8a8a8'   
+    low_color = '#d1a53d'  
+    high_color = '#d14c45'
+    palette = ['#a5a5a5',high_color, low_color, zero_color]
+    color_map = {cat: palette[i] for i, cat in enumerate(categories)}
+
+    
+    # color_map = {'high': high_color, 'low': low_color, 'zero': zero_color, 'nan': np.nan}
+
+
+    # Build line segments: each segment connects point i to point i+1
+    points = np.column_stack([x, y]).reshape(-1, 1, 2)
+    segments = np.concatenate([points[:-1], points[1:]], axis=1)
+
+    # Color each segment by the factor value at its starting point
+    seg_colors = [color_map[f] for f in factors[:-1]]
+
+    lc = LineCollection(segments, colors=seg_colors, linewidth=2)
+    ax4.add_collection(lc)
+    # ax4.set_xlim(x.min(), x.max())
+    ax4.set_ylim(y[~np.isnan(y)].min(), y[~np.isnan(y)].max())
+
+    # Build a legend manually since LineCollection doesn't auto-generate one
+    handles = [plt.Line2D([0], [0], color=c, lw=2, label=cat)
+               for cat, c in list(color_map.items())[1:]]
+    ax4.legend(handles=handles, title='AER state', loc = 'lower right')
+    
+    
     ax4.set_xlabel('Time (min)', color = 'white')
     ax4.set_ylabel('Area Enclosed', color = 'white')
     ax4.set_facecolor('black')
@@ -193,7 +244,7 @@ for d in dirs:
     plt.show()
     
 
-    ani.save(d.joinpath(cellname + f'_{utils.whichpc_string(whichpcs)}_animated_allaxes.mp4'), fps=10, dpi = 300)#, extra_args=['-vcodec', 'libx264'])
+    ani.save(d.joinpath(cellname + f'_{utils.whichpc_string(whichpcs)}_traj_aligned_aeplot.mp4'), fps=5, dpi = 300)#, extra_args=['-vcodec', 'libx264'])
 
     
     plt.close(fig)

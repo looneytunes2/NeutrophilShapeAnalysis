@@ -552,6 +552,7 @@ def get_area_enclosing_rate(
     #calculate aer per transition
     aerlist = []
     avlist = []
+    pcspeedlist = []
     for i, row in cell.iterrows():
         #center the row values on zero and scale them
         row['from_x'] = (row['from_x'] - shiftbyx) * xyscaling[0]
@@ -571,8 +572,15 @@ def get_area_enclosing_rate(
         avlist.append(
             angle_deg/row.time_elapsed
             )
+
+        ### also calculate "pc_speed"
+        pcspeedlist.append(
+            np.sqrt((row.to_x - row.from_x)**2 + (row.to_y - row.from_y)**2) / row.time_elapsed
+        )
+
     cell['aer'] = aerlist
     cell['angular_velocity'] = avlist
+    cell['pc_speed'] = pcspeedlist
     return cell
 
 
@@ -593,7 +601,7 @@ def rate_fit_bs_wrap(
         'iter': df.iloc[0].iter,
         }
     ## fit rate
-    rate_fit_dict = utils.fit_rates_linear(df, ['aer','angular_velocity'])
+    rate_fit_dict = utils.fit_rates_linear(df, ['aer','angular_velocity','pc_speed'])
     ## update dict
     id_dict.update(rate_fit_dict)
     return id_dict

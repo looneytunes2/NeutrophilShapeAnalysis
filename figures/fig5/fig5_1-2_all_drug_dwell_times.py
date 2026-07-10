@@ -69,102 +69,102 @@ trans_rate_df_sep = trans_rate_df_sep.sort_values(by='Treatment')
 
 
 
-# ########### calculate the DWELL TIME DIFFERENCE of the treatments in the WHOLE CGPS #############
-# hms = np.zeros((len(transdf_sep.Treatment.unique()), nbins, nbins))
-# countmap = np.zeros((len(transdf_sep.Treatment.unique()), nbins, nbins))
-# for i, (treat, tdf) in enumerate(transdf_sep.groupby('Treatment')):
-#     for x in range(nbins):
-#         for y in range(nbins):
-#             current =  tdf[(tdf['from_x'] == x+1) & (tdf['from_y'] == y+1)]
-#             if current.empty:
-#                 hms[i,y,x] = 0
-#             else:
-#                 hms[i,y,x] = current.time_elapsed.mean()
-#                 #add the number of counts in this bin
-#                 countmap[i,y,x] = len(current)
+########### calculate the DWELL TIME DIFFERENCE of the treatments in the WHOLE CGPS #############
+hms = np.zeros((len(transdf_sep.Treatment.unique()), nbins, nbins))
+countmap = np.zeros((len(transdf_sep.Treatment.unique()), nbins, nbins))
+for i, (treat, tdf) in enumerate(transdf_sep.groupby('Treatment')):
+    for x in range(nbins):
+        for y in range(nbins):
+            current =  tdf[(tdf['from_x'] == x+1) & (tdf['from_y'] == y+1)]
+            if current.empty:
+                hms[i,y,x] = 0
+            else:
+                hms[i,y,x] = current.time_elapsed.mean()
+                #add the number of counts in this bin
+                countmap[i,y,x] = len(current)
 
 
 
-# #create the difference heatmap
-# differences = [h-hms[0] for h in hms[1:]]
-# #print the results of the one-sample ttest
-# [print(treatments[i+1], stats.ttest_1samp(dif.flatten(), popmean=0)) for i, dif in enumerate(differences)]
+#create the difference heatmap
+differences = [h-hms[0] for h in hms[1:]]
+#print the results of the one-sample ttest
+[print(treatments[i+1], stats.ttest_1samp(dif.flatten(), popmean=0)) for i, dif in enumerate(differences)]
 
 
-# #### start building the figure
-# fig, axes = plt.subplots(1,len(differences),figsize=(5*len(differences),5))
-# #single colorbar axis
-# cbar_ax = fig.add_axes([.95, .133, .02, .685])
-# for i, ax in enumerate(axes):
+#### start building the figure
+fig, axes = plt.subplots(1,len(differences),figsize=(5*len(differences),5))
+#single colorbar axis
+cbar_ax = fig.add_axes([.95, .133, .02, .685])
+for i, ax in enumerate(axes):
     
-#     #plot heatmap with seaborn
-#     sns.heatmap(
-#         differences[i],
-#         vmin=vmin,
-#         vmax=vmax, 
-#         # center=0,
-#         cmap=sns.diverging_palette(220, 20, n=200),
-#         square=True,
-#         xticklabels = True,
-#         yticklabels = True,
-#         ax = ax,
-#         cbar_ax = cbar_ax,
-#     )
+    #plot heatmap with seaborn
+    sns.heatmap(
+        differences[i],
+        vmin=vmin,
+        vmax=vmax, 
+        # center=0,
+        cmap=sns.diverging_palette(220, 20, n=200),
+        square=True,
+        xticklabels = True,
+        yticklabels = True,
+        ax = ax,
+        cbar_ax = cbar_ax,
+    )
     
-#     #correct axis orientations
-#     ax.invert_yaxis()
-#     #get rid of ticks and labels
-#     ax.set_xticks([])
-#     ax.set_yticks([])
-#     ax.set_xticks(np.arange(0.5,nbins+0.5)[[0,nbins//2,-1]])
-#     ax.set_xticklabels([round(centers[f'PC{whichpcs[1]}'].iloc[x],2) for x in [0,nbins//2, int(nbins-1)]],
-#                        fontsize = 14)
-#     ax.set_yticks(np.arange(0.5,nbins+0.5)[[0,nbins//2,-1]])
-#     ax.set_yticklabels([round(centers[f'PC{whichpcs[1]}'].iloc[x],2) for x in [0,nbins//2, int(nbins-1)]],
-#                        fontsize = 14)
-#     #set axis titles
-#     ax.set_xlabel(f'PC{whichpcs[0]}', fontsize = 24)
+    #correct axis orientations
+    ax.invert_yaxis()
+    #get rid of ticks and labels
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.set_xticks(np.arange(0.5,nbins+0.5)[[0,nbins//2,-1]])
+    ax.set_xticklabels([round(centers[f'PC{whichpcs[1]}'].iloc[x],2) for x in [0,nbins//2, int(nbins-1)]],
+                       fontsize = 14)
+    ax.set_yticks(np.arange(0.5,nbins+0.5)[[0,nbins//2,-1]])
+    ax.set_yticklabels([round(centers[f'PC{whichpcs[1]}'].iloc[x],2) for x in [0,nbins//2, int(nbins-1)]],
+                       fontsize = 14)
+    #set axis titles
+    ax.set_xlabel(f'PC{whichpcs[0]}', fontsize = 24)
 
-#     #set title
-#     ax.set_title([x[:11]+'\n'+x[11:] if x == 'Para-Nitro-Blebbistatin' else x for x in treatments][int(i+1)], fontsize = 32)
+    #set title
+    ax.set_title([x[:11]+'\n'+x[11:] if x == 'Para-Nitro-Blebbistatin' else x for x in treatments][int(i+1)], fontsize = 32)
 
 
-#     ######################### vector map of probability flux ################
-#     mdf = trans_rate_df_sep[trans_rate_df_sep.Treatment==treatments[i+1]]
-#     scale = 0.0008
-#     for x in range(1,nbins+1):
-#         for y in range(1,nbins+1):
-#             current = mdf[(mdf['x'] == x) & (mdf['y'] == y)]
-#             xcurrent = (current.x_plus_rate - current.x_minus_rate)/2
-#             ycurrent = (current.y_plus_rate - current.y_minus_rate)/2
+    ######################### vector map of probability flux ################
+    mdf = trans_rate_df_sep[trans_rate_df_sep.Treatment==treatments[i+1]]
+    scale = 0.0008
+    for x in range(1,nbins+1):
+        for y in range(1,nbins+1):
+            current = mdf[(mdf['x'] == x) & (mdf['y'] == y)]
+            xcurrent = (current.x_plus_rate - current.x_minus_rate)/2
+            ycurrent = (current.y_plus_rate - current.y_minus_rate)/2
     
-#             #add flux current arrow        
-#             ax.quiver(x-0.5,
-#                        y-0.5, 
-#                        xcurrent,
-#                        ycurrent,
-#                       angles = 'xy',
-#                       scale_units = 'xy',
-#                       scale = scale,
-#                       color = 'black',
-#                       alpha = 0.1,
-#                         zorder = 3 * 5)
+            #add flux current arrow        
+            ax.quiver(x-0.5,
+                       y-0.5, 
+                       xcurrent,
+                       ycurrent,
+                      angles = 'xy',
+                      scale_units = 'xy',
+                      scale = scale,
+                      color = 'black',
+                      alpha = 0.1,
+                        zorder = 3 * 5)
 
 
 
-# axes[0].set_ylabel(f'PC{whichpcs[1]}', fontsize = 24)
+axes[0].set_ylabel(f'PC{whichpcs[1]}', fontsize = 24)
 
-# # adjust colorbar tick label size
-# cbar_ax.set_yticklabels(cbar_ax.get_yticklabels(),fontsize=14)
-# cbar_ax.get_yaxis().labelpad = 22
-# cbar_ax.set_ylabel('Relative Dwell Time (sec)', fontsize = 20, rotation=270)
-
-
-# plt.tight_layout()
+# adjust colorbar tick label size
+cbar_ax.set_yticklabels(cbar_ax.get_yticklabels(),fontsize=14)
+cbar_ax.get_yaxis().labelpad = 22
+cbar_ax.set_ylabel('Relative Dwell Time (sec)', fontsize = 20, rotation=270)
 
 
+plt.tight_layout()
 
-# plt.savefig(__file__.split('.')[0] + '.png', dpi = 500, bbox_inches='tight')
+
+
+plt.savefig(__file__.split('.')[0] + '.png', dpi = 500, bbox_inches='tight')
 
 
 
