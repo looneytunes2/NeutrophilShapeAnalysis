@@ -73,7 +73,7 @@ def get_long_axis_eulers_mesh(
         mesh, #vtk polydata object
         return_rotation_object:bool = False, #whether to return the scipy rotation object
         ):
-    ## get xyz cell coords from segmented image
+    ## get xyz cell coords from mesh
     cell_coords = numpy_support.vtk_to_numpy(mesh.GetPoints().GetData())
     ### flip to zyx order
     cell_coords = np.flip(cell_coords, axis = 1)

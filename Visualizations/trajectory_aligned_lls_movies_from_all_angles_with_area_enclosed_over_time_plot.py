@@ -18,7 +18,7 @@ from neutrophil_shape.config.loader import load_config
 from neutrophil_shape.CustomFunctions import utils
 
 
-whichpcs = (4,5)
+whichpcs = (2,8)
 
 down_factor = 2
 config = load_config(microscope_type='lls')

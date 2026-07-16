@@ -37,7 +37,7 @@ def color_interpolation(pointarray):
 
 
 
-whichpcs = (2,8)
+whichpcs = (4,5)
 
 ## choose a cmap
 cmap = cm.Greys_r
