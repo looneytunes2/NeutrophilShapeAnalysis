@@ -9,6 +9,7 @@ from scipy import interpolate
 from scipy.ndimage import affine_transform
 from sklearn.linear_model import LinearRegression
 from ..aicssegmentation.core.utils import hole_filling
+from .persistence_activity import get_pa, DA_3D
 from scipy.spatial.transform import Rotation as R
 from ..config.models import Config
 
@@ -73,8 +74,106 @@ def get_consecutive_transitions(
     return cell, runs
 
 
+
+def get_smooth_trajectory(
+    df: pd.DataFrame,
+    smooth_factor: float,
+    time_interval: float,
+    ):
+    """
+    Take a dataframe with continuous timepoints and generate a smoothened
+    trajectory and trajectory-related data. 
+    """
+
+    # set the k order for interpolation to the max possible
+    if len(df) < 6:
+        kay = len(df)-1
+    else:
+        kay = 5
+
+    # do speed and trajectory stuff
+    pos = df[['x_raw', 'y_raw', 'z_raw']]
+    dupes = pos[pos.duplicated()].index.tolist()
+    if bool(dupes):
+        ######### FIND CELL TRAJECTORY AND EULER ANGLES ################
+        # drop dupes before processing
+        pos_drop = pos.drop(dupes, axis=0)
+        # if dropping the duplicates leads to less that three positions,
+        # just continue with the duplicates but don't smoothen
+        if pos_drop.shape[0] < 3:
+            traj = pos.to_numpy().copy()
+            possmo = pos.to_numpy().copy()
+        else:
+            # get trajectories without the duplicates
+            tck, u = interpolate.splprep(
+                pos_drop.to_numpy().T, k=kay, s=smooth_factor)
+            yderv = interpolate.splev(u, tck, der=1)
+            # get smoothened trajectory
+            traj = np.vstack(yderv).T
+            # get smoothened position
+            ysmo = interpolate.splev(u, tck, der=0)
+            possmo = np.vstack(ysmo).T
+            # re-insert duplicate row that was dropped
+            for d, dd in enumerate(dupes):
+                traj = np.insert(traj, dd, traj[dd-1, :], axis=0)
+                possmo = np.insert(
+                    possmo, dd, possmo[dd-1, :], axis=0)
+
+    else:
+        ######### FIND CELL TRAJECTORY AND EULER ANGLES ################
+        # no duplicate positions
+        # interpolate and get tangent at midpoint
+        tck, b = interpolate.splprep(
+            pos.to_numpy().T, k=kay, s=smooth_factor)
+        yderv = interpolate.splev(b, tck, der=1)
+        traj = np.vstack(yderv).T
+        # get smoothened trajectory
+        ysmo = interpolate.splev(b, tck, der=0)
+        possmo = np.vstack(ysmo).T
+
+    ## before we start adding to the dataframe, remove everything but identifiers
+    df = df[['cell','time']]
+
+    #### add smoothened positions and trajectory
+    #normalize trajectory first
+    unit_traj = traj / np.linalg.norm(traj, axis = 1, keepdims = True)
+    df['Trajectory_Vec_X'] = unit_traj[:,0]
+    df['Trajectory_Vec_Y'] = unit_traj[:,1]
+    df['Trajectory_Vec_Z'] = unit_traj[:,2]
+    df['x'] = possmo[:, 0]
+    df['y'] = possmo[:, 1]
+    df['z'] = possmo[:, 2]
+    # add previous and next trajectory rows
+    df['Prev_Trajectory_Vec_X'] = df['Trajectory_Vec_X'].shift()
+    df['Prev_Trajectory_Vec_Y'] = df['Trajectory_Vec_Y'].shift()
+    df['Prev_Trajectory_Vec_Z'] = df['Trajectory_Vec_Z'].shift()
+    df['Next_Trajectory_Vec_X'] = df['Trajectory_Vec_X'].shift(-1)
+    df['Next_Trajectory_Vec_Y'] = df['Trajectory_Vec_Y'].shift(-1)
+    df['Next_Trajectory_Vec_Z'] = df['Trajectory_Vec_Z'].shift(-1)
+    # calculate all turn angles between previous and current frames
+    df['Turn_Angle'] = angle3D(df[['Trajectory_Vec_X','Trajectory_Vec_Y','Trajectory_Vec_Z']].values,
+                    df[['Prev_Trajectory_Vec_X','Prev_Trajectory_Vec_Y','Prev_Trajectory_Vec_Z']].values,)
+
+    ############## Bayesian persistence and activity #################
+    persistence, activity, speed = get_pa(df, time_interval)
+    df['persistence'] = np.concatenate(
+        [np.array([np.nan]*2), persistence])
+    df['activity'] = np.concatenate(
+        [np.array([np.nan]*2), activity])
+    df['speed'] = np.concatenate([np.array([np.nan]), speed])
+
+    # add directional autocorrelations
+    df['directional_autocorrelation'] = DA_3D(
+        df[['x', 'y', 'z']].to_numpy())
+    
+    return df
+
+def smooth_trajectory_wrapper(args):
+    return get_smooth_trajectory(*args)
+
+
 #get distance between two points in 3d
-def dist_3d(p1,p2):
+def dist_nd(p1,p2):
     return np.sqrt(np.sum((p2-p1)**2))
 
 
@@ -115,13 +214,13 @@ def project_raw_smooth(
                 rawvec = np.array([cur.x_raw-prev.x_raw, cur.y_raw-prev.y_raw, cur.z_raw-prev.z_raw])
                 #project the raw vector and get the distance
                 rawproj = project_vector(rawvec, smoothvec)
-                projdist = dist_3d([0,0,0], rawproj)
+                projdist = dist_nd([0,0,0], rawproj)
                 if (smoothvec[0]>0) and (rawproj[0]<0):
                     projdist *= -1
                 elif (smoothvec[0]<0) and (rawproj[0]>0):
                     projdist *= -1
                 velocities.append(projdist/(image_interval*timespan))
-                speeds.append(dist_3d([0,0,0], smoothvec)/(image_interval*timespan))
+                speeds.append(dist_nd([0,0,0], smoothvec)/(image_interval*timespan))
             
     cell.loc[:,f'velocity_span_{timespan}'] = velocities
     cell.loc[:,f'speed_span_{timespan}'] = speeds
@@ -372,17 +471,17 @@ def twodholefill(thresh, hole_min, hole_max):
 
 
 ### angle between two vectors in degrees
-def angle3D(a1, b1, c1, a2, b2, c2):
-    d = ( a1 * a2 + b1 * b2 + c1 * c2 )
-    e1 = math.sqrt( a1 * a1 + b1 * b1 + c1 * c1)
-    e2 = math.sqrt( a2 * a2 + b2 * b2 + c2 * c2)
-    d = d / (e1 * e2)
-    if d>1:
-        d = 1
-    elif d<-1:
-        d = -1
-    A = math.degrees(math.acos(d))
-    return A
+def angle3D(v1, v2):
+    """
+    v1, v2: (N, 3) numpy arrays
+    Returns: (N,) array of angles in degrees between corresponding rows
+    """
+    d = np.sum(v1 * v2, axis=1)
+    e1 = np.linalg.norm(v1, axis=1)
+    e2 = np.linalg.norm(v2, axis=1)
+    d = np.clip(d / (e1 * e2), -1, 1)
+
+    return np.degrees(np.arccos(d))
 
 
 
@@ -394,7 +493,7 @@ def align_vec_to_xaxis_euler(
     #align current vector with x axis and get euler angles of resulting rotation matrix https://docs.scipy.org/doc/scipy/reference/generated/scipy.spatial.transform.Rotation.html
     xaxis = np.array([[1,0,0], [0,1,0], [0,0,1]]).astype('float64')
     upnorm = np.cross(vec,[1,0,0])
-    sidenorm = np.cross(vec,upnorm)
+    sidenorm = np.cross(upnorm, vec)
     current_vec = np.stack((vec, sidenorm, upnorm), axis = 0)
     rotationthing = R.align_vectors(xaxis, current_vec)
     #below is actual rotation matrix if needed
@@ -524,3 +623,50 @@ def multichannel_to_rbg(
 
 def multichannel_to_rbg_imap(args):
     return multichannel_to_rbg(*args)
+
+
+
+p_ax = ['Major','Median','Minor']
+dim = ['X','Y','Z']
+from . import shparam_mod
+def measure_axes(cellpath, xyres, zstep):
+    #open image
+    im = tifffile.imread(cellpath)
+    if len(im.shape)>3:
+        im = im[0]
+    #get vectors
+    cell_evecs = shparam_mod.extract_object_principal_axes(
+        im,
+        xyres,
+        zstep,
+        )
+    #unpack vectors into a dictionary
+    p_ax_dict = {
+        f'Cell_{axis}_Axis_Vec_{d}': cell_evecs[e, v]
+        for e, axis in enumerate(p_ax)
+        for v, d in enumerate(dim)
+        }
+    return p_ax_dict
+
+def measure_axes_imap(args):
+    return measure_axes(*args)
+
+
+from .shtools_mod import read_polydata
+def measure_mesh_axes(meshfl,):
+
+    mesh = read_polydata(meshfl)
+
+    cell_evecs = shparam_mod.extract_mesh_principal_axes(
+        mesh
+        )
+    #unpack vectors into a dictionary
+    p_ax_dict = {
+        f'Cell_{axis}_Axis_Vec_{d}': cell_evecs[e, v]
+        for e, axis in enumerate(p_ax)
+        for v, d in enumerate(dim)
+        }
+    return p_ax_dict
+
+
+

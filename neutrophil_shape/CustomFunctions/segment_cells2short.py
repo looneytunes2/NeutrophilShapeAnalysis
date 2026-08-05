@@ -11,16 +11,16 @@ import numpy as np
 from scipy.spatial import distance
 from scipy.spatial.transform import Rotation as R
 
-# function for core algorithm
 from ..aicssegmentation.core.utils import hole_filling, topology_preserving_thinning
 from ..aicssegmentation.core.vessel import filament_2d_wrapper
 from ..aicssegmentation.core.pre_processing_utils import intensity_normalization, image_smoothing_gaussian_3d
-from skimage.morphology import remove_small_objects, dilation     # function for post-processing (size filter)
 from ..aicssegmentation.core.MO_threshold import MO
-from .utils import twodholefill, get_intensity_features
 from . import shtools_mod
+from .shparam_mod import extract_mesh_principal_axes    
+from .utils import twodholefill, get_intensity_features
 
 import skimage.measure
+from skimage.morphology import remove_small_objects, dilation     # function for post-processing (size filter)
 
 import tifffile
 
@@ -260,7 +260,6 @@ def seg_confocal_40x_memonly_fromslices(
     zstep,
     croparr,
     whatseg = 'hl60',
-    save_mesh = True,
 ):
 
     """
@@ -328,13 +327,10 @@ def seg_confocal_40x_memonly_fromslices(
         mem_feat = get_intensity_features(raw_img, seg_rimg)
         mem_keylist = [x for x in list(mem_feat) if not x.endswith('lcc')]
     
-    
         #crop the segmented image
         im_labeled, n_labels = skimage.measure.label(
                                   seg_rimg, background=0, return_num=True)
-        im_props = skimage.measure.regionprops(im_labeled)
-        
-        
+        im_props = skimage.measure.regionprops(im_labeled)    
         
         #get original centroids
         cent = im_props[0].centroid
@@ -349,38 +345,47 @@ def seg_confocal_40x_memonly_fromslices(
             seg_file.unlink()
         tifffile.imwrite(seg_file, seg_rimg)
         
-       
         #SAVE THE RAW IMAGE
         raw_file = procimdir.joinpath(cell_name + '_raw.tiff')
         if raw_file.exists():
             raw_file.unlink()
         tifffile.imwrite(raw_file, raw_img)
-        
-        #### SAVE A MESH IF SPECIFIED
-        if save_mesh:
-            #make mesh
-            mesh,_,_ = shtools_mod.get_mesh_from_image(seg_rimg)
-            #scale mesh from pixels to microns
-            mesh = shtools_mod.rotate_and_scale_mesh(mesh,
-                                                     scale = np.array([xyres, xyres, zstep]),
-                                                    )
-            #save mesh
-            meshdir = procimdir.parent / 'meshes'
-            mesh_file = meshdir.joinpath(cell_name + '_cell_mesh.vtp')
-            if mesh_file.exists():
-                mesh_file.unlink()
-            shtools_mod.save_polydata(mesh, mesh_file)
 
-        
+        #### MAKE AND SAVE MESH 
+        #make mesh
+        mesh,_,_ = shtools_mod.get_mesh_from_image(seg_rimg)
+        #scale mesh from pixels to microns
+        mesh = shtools_mod.rotate_and_scale_mesh(
+            mesh,
+            scale = np.array([xyres, xyres, zstep]),
+            )
+        #save mesh
+        meshdir = procimdir.parent / 'meshes'
+        mesh_file = meshdir.joinpath(cell_name + '_cell_mesh.vtp')
+        if mesh_file.exists():
+            mesh_file.unlink()
+        shtools_mod.save_polydata(mesh, mesh_file)
+
+        ## get principal axes from image
+        cell_evecs = extract_mesh_principal_axes(mesh)
+        #unpack vectors into a dictionary
+        p_ax = ['Major','Median','Minor']
+        dim = ['X','Y','Z']
+        p_ax_dict = {
+            f'Cell_{axis}_Axis_Vec_{d}': cell_evecs[e, v]
+            for e, axis in enumerate(p_ax)
+            for v, d in enumerate(dim)
+            }
+
         #Append shape metrics to dataframe
         data = {'image': row.CellID.split('_cell_')[0],
                 'CellID': row.CellID,
                  'cell': cell_name,
                  'structure': 'none',
                  'frame': row.frame,
-                 'x':(cent[2]+croparr[0])*xyres, #centroid within the big image in microns
-                 'y':(cent[1]+croparr[2])*xyres, #centroid within the big image in microns
-                 'z':(cent[0]+croparr[4])*zstep,#centroid within the big image in microns
+                 'x_raw':(cent[2]+croparr[0])*xyres, #centroid within the big image in microns
+                 'y_raw':(cent[1]+croparr[2])*xyres, #centroid within the big image in microns
+                 'z_raw':(cent[0]+croparr[4])*zstep,#centroid within the big image in microns
                  'xmincrop': croparr[0],
                  'ymincrop': croparr[2],
                  'zmincrop': croparr[4],
@@ -395,11 +400,104 @@ def seg_confocal_40x_memonly_fromslices(
                 'Cell_'+mem_keylist[5]: mem_feat[mem_keylist[5]],
                 'centroid_inside': goodsh
                         }
-        
+        #add principal axes dict
+        data.update(p_ax_dict)
+
         return data 
 
 
+def confocal_segmentation_wrapper(args):
+    return seg_confocal_40x_memonly_fromslices(*args)
 
 
-    
 
+
+
+
+def get_confocal_image_info(
+    row,
+    procimdir,
+    xyres,
+    zstep,
+    croparr,
+):
+
+    #get cell name
+    cell_name = row.cell
+
+    rawpath = procimdir.joinpath(cell_name + '_raw.tiff')
+    if rawpath.exists():
+        raw_img = tifffile.imread(rawpath)
+        seg_rimg = tifffile.imread(procimdir.joinpath(cell_name + '_segmented.tiff'))
+
+        #get intensity features
+        mem_feat = get_intensity_features(raw_img, seg_rimg)
+        mem_keylist = [x for x in list(mem_feat) if not x.endswith('lcc')]
+
+        #crop the segmented image
+        im_labeled, n_labels = skimage.measure.label(
+                                    seg_rimg, background=0, return_num=True)
+        im_props = skimage.measure.regionprops(im_labeled)    
+        
+        #get original centroids
+        cent = im_props[0].centroid
+
+        #ask if centroid inside the object
+        goodsh = False if seg_rimg[tuple([int(u) for u in cent])]==0 else True
+
+        #### MAKE AND SAVE MESH 
+        #make mesh
+        mesh,_,_ = shtools_mod.get_mesh_from_image(seg_rimg)
+        #scale mesh from pixels to microns
+        mesh = shtools_mod.rotate_and_scale_mesh(
+            mesh,
+            scale = np.array([xyres, xyres, zstep]),
+            )
+        #save mesh
+        meshdir = procimdir.parent / 'meshes'
+        mesh_file = meshdir.joinpath(cell_name + '_cell_mesh.vtp')
+        if mesh_file.exists():
+            mesh_file.unlink()
+        shtools_mod.save_polydata(mesh, mesh_file)
+
+        ## get principal axes from image
+        cell_evecs = extract_mesh_principal_axes(mesh)
+        #unpack vectors into a dictionary
+        p_ax = ['Major','Median','Minor']
+        dim = ['X','Y','Z']
+        p_ax_dict = {
+            f'Cell_{axis}_Axis_Vec_{d}': cell_evecs[e, v]
+            for e, axis in enumerate(p_ax)
+            for v, d in enumerate(dim)
+            }
+
+        #Append shape metrics to dataframe
+        data = {'image': row.CellID.split('_cell_')[0],
+                'CellID': row.CellID,
+                    'cell': cell_name,
+                    'structure': 'none',
+                    'frame': row.frame,
+                    'x_raw':(cent[2]+croparr[0])*xyres, #centroid within the big image in microns
+                    'y_raw':(cent[1]+croparr[2])*xyres, #centroid within the big image in microns
+                    'z_raw':(cent[0]+croparr[4])*zstep,#centroid within the big image in microns
+                    'xmincrop': croparr[0],
+                    'ymincrop': croparr[2],
+                    'zmincrop': croparr[4],
+                    'xmaxcrop': croparr[1],
+                    'ymaxcrop': croparr[3],
+                    'zmaxcrop': croparr[5],
+                'Cell_'+mem_keylist[0]: mem_feat[mem_keylist[0]],
+                'Cell_'+mem_keylist[1]: mem_feat[mem_keylist[1]],
+                'Cell_'+mem_keylist[2]: mem_feat[mem_keylist[2]],
+                'Cell_'+mem_keylist[3]: mem_feat[mem_keylist[3]],
+                'Cell_'+mem_keylist[4]: mem_feat[mem_keylist[4]],
+                'Cell_'+mem_keylist[5]: mem_feat[mem_keylist[5]],
+                'centroid_inside': goodsh
+                        }
+        #add principal axes dict
+        data.update(p_ax_dict)
+
+        return data 
+
+def confocal_image_info_wrapper(args):
+    return get_confocal_image_info(*args)

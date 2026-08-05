@@ -15,13 +15,11 @@ from aicspylibczi import CziFile
 from scipy.spatial import KDTree, distance
 from scipy.spatial.transform import Rotation as R
 from scipy import interpolate
-from .segment_cells2short import seg_confocal_40x_memonly_fromslices
-from .persistance_activity import get_pa, DA_3D
+from .segment_cells2short import confocal_segmentation_wrapper, confocal_image_info_wrapper
 from . import shparam_mod, metadata_funcs, segment_LLS
-from .shtools_mod import read_polydata
 from .track_functions import segment_caax_tracks_confocal_40x_fromsingle
 # from .PILRagg import read_pilr_regions
-from .utils import get_consecutive_timepoints, angle3D, align_vec_to_xaxis_euler
+from .utils import get_consecutive_timepoints, smooth_trajectory_wrapper, align_vec_to_xaxis_euler
 from neutrophil_shape.config.models import Config
 from tqdm import tqdm
 
@@ -135,8 +133,9 @@ def segment_and_crop_confocal(
     stackshape = config.im_params.stackshape  # shape of one z stack in pixels (z,y,x) format
     whatseg = config.im_params.whatseg  # what segmentation function to use for which cells
 
-    for u in filelist_fl:
 
+    mapargs = []
+    for u in filelist_fl:
         ################## align trackmate data with region props data ################
         rpcsv = next(folder_fl.joinpath(u).glob('*region_props.csv'))
         rp = pd.read_csv(folder_fl.joinpath(u, rpcsv), index_col=0)
@@ -196,9 +195,6 @@ def segment_and_crop_confocal(
         if df_track.empty == False:
             for i, cell in df_track.groupby('CellID'):
                 cell = cell.reset_index(drop=True)
-                # use multiprocessing to perform segmentation and x,y,z determination
-                pool = multiprocessing.Pool(processes=60)
-                results = []
                 for t, row in cell.iterrows():
 
                     tdir = raw_dir.joinpath(
@@ -215,8 +211,8 @@ def segment_and_crop_confocal(
                     # croparray
                     croparr = np.array(
                         [xmincrop, xmaxcrop, ymincrop, ymaxcrop, zmincrop, zmaxcrop])
-                    # run the segmentation function
-                    result = pool.apply_async(seg_confocal_40x_memonly_fromslices, args=(
+                    ## run the segmentation function
+                    mapargs.append((
                         tdir,
                         stackshape,
                         row,
@@ -226,23 +222,21 @@ def segment_and_crop_confocal(
                         croparr,
                         whatseg,
                     ))
-                    results.append(result)
-                pool.close()
-                pool.join()
 
-                print(f'Done segmenting {cell.CellID.iloc[0]}')
+    ### get the normal alignment vectors of all cells at once
+    with multiprocessing.Pool(processes=60) as pool:
+        results = list(tqdm(pool.imap(
+            confocal_segmentation_wrapper, mapargs), total=len(mapargs)))
 
-                # get results
-                results = [r.get() for r in results]
-                # make sure there's no None results from failed segmentations
-                results = [x for x in results if x != None]
-                if len(results) > 0:
-                    # aggregate the dataframe
-                    df = pd.DataFrame(results).sort_values(
-                        by='frame').reset_index(drop=True)
-                    # save
-                    df.to_csv(posdir.joinpath(
-                        df.CellID.iloc[0]+'_cellpos.csv'))
+    # make sure there's no None results from failed segmentations
+    results = [x for x in results if x != None]
+    segdf = pd.DataFrame(results)
+    for cellid, celldf in segdf.groupby('CellID'):
+        celldf = celldf.sort_values('frame').reset_index(drop = True)
+        # save
+        celldf.to_csv(posdir.joinpath(
+            cellid+'_cellpos.csv'))
+
 
 
 # GET TRAJECTORIES FROM POSITION INFO
@@ -261,129 +255,41 @@ def get_smooth_trajectories(
         csvdir.mkdir(parents=True, exist_ok=True)
 
     # combine all of the cell csvs into one dataframe
-    csvlist = [posdir.joinpath(x) for x in posdir.glob('*.csv')]
-    celllist = []
-    for c in csvlist:
-        celllist.append(pd.read_csv(c, index_col=0))
+    csvlist = list(posdir.glob('*.csv'))
+    celllist = [pd.read_csv(c, index_col=0) for c in csvlist]
     cellinfo = pd.concat(celllist).reset_index(drop=True)
 
     # add time to the confocal data
     if 'time' not in cellinfo.columns.to_list():
         cellinfo['time'] = cellinfo['frame'].values * time_interval
 
-    for i, df in cellinfo.groupby('CellID'):
-
+    mapargs = []
+    for i, celldf in cellinfo.groupby('CellID'):
         # first get dataframe in time order and consecution timepoints
-        df, runs = get_consecutive_timepoints(
-            df[~df.x.isna()], 'time', time_interval)
-
-        # save the df in case it gets broken up later
-        brokendf = df.copy()
+        celldf, runs = get_consecutive_timepoints(
+            celldf[~celldf.x_raw.isna()], 'time', time_interval)
 
         for r in runs:
             if len(r) > 2:
-                df = brokendf.iloc[r].reset_index(drop=True)
-                # set the k order for interpolation to the max possible
-                if len(df) < 6:
-                    kay = len(df)-1
-                else:
-                    kay = 5
+                df = celldf.iloc[r].reset_index(drop=True)
+                mapargs.append([df, smooth_factor, time_interval])
 
-                # do speed and trajectory stuff
-                pos = df[['x', 'y', 'z']]
-                if bool(pos[pos.duplicated()].index.tolist()):
-                    ######### FIND CELL TRAJECTORY AND EULER ANGLES ################
-                    # if there is duplicate positions
-                    dups = pos[pos.duplicated()].index.tolist()
-                    pos_drop = pos.drop(dups, axis=0)
-                    # if dropping the duplicates leads to less that three positions,
-                    # just continue with the duplicates but don't smoothen
-                    if pos_drop.shape[0] < 3:
-                        traj = pos.to_numpy().copy()
-                        trajsmo = pos.to_numpy().copy()
-                    else:
-                        # get trajectories without the duplicates
-                        tck, u = interpolate.splprep(
-                            pos_drop.to_numpy().T, k=kay, s=smooth_factor)
-                        yderv = interpolate.splev(u, tck, der=1)
-                        # get smoothened trajectory
-                        traj = np.vstack(yderv).T
-                        # get smoothened position
-                        ysmo = interpolate.splev(u, tck, der=0)
-                        trajsmo = np.vstack(ysmo).T
-                        # re-insert duplicate row that was dropped
-                        for d, dd in enumerate(dups):
-                            traj = np.insert(traj, dd, traj[dd-1, :], axis=0)
-                            trajsmo = np.insert(
-                                trajsmo, dd, trajsmo[dd-1, :], axis=0)
+    ### get the normal alignment vectors of all cells at once
+    with multiprocessing.Pool(processes=60) as pool:
+        results = list(tqdm(pool.imap(
+            smooth_trajectory_wrapper, mapargs), total=len(mapargs)))
 
-                else:
-                    ######### FIND CELL TRAJECTORY AND EULER ANGLES ################
-                    # no duplicate positions
-                    # interpolate and get tangent at midpoint
-                    tck, b = interpolate.splprep(
-                        pos.to_numpy().T, k=kay, s=smooth_factor)
-                    yderv = interpolate.splev(b, tck, der=1)
-                    traj = np.vstack(yderv).T
-                    # get smoothened trajectory
-                    ysmo = interpolate.splev(b, tck, der=0)
-                    trajsmo = np.vstack(ysmo).T
-
-                # add smoothened trajectory positions
-                # change x y z names in the dataframe
-                df.rename(columns={"x": "x_raw", "y": "y_raw",
-                          "z": "z_raw"}, inplace=True)
-                # add smoothened positions
-                df['x'] = trajsmo[:, 0]
-                df['y'] = trajsmo[:, 1]
-                df['z'] = trajsmo[:, 2]
-
-                ############## Bayesian persistence and activity #################
-                persistence, activity, speed = get_pa(df, time_interval)
-                df['persistence'] = np.concatenate(
-                    [np.array([np.nan]*2), persistence])
-                df['activity'] = np.concatenate(
-                    [np.array([np.nan]*2), activity])
-                df['speed'] = np.concatenate([np.array([np.nan]), speed])
-
-                # add directional autocorrelations
-                df['directional_autocorrelation'] = DA_3D(
-                    df[['x', 'y', 'z']].to_numpy())
-
-                # get the trajectory and the previous trajectory for each frame and
-                # save as an individual dataframe for each cell and frame
-                for v, row in df.iterrows():
-                    if v == 0:
-                        row['Prev_Trajectory_X'] = np.nan
-                        row['Prev_Trajectory_Y'] = np.nan
-                        row['Prev_Trajectory_Z'] = np.nan
-                        row['Trajectory_X'] = traj[v, 0]
-                        row['Trajectory_Y'] = traj[v, 1]
-                        row['Trajectory_Z'] = traj[v, 2]
-                        row['Turn_Angle'] = np.nan
-                        pd.DataFrame(row.to_dict(), index=[0]).to_csv(
-                            csvdir.joinpath(row.cell + '_cell_info.csv'))
-
-                    if v > 0:
-                        row['Prev_Trajectory_X'] = traj[v-1, 0]
-                        row['Prev_Trajectory_Y'] = traj[v-1, 1]
-                        row['Prev_Trajectory_Z'] = traj[v-1, 2]
-                        row['Trajectory_X'] = traj[v, 0]
-                        row['Trajectory_Y'] = traj[v, 1]
-                        row['Trajectory_Z'] = traj[v, 2]
-                        if all(traj[v-1, :] == traj[v, :]):
-                            row['Turn_Angle'] = 0
-                        else:
-                            row['Turn_Angle'] = angle3D(
-                                traj[v-1, 0], traj[v-1, 1], traj[v-1, 2], traj[v, 0], traj[v, 1], traj[v, 2])
-                        pd.DataFrame(row.to_dict(), index=[0]).to_csv(
-                            csvdir.joinpath(row.cell + '_cell_info.csv'))
-
-        print(f'Finished tracking cell {i}')
+    allsmoothdf = pd.concat(results, ignore_index = True)
+    allsmoothdf.to_csv(csvdir.joinpath(f'Smooth_Trajectories_{imdir.name}.csv'))
 
 
 ############ FIND WIDTH ROTATIONS THAT DEPEND ON PREVIOUS FRAMES TO LIMIT ROTATION FLIPPING ################
-def get_normal_rotations(
+## some column lists for referece
+major_ax = ['Cell_Major_Axis_Vec_X','Cell_Major_Axis_Vec_Y','Cell_Major_Axis_Vec_Z']
+median_ax = ['Cell_Median_Axis_Vec_X','Cell_Median_Axis_Vec_Y','Cell_Median_Axis_Vec_Z']
+traj_cols = ['Trajectory_Vec_X','Trajectory_Vec_Y','Trajectory_Vec_Z']
+
+def get_alignment_angles(
         imdir: Path,  # where to find the segmented images and position information
         config: Config,
 ):
@@ -391,154 +297,149 @@ def get_normal_rotations(
     savedir = config.common.savedir  # where to save the normal rotations
     align_method = config.common.align_method # how to align the cells based on shparam_mod.find_normal_width_peaks function
     normal_method = config.common.normal_method # what method to use to find the normal rotation,
+    xyres = config.im_params.xyres
+    zstep = config.im_params.zstep
+    time_interval = config.im_params.time_interval
 
     meshdir = imdir.joinpath('meshes')
-    csvdir = imdir.joinpath('smooth_traj')
+    posdir = imdir.joinpath('position_info')
+    trajdir = imdir.joinpath('smooth_traj')
     datadir = savedir.joinpath('shape_data')
     if not datadir.exists():
         datadir.mkdir(parents=True, exist_ok=True)
 
-    # get the list of unique cells that we have trajectory info for
-    #first get list of unique cells in the image folder for that experiment
-    imlist = list(set([o.name.split('_frame')[0] for o in meshdir.glob('*')]))
-    #next get unique cells in the whole dataset
-    csvlist = list(set([o.name.split('_frame')[0] for o in csvdir.glob('*')]))
-    #combine and just get cells from that experiment that I have trajectory info for
-    uniquelist = [x for x in imlist if x in csvlist]
-    
-    # loop through the unique cells and open the segmented images to rotate
-    # each mesh until you find the rotation angle for the widest axis perpendicular
-    # to the trajectory
-    # trajinfolist = [x.name for x in csvdir.glob('*cell_info.csv')]
-    # segimlist = [x.name for x in procimdir.glob('*_segmented*')]
+    ## open all of the original cell positions for principal axes
+    poslist = [pd.read_csv(c, index_col = 0) for c in posdir.glob('*.csv')]
+    posdf = pd.concat(poslist, ignore_index = True)
+    ## open smooth trajectories
+    smoothdf = pd.read_csv(trajdir.joinpath(f'Smooth_Trajectories_{imdir.name}.csv'), index_col = 0)
+    ## merge the two
+    df = smoothdf.merge(posdf, how = 'left', on = 'cell')
+
+    ## loop through the unique cells and measure/save the rotation angles according
+    ## to the specified alignment method
     allresults = []
-    for u in uniquelist:
-        # get list of all frames I have trajectory info on with this cell
-        cellframelist = meshdir.glob('*'+u+'_frame*')
+    mapargs = [] # specifically for trajectory_shape alignment to process all at once
+    for cellid, celldf in df.groupby('CellID'):
+        ### get continuous runs of dataframe
+        celldf, runs = get_consecutive_timepoints(celldf, 'time', time_interval)
+        celllist = celldf.cell.tolist()
         
-        ### calculate normal rotation if measuring by width perpendivular to trajectory
         if normal_method == 'width':
-            # get all segmented images of this cell that I have trajectory info on
-            # cellseglist = [j for j in segimlist if j.split('_segmented')[0] in cellframelist]
-            results = []
-            pool = multiprocessing.Pool(processes=60)
-            for impath in cellframelist:
-                # # get path to segmented image
-                # impath = meshdir.joinpath(y+'_cell_mesh.vtp')
-                # put in the pool
-                result = pool.apply_async(shparam_mod.find_normal_width_peaks, args=(
-                    impath,
-                    csvdir,
-                    align_method,
-                ))
-                results.append(result)
-            pool.close()
-            pool.join()
-    
-            # get results
-            results = [r.get() for r in results]
-            results.sort(key=lambda x: float(
-                re.findall(r'(?<=frame_)\d*', x[0])[0]))
-            tempframe = pd.DataFrame(results, columns=['cell', 'Width_Peaks'])
-            tempframe['frame'] = [
-                float(re.findall(r'(?<=frame_)\d*', x[0])[0]) for x in results]
-    
-            tempframe, runs = get_consecutive_timepoints(tempframe, 'frame', 1)
-    
-            # find the minima in each frame that are closest to the minimum chosen in the last frame
-            # aka the one that results in the least amount of consecutive rotation
-            fullminlist = []
-            for xx in runs:
-                runframe = tempframe.iloc[xx]
-                wplist = runframe.Width_Peaks.to_list()
-                seeds = []
-                allallmins = []
-                # for all the starting peaks find the least different rotations through time
-                for s in wplist[0]:
-                    allmins = [s]
-                    for wp in wplist[1:]:
-                        if bool(len(wp) == 0):
-                            allmins.append(allmins[-1])
-                        else:
-                            allmins.append(wp[np.argmin(abs(wp-(allmins[-1])))])
-                    allallmins.append(allmins)
-                    seeds.append(np.sum(abs(np.diff(allmins))))
-                # add rotations of current run to the list
-                fullminlist.extend(allallmins[np.argmin(seeds)])
-    
-            # add all mins to tempframe
-            tempframe['Closest_minimums'] = fullminlist
-            #add tempframe top the list of all tempframes
-            allresults.append(tempframe)
-            
-        elif normal_method == 'planar':
-            #read all the smoothened trajectory info about this cell into a dataframe
-            cellinfo = [pd.read_csv(csvdir.joinpath(c.name.split('_cell_mesh')[0]+
-                                                    '_cell_info.csv'), index_col = 0) for c in cellframelist if
-                                                    csvdir.joinpath(c.name.split('_cell_mesh')[0]+'_cell_info.csv').exists()]
-            infodf = pd.concat(cellinfo, ignore_index = True)
-            
-            #get the consecutive trajectory info and loop through those runs
-            infodf, runs = get_consecutive_timepoints(infodf, 'frame',1)
-            for r in runs:
-                chunk = infodf.iloc[r]
-                #get all the euler angles to align these to x axis
-                trajchunk = chunk[['Trajectory_X','Trajectory_Y','Trajectory_Z']].values
-                eulers = np.apply_along_axis(align_vec_to_xaxis_euler, 1, trajchunk)
-                #apply rotations to the NEXT trajectory and get the rotation around the x-axis
-                next_traj_rotated = np.zeros((len(chunk)-1,3))
-                for e in range(len(chunk)-1):
-                    #apply euler to the next trajectory
-                    ro = R.from_euler('xyz', eulers[e], degrees = True)
-                    next_traj_rotated[e] = ro.apply(trajchunk[e+1])
-                #get the actual rotation angles around the x-axis needed to align
-                #the next trajectory with the y-axis
-                theta = np.arctan2(next_traj_rotated[:,2],next_traj_rotated[:,1])
-                #ensure negative y direction
-                theta += np.pi
-                #convert to degrees
-                deg = -np.rad2deg(theta)
+            ### get the Euler angles for alignment from previously measured
+            ### principal axes
+            if align_method == 'long_axis':
+                ### ensure all major axes are aligned similarly
+                majors = celldf[major_ax].values
+                # dot products between consecutive vectors
+                dots = np.sum(majors[:-1] * majors[1:], axis=1)
+                # get signs
+                dot_signs = np.where(dots < 0, -1, 1)
+                # add first position and get cum prod
+                s = np.concatenate(([1], np.cumprod(dot_signs)))
+                # correct signs of the actual vectors and store in celldf
+                majors_aligned = majors * s[:, np.newaxis]
+                celldf[major_ax] = majors_aligned
+                ## get alignment eulers
+                eulers = []
+                for i, row in celldf.iterrows():
+                    ax_align, _ = R.align_vectors(
+                        [[1,0,0],[0,-1,0]],
+                        [row[major_ax].values, row[median_ax].values]
+                        )
+                    xyz = ax_align.as_euler('xyz', degrees = True)
+                    eulers.append(xyz)
+                eulers = np.stack(eulers).T
                 
-                ### assemble dataframe to match the 'width' normal_method
-                tempframe = chunk[['cell','frame']].copy()
-                tempframe['Width_Peaks'] = np.nan
-                tempframe['Closest_minimums'] = np.append(deg, np.nan)
-
-                allresults.append(tempframe)
-                
-        ### rotate to somewhat preserve original frame
-        elif normal_method == 'original':
-            for c in cellframelist:
-                ## open the current mesh
-                mesh = read_polydata(meshdir.joinpath(c+'_cell_mesh.vtp'))
-                ## rotate to align to long axis
-                eulers, ro = shparam_mod.get_long_axis_eulers_mesh(mesh, True)
-                    
-                #apply euler to the original negative y direction
-                next_traj_rotated = ro.apply([0,-1,0])
-                #get the actual rotation angles around the x-axis needed to align
-                #the next trajectory with the y-axis
-                theta = np.arctan2(next_traj_rotated[2],next_traj_rotated[1])
-                #apply these rotations and if y is positive, flip it
-                theta += np.pi
-                #convert to degrees
-                deg = -np.rad2deg(theta)
-                    
-                ### assemble dataframe to match the 'width' normal_method
+                #build dataframe
                 tempframe = pd.DataFrame({
-                    'cell': c,
-                    'frame': int(c.split('_')[-1]),
-                    'Width_Peaks': np.nan,
-                    'Closest_minimums': deg,
-                    }, index = [0])
-    
+                    'cell': celllist,
+                    'Euler_Angles_X': eulers[0],
+                    'Euler_Angles_Y': eulers[1],
+                    'Euler_Angles_Z': eulers[2],
+                    })
+            
+                allresults.append(tempframe)   
+                
+            ### calculate normal rotation if measuring by width perpendivular to trajectory
+            elif align_method == 'trajectory':
+                ## package arguments
+                for cellstr in celllist:
+                    mesh_path = meshdir.joinpath(cellstr+'_cell_mesh.vtp')
+                    vec = celldf[celldf.cell == cellstr][traj_cols].values[0]
+                    mapargs.append([
+                        mesh_path,
+                        vec,
+                        ])
+                
+        elif normal_method == 'planar':
+            ### for consecutive frames, align cells according to their current and
+            ### next trajectory vectors
+            for r in runs:
+                chunk = celldf.iloc[r]
+                #get the trajectory vectors
+                trajchunk = chunk[traj_cols].values
+                nexttrajchunk = chunk[['Next_'+x for x in traj_cols]].values
+
+                eulerlist = []
+                for v1, v2 in zip(trajchunk, nexttrajchunk):
+                    #pass up any nan rows
+                    if any(np.isnan((*v1,*v2))):
+                        eulerlist.append(np.repeat(np.nan,3))
+                    else:
+                        #subtract v1 from v2
+                        v2 = v2 - np.dot(v2, v1) * v1
+                        v2 /= np.linalg.norm(v2)
+                        ax_align, _ = R.align_vectors(
+                                                np.array([[1,0,0],[0,-1,0]]),
+                                                np.array([v1, v2])
+                                                )
+                        eulerlist.append(ax_align.as_euler('xyz', degrees = True))
+            
+                ### assemble dataframe to match the 'width' normal_method
+                tempframe = chunk[['cell']].copy().reset_index(drop = True)
+                #also add euler angles
+                eulers = np.array(eulerlist)
+                eulerframe = pd.DataFrame(eulers, columns = ['Euler_Angles_X','Euler_Angles_Y','Euler_Angles_Z'])
+                tempframe = pd.concat((tempframe, eulerframe), axis = 1)
                 allresults.append(tempframe)
+        
+        
+    if (normal_method == 'width') and (align_method == 'trajectory'):
+        ### get the normal alignment vectors of all cells at once
+        with multiprocessing.Pool(processes=60) as pool:
+            results = list(tqdm(pool.imap(
+                shparam_mod.get_orthogonal_mass_vector_imap, mapargs), total=len(mapargs)))
+        
+        ## get eulers to align vecs
+        original_vec_array = np.array([x[1] for x in mapargs])
+        ortho_vec_array = np.array(results)
+        eulerlist = []
+        for v1, v2 in zip(original_vec_array, ortho_vec_array):
+            ax_align, _ = R.align_vectors(
+                            np.array([[1,0,0],[0,-1,0]]),
+                            np.array([v1, v2])
+                            )
+            eulerlist.append(ax_align.as_euler('xyz', degrees = True))
+            
+        ### put all the alignment angles together in a dataframe
+        eulers = np.stack(eulerlist).T
+        allcelllist = [m[0].stem.split('_cell_mesh')[0] for m in mapargs]
+        bigdf = pd.DataFrame({
+            'cell': allcelllist,
+            'Euler_Angles_X': eulers[0],
+            'Euler_Angles_Y': eulers[1],
+            'Euler_Angles_Z': eulers[2],
+            })
+        # save the shape metrics dataframe
+        bigdf.to_csv(datadir.joinpath(f'Alignment_Angles_{imdir.name}.csv'))
 
-        print('Finished ' + u)
+    else:
+        # save the shape metrics dataframe
+        bigdf = pd.concat(allresults, ignore_index = True)
+        bigdf.to_csv(datadir.joinpath(f'Alignment_Angles_{imdir.name}.csv'))
 
-    # save the shape metrics dataframe
-    bigdf = pd.concat(allresults, ignore_index = True)
-    bigdf.to_csv(datadir.joinpath(f'Closest_Width_Peaks_{imdir.name}.csv'))
+
 
 
 def extract_shape_metrics(
@@ -547,54 +448,50 @@ def extract_shape_metrics(
     ):
     #save some variables from the config
     savedir = config.common.savedir  # where to save the meshes etc.
-    xyres = config.im_params.xyres  # xy resolution
-    zstep = config.im_params.zstep  # z resolution
-    align_method = config.common.align_method  # how to align the cells
     l_order = config.common.l_order  # L order for SH coefficients
-
-    ## get a few variables from the config file
-    
 
     # make dirs if it doesn't exist
     datadir = savedir.joinpath('shape_data')
-    csvdir = imdir.joinpath('smooth_traj')
     meshdir = imdir.joinpath('meshes')
+    posdir = imdir.joinpath('position_info')
+    trajdir = imdir.joinpath('smooth_traj')
 
 
-    widthpeaks = pd.read_csv(datadir.joinpath(
-        f'Closest_Width_Peaks_{imdir.name}.csv'), index_col=0)
+    ### open all relevant data
+    angledf = pd.read_csv(datadir.joinpath(
+        f'Alignment_Angles_{imdir.name}.csv'), index_col=0)
+    poslist = [pd.read_csv(c, index_col = 0) for c in posdir.glob('*.csv')]
+    posdf = pd.concat(poslist, ignore_index = True)
+    posonly = [x for x in posdf.columns if x not in angledf.columns]
+    #merge
+    angledf = angledf.merge(posdf[['cell']+posonly], how = 'left', on = 'cell')
+    smoothdf = pd.read_csv(trajdir.joinpath(
+            f'Smooth_Trajectories_{imdir.name}.csv'), index_col = 0)
+    smoothonly = [x for x in smoothdf.columns if x not in angledf.columns]
+    #merge
+    angledf = angledf.merge(smoothdf[['cell']+smoothonly], how = 'left', on = 'cell')
 
-    # get all segmented images that were analyzed
-    datalist = [x.name.split('_cell_info.csv')[0] for x in csvdir.glob('*_cell_info.csv')]
-    meshlist = [x for x in meshdir.glob('*_cell_mesh.vtp') if x.name.split('_cell_mesh.vtp')[0] in datalist]
 
     mapargs = []
-    for i in meshlist:
-        # assign the normal rotation value for that particular cell
-        norm_rot = widthpeaks[widthpeaks.cell == i.name.split('_cell_mesh')[0]]['Closest_minimums'].values[0]
-        if np.isnan(norm_rot):
+    for i, row in angledf.iterrows():
+        #move on if there's no rotation
+        if np.isnan(row.Euler_Angles_X):
             continue
 
         # append unique args to list
         mapargs.append((
-            i,
-            xyres,
-            zstep,
-            norm_rot,
+            row,
+            meshdir,
             l_order,
-            align_method,
-        ))
+            ))
 
     # parallel processing for all segmented images
     with multiprocessing.Pool(processes=60) as pool:
         results = list(tqdm(pool.imap(
             shparam_mod.shape_info_imap, mapargs), total=len(mapargs)))
 
-    # get results
-    dflist = [r for r in results]
-
     # save the shape metrics dataframe
-    bigdf = pd.DataFrame(dflist)
+    bigdf = pd.DataFrame(results)
     bigdf.to_csv(datadir.joinpath(
         f'Shape_Metrics_{imdir.name}.csv'))
 

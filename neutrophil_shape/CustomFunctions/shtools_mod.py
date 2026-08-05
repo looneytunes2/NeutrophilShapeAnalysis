@@ -165,7 +165,7 @@ def get_mesh_from_image(
         img[img == lcc] = 1
 
     # Smooth binarize the input image and binarize
-    if sigma:
+    if sigma>0:
 
         img = skfilters.gaussian(img.astype(np.float32), sigma=(sigma, sigma, sigma))
 
@@ -756,6 +756,8 @@ def save_polydata(mesh: vtk.vtkPolyData, filename: Path):
 def read_polydata(
         file_name:Path,
         ):
+    if not file_name.exists():
+        raise FileNotFoundError(f"{file_name} not found")
     extension = file_name.suffix.lower()
     if extension == '.ply':
         reader = vtk.vtkPLYReader()

@@ -7,12 +7,11 @@ import re
 import vtk
 import warnings
 import pyshtools
+import tifffile
 import numpy as np
 import pandas as pd
 from vtk.util import numpy_support
 from skimage import transform as sktrans
-import skimage.measure
-from scipy import signal
 from scipy import interpolate as spinterp
 from scipy.spatial import KDTree
 from scipy.spatial.transform import Rotation as R
@@ -34,135 +33,128 @@ def get_sphericity(
     # SA = 4*math.pi*r
     return (np.pi**(1/3)*(6*vol)**(2/3))/surf #SA/surf
 
-
-def get_long_axis_eulers_img(
-        im, #binary segmented image
-        xyres, #xy resolution of the image in microns
-        zstep, #z resolution of the image in microns
-        return_rotation_object:bool = False, #whether to return the scipy rotation object
+def orient_by_mass(
+        coords,
+        evec,
         ):
+    """Flip evec if needed so its points toward the side with more mass."""
+    proj = evec @ coords          # project all voxels onto this axis
+    if np.median(proj) < 0:
+        evec = -evec
+    return evec
+
+
+def calculate_coordinate_principal_axes(
+    coords: np.array,
+    ):
+    """
+    Calculate principal axes from coordinates (PCA)
+    coords: np.array with shape (3,N) in zyx order
+    """
+    #get covariance matrix and find eigenvalues and vectors
+    cov = np.cov(coords)
+    cell_evals, cell_evecs = np.linalg.eigh(cov)
+    #make sure that the eigenvalues and vectors are in the order of highest to lowest
+    idx = np.argsort(cell_evals)[::-1]
+    cell_evals = cell_evals[idx]
+    cell_evecs = cell_evecs[:,idx]
+
+    #orient the top two towards the greater mass
+    for i in range(3):
+        cell_evecs[:,i] = orient_by_mass(coords, cell_evecs[:,i])
+
+    ### return eigenvectors Major->Minor along axis 0
+    ### and xyz along axis 1
+    return cell_evecs[::-1].T
+
+
+
+def extract_object_principal_axes(
+    im: np.array, #binary segmented image
+    xyres: float, #xy resolution of the image in microns
+    zstep: float, #z resolution of the image in microns
+    ):
+    
     ## get zyx cell coords from segmented image
     cell_coords = np.stack(np.where(im>0))
     ## center coords
     cell_coords = cell_coords - np.mean(cell_coords,axis = 1,keepdims=True)
     ## adjust coordinates to micron resolution
-    pixel_res = np.array([zstep, xyres, xyres])[..., np.newaxis]
+    pixel_res = np.array([[zstep], [xyres], [xyres]])
     cell_coords *= pixel_res
 
+    return calculate_coordinate_principal_axes(cell_coords)
 
-    #get covariance matrix and find eigenvalues and vectors
-    cov = np.cov(cell_coords)
-    cell_evals, cell_evecs = np.linalg.eigh(cov)
-    #make sure that the eigenvalues and vectors are in the order of highest to lowest
-    idx = np.argsort(cell_evals)[::-1]
-    cell_evals = cell_evals[idx]
-    cell_evecs = cell_evecs[:,idx]
-
-    ### PC1 eigen vector in xyz order
-    eig1 = cell_evecs[:,0][::-1]
-    #always get the x-positive direction of the vector
-    if eig1[0]<0:
-        eig1 *= -1
-
-    ## actually get euler angles to align the long axis to the x axis
-    euler_angles, rotationthing = align_vec_to_xaxis_euler(eig1, True)
-    
-    return (euler_angles, rotationthing) if return_rotation_object else euler_angles
-
-def get_long_axis_eulers_mesh(
+def extract_mesh_principal_axes(
         mesh, #vtk polydata object
-        return_rotation_object:bool = False, #whether to return the scipy rotation object
         ):
+    
+    # ## open mesh
+    # mesh = shtools_mod.read_polydata(mesh_path)
     ## get xyz cell coords from mesh
     cell_coords = numpy_support.vtk_to_numpy(mesh.GetPoints().GetData())
+    ## get only unique coordinates
+    cell_coords = np.unique(cell_coords, axis = 0)
     ### flip to zyx order
     cell_coords = np.flip(cell_coords, axis = 1)
     ## center coords
     cell_coords = cell_coords - np.mean(cell_coords,axis = 0,keepdims=True)
 
-    #get covariance matrix and find eigenvalues and vectors
-    cov = np.cov(cell_coords.T)
-    cell_evals, cell_evecs = np.linalg.eigh(cov)
-    #make sure that the eigenvalues and vectors are in the order of highest to lowest
-    idx = np.argsort(cell_evals)[::-1]
-    cell_evals = cell_evals[idx]
-    cell_evecs = cell_evecs[:,idx]
-
-    ### PC1 eigen vector in xyz order
-    eig1 = cell_evecs[:,0][::-1]
-    #always get the x-positive direction of the vector
-    if eig1[0]<0:
-        eig1 *= -1
-
-    ## actually get euler angles to align the long axis to the x axis
-    euler_angles, rotationthing = align_vec_to_xaxis_euler(eig1, True)
-    
-    return (euler_angles, rotationthing) if return_rotation_object else euler_angles
+    return calculate_coordinate_principal_axes(cell_coords.T)
 
 
-# find the widest part of the cell relative to the x axis
-def find_normal_width_peaks(
-        impath,
-        csvdir,
-        align_method: str = 'None',
-        ):
 
-    
-    #get cell name from impath
-    cell_name = impath.name.split('/')[-1].split('_cell_mesh')[0]
-    #read mesh
-    mesh = shtools_mod.read_polydata(impath)
+def calculate_orthogonal_mass_vector(
+    coords: np.array,  # xyz coordinates (N,3) 
+    vec: np.array,   # xyz vector to look orthogonally around
+    ):
+    """Find the vector with greatest mass perpendicular to a provided vector,
+    computed directly in the original reference frame."""
 
-    #get euler angles to align the provided vector to the +x axis
-    if type(align_method) == np.ndarray:
-        vec = align_method.copy()
-        Euler_Angles = align_vec_to_xaxis_euler(vec)
-    #get euler angles to align the trajectory vector to the +x axis
-    elif align_method == 'trajectory':
-        #if the csvdir is a string read the csv file, if it's a dict turn it into a DataFrame
-        if isinstance(csvdir, Path):
-            infopath = csvdir.joinpath(cell_name + '_cell_info.csv')
-            info = pd.read_csv(infopath, index_col=0)
-        elif type(csvdir)==dict:
-            info = pd.DataFrame(csvdir, index=[0])
-        vec = np.array([info.Trajectory_X[0], info.Trajectory_Y[0], info.Trajectory_Z[0]])
-        Euler_Angles = align_vec_to_xaxis_euler(vec)
-    #get euler angles to align the long axis of the cell to the x axis   
-    elif align_method == 'long_axis':
-        Euler_Angles = get_long_axis_eulers_mesh(mesh, False)
-        
-    #rotate mesh
-    mesh = shtools_mod.rotate_and_scale_mesh(
-            mesh,
-            rotations = Euler_Angles,
-            )
-    
-    
-    
-    #rotate around the x axis until you find the widest distance in y
-    angles = np.arange(0,360,0.5)
-    widths = np.empty(len(angles))
-    for i, a in enumerate(angles):
-        
-        rotatedmesh = shtools_mod.rotate_and_scale_mesh(
-                mesh,
-                rotations = np.array([a,0,0]),
-                )
-        
-        coords = numpy_support.vtk_to_numpy(rotatedmesh.GetPoints().GetData())
-        #store the average of the negative y coordinates
-        widths[i] = coords[np.where(coords[:,1]<0)][:,1].mean()
-    
-    #get the angle that rotates the least to achieve a "width" peak
-    both = np.concatenate((widths, widths))
-    peaks, properties = signal.find_peaks(abs(both),prominence=0.11, width=55)
-    angpeaks = np.concatenate((angles,angles))[peaks]
-    tangpeaks = angpeaks.copy()
-    tangpeaks = list(set(tangpeaks))
-    # tangpeaks[tangpeaks>180] -= 360
+    #make sure vector is normalized
+    vec = vec / np.linalg.norm(vec)
 
-    return [cell_name, tangpeaks]
+    # build an orthonormal basis {u, w} spanning the plane orthogonal to vec
+    # pick a helper vector not parallel to vec
+    helper = np.array([1.0, 0.0, 0.0]) if abs(vec[0]) < 0.9 else np.array([0.0, 1.0, 0.0])
+    u = helper - np.dot(helper, vec) * vec
+    u /= np.linalg.norm(u)
+    w = np.cross(vec, u)  
 
+    # project cell coordinates onto u and w
+    coords_2d = np.stack([coords @ u, coords @ w])
+
+    # PCA in the 2D orthogonal-plane basis
+    cov = np.cov(coords_2d)
+    evals, evecs = np.linalg.eigh(cov)
+    top = evecs[:, -1]  # (coeff along u, coeff along w)
+
+    #get directionality with more mass
+    top = orient_by_mass(coords_2d,top)
+
+    # map back into the ORIGINAL 3D frame
+    v2 = top[0] * u + top[1] * w
+    v2 /= np.linalg.norm(v2)
+
+    return v2 ## xyz 
+
+def get_mesh_orthogonal_mass_vector(
+    mesh_path: Path,
+    vec: np.array,
+    ):
+    ## open mesh
+    mesh = shtools_mod.read_polydata(mesh_path)
+    ## get xyz cell coords from mesh
+    cell_coords = numpy_support.vtk_to_numpy(mesh.GetPoints().GetData())
+    ## get only unique coordinates
+    cell_coords = np.unique(cell_coords, axis = 0)
+    ## center coords
+    cell_coords = cell_coords - np.mean(cell_coords,axis = 0,keepdims=True)
+
+    return calculate_orthogonal_mass_vector(cell_coords, vec)
+
+def get_orthogonal_mass_vector_imap(args):
+    return get_mesh_orthogonal_mass_vector(*args)
 
 ### measure the volume of a mesh in the positive and negative directions along
 ### a particular axis
@@ -691,30 +683,24 @@ def get_pilr_stuct_string(
 #     OmeTiffWriter.save(aicstif.get_image_data('CZYX', S=0, T=0), pilrf.joinpath(cell_name+'_PILR.ome.tiff'), dim_order='CZYX', channel_names=aicstif.channel_names)
     
 
-
+ax_names = ['Major','Median','Minor']
+dims = ["X", "Y", "Z"]
+trajectory_columns = ['Trajectory_Vec_X','Trajectory_Vec_Y','Trajectory_Vec_Z']
 
 def get_shape_info(
-        mesh_path: Path,
-        xyres: float,
-        zstep: float,
-        normal_rotation: float,
+        df: pd.DataFrame,
+        meshdir: Path,
         l_order: int,
-        align_method: str,
         ):
 
     """
         Parameters
         ----------
-        mesh_path : Path
-            Path to the mesh file
-        xyres : float
-            microns/pixel resolution of the image
-        zstep : float
-            Z step of the image
-        normal_rotation_method : str
-            "widest" is longest axis parallel to trajectory
-        str_name : str
-            String detailing the name of the intracellular structure in the image
+        df : pd.DataFrame
+            Dataframe with the euler angles to align the mesh to the alignment frame,
+            and other relevant vectors.
+        meshdir : Path
+            Path to the mesh directory
         l_order : int
             l order for SH transformation
         
@@ -754,39 +740,21 @@ def get_shape_info(
             Set true to make sure the alignment rotation is unique. 
             """
 
-    cell_name = mesh_path.name.split('_cell_mesh')[0]
+    cell_name = df.cell
 
     ### read the mesh
+    mesh_path = meshdir.joinpath(cell_name+'_cell_mesh.vtp')
     mesh = shtools_mod.read_polydata(mesh_path)
-    
-    #if align_method is a numpy array, use that as the vector to align to
-    if type(align_method) == np.ndarray:
-        vec = align_method.copy()
-        euler_angles = align_vec_to_xaxis_euler(vec, False) 
-    elif align_method == 'trajectory':
-        #read euler angles for alignment
-        infopath = mesh_path.parents[1].joinpath('smooth_traj', cell_name + '_cell_info.csv')
-        info = pd.read_csv(infopath, index_col=0)
-        vec = np.array([info.Trajectory_X[0], info.Trajectory_Y[0], info.Trajectory_Z[0]])
-        euler_angles = align_vec_to_xaxis_euler(vec, False) 
-    elif align_method == 'long_axis':
-        euler_angles = get_long_axis_eulers_mesh(mesh, False)
 
-    
-    
+    #read euler angles for alignment
+    euler_angles = df[['Euler_Angles_X','Euler_Angles_Y','Euler_Angles_Z']].values
+
     #rotate mesh
     mesh = shtools_mod.rotate_and_scale_mesh(
             mesh,
             rotations = euler_angles,
             )
-    #################### normal rotation by provided angle ###############
-    if normal_rotation!=0:        
-        #rotate mesh by chosen angle
-        mesh = shtools_mod.rotate_and_scale_mesh(
-                mesh,
-                rotations = np.array([normal_rotation,0,0]),
-                )
-    
+
     ### enforce mesh center at origin after rotations
     # Get coordinates of mesh points
     coords = numpy_support.vtk_to_numpy(mesh.GetPoints().GetData())
@@ -832,6 +800,8 @@ def get_shape_info(
     
     #get cell major, median, and minor axes using the aligned mesh
     cell_coords = numpy_support.vtk_to_numpy(cell_mesh.GetPoints().GetData())
+    #remove duplicate coordinates
+    cell_coords = np.unique(cell_coords, axis = 0)
     alignlenfront = np.max(cell_coords[:,0])
     alignlenrear = np.min(cell_coords[:,0])
     alignwidleft = np.max(cell_coords[:,1])
@@ -842,70 +812,65 @@ def get_shape_info(
     alignlen = alignlenfront-alignlenrear
     alignwid = alignwidleft-alignwidright
     alignheight = alignheighttop-alignheightbottom
-    #remove duplicate coordinates
-    duplicates = pd.DataFrame(cell_coords).duplicated().to_numpy()
-    mask = np.ones(len(cell_coords), dtype=bool)
-    mask[duplicates] = False
-    cell_coords = cell_coords[mask,:]
-    #get covariance matrix and find eigenvalues and vectors
-    cov = np.cov(cell_coords.T)
-    cell_evals, cell_evecs = np.linalg.eig(cov)
-    #make sure that the eigenvalues and vectors are in the order of highest to lowest
-    idx = np.argsort(cell_evals)[::-1]
-    cell_evals = cell_evals[idx]
-    cell_evecs = cell_evecs[:,idx]
-    ### enforce consistent directionality of the eigenvectors
-    # major axis points +x
-    if cell_evecs[0,0]<0:
-        cell_evecs[:,0] *= -1
-    # median axis points -y
-    if cell_evecs[1,1]>0:
-        cell_evecs[:,1] *= -1
-    # minor axis is right handed to the other two
-    righth = np.cross(cell_evecs[:,0], cell_evecs[:,1])
-    if (cell_evecs[2,2] * righth[2]) < 0:
-        cell_evecs[:,2] *= -1
-            
 
-    #rotate the cell coordinates to align the major axis with the x, the median axis to the y and the minor axis to the z
-    rotationthing = R.align_vectors(np.array([[1,0,0],[0,1,0]]), cell_evecs.T[:2,:])
-    cell_coords = rotationthing[0].apply(cell_coords)
+
+    ### unpack evecs as measured previously from cell info
+    cell_evecs = np.array([[df[f"Cell_{axis}_Axis_Vec_{dim}"] for dim in dims] for axis in ax_names])
+    #rotate a bunch of different frames into the alignment frame
+    euler_rotation = R.from_euler('xyz', euler_angles, degrees = True)
+    cell_evecs_aligned = euler_rotation.apply(cell_evecs)
+    #rotate the trajectory vector
+    traj = df[trajectory_columns].values
+    trajectory_aligned = euler_rotation.apply(traj)
+    #rotate the next trajectory vector
+    next_traj = df[['Next_'+x for x in trajectory_columns]].values
+    next_trajectory_aligned = euler_rotation.apply(next_traj)
+
+    #rotate the ALIGNED cell coordinates to align the major axis with the x,
+    #the median axis to the y and the minor axis to the z
+    rotationthing, _ = R.align_vectors(np.array([[1,0,0],[0,1,0]]), cell_evecs_aligned[:2,:])
+    #apply to the already rotated coordinates
+    cell_coords_aligned = rotationthing.apply(coords)
     #get lengths of the cell's absolute axes
-    Cell_MajorAxis_Length = np.max(cell_coords[:,0])-np.min(cell_coords[:,0])
-    Cell_MedianAxis_Length = np.max(cell_coords[:,1])-np.min(cell_coords[:,1])
-    Cell_MinorAxis_Length = np.max(cell_coords[:,2])-np.min(cell_coords[:,2])
+    Cell_Major_Axis_Length = np.ptp(cell_coords_aligned[:,0])
+    Cell_Median_Axis_Length = np.ptp(cell_coords_aligned[:,1])
+    Cell_Minor_Axis_Length = np.ptp(cell_coords_aligned[:,2])
 
 
     ######### Build dict of angles between principle axes relative to the alignment axis #############
     ax_angle_dict = {}
-    ax_names = ['Major','Median','Minor']
-    for a, arr in enumerate(cell_evecs.T):
+    ##add trajectory in aligned frame
+    ax_angle_dict.update({f'Aligned_Trajectory_Vec_{dim}':trajectory_aligned[d] for d, dim in enumerate(dims)})
+    ##add next trajectory in aligned frame
+    ax_angle_dict.update({f'Aligned_Next_Trajectory_Vec_{dim}':next_trajectory_aligned[d] for d, dim in enumerate(dims)})
+    ### enforce consistent directionality of the principal axes to
+    ### calculate vector component values
+    # major axis points +x
+    if cell_evecs_aligned[0,0]<0:
+        cell_evecs_aligned[:,0] *= -1
+    # median axis points -y
+    if cell_evecs_aligned[1,1]>0:
+        cell_evecs_aligned[:,1] *= -1
+    # minor axis is right handed to the other two
+    righth = np.cross(cell_evecs_aligned[:,0], cell_evecs_aligned[:,1])
+    if (cell_evecs_aligned[2,2] * righth[2]) < 0:
+        cell_evecs_aligned[:,2] *= -1
+            
+    for a, arr in enumerate(cell_evecs_aligned):
         #get angle between the vector and the planes
-        XYAngle = angle3D(arr[0], arr[1], 0, 1, 0, 0)
-        XZAngle = angle3D(arr[0], 0, arr[2], 1, 0, 0)
-        YZAngle = angle3D(0, arr[1], arr[2], 0, 1, 0)
-        TotalAngle = angle3D(arr[0], arr[1], arr[2], 1, 0, 0)
-        #make sure the directionality is correct
-        XYAngle = XYAngle if arr[1]>0 else -1*XYAngle
-        XZAngle = XZAngle if arr[2]>0 else -1*XZAngle
-        YZAngle = YZAngle if arr[2]>0 else -1*YZAngle
+        anglevec = [[1,0,0],[0,-1,0],[0,0,1]]
+        TotalAngle = angle3D(arr[np.newaxis, :], np.array([anglevec[a]]))[0]
         ax_angle_dict.update({
-            'Cell_'+ax_names[a]+'Axis_TotalAngle': TotalAngle, # absolute angle between principal axis and cell's alignment axis
-            'Cell_'+ax_names[a]+'Axis_XYAngle': XYAngle, # X-Y angle between principal axis and cell's alignment axis
-            'Cell_'+ax_names[a]+'Axis_XZAngle': XZAngle, # X-Z angle between principal axis and cell's alignment axis
-            'Cell_'+ax_names[a]+'Axis_YZAngle': YZAngle, # Y-Z angle between principal axis and cell's alignment axis
-            'Cell_'+ax_names[a]+'Axis_Vec_X': arr[0], #vector of the cell shape's absolute longest axis
-            'Cell_'+ax_names[a]+'Axis_Vec_Y': arr[1], #vector of the cell shape's absolute longest axis
-            'Cell_'+ax_names[a]+'Axis_Vec_Z': arr[2], #vector of the cell shape's absolute longest axis
+            f'Cell_{ax_names[a]}_Axis_TotalAngle': TotalAngle, # absolute angle between principal axis and cell's alignment axis
+            f'Cell_Aligned_{ax_names[a]}_Axis_Vec_X': arr[0], # x component of axis
+            f'Cell_Aligned_{ax_names[a]}_Axis_Vec_Y': arr[1], # y component of axis
+            f'Cell_Aligned_{ax_names[a]}_Axis_Vec_Z': arr[2], # z component of axis
             })
+    
         
 
     #Shape stats dict
     Shape_Stats = {'cell': cell_name,
-                   'Euler_angles_X': euler_angles[0],
-                   'Euler_angles_Y':euler_angles[1],
-                   'Euler_angles_Z':euler_angles[2],
-                   'Width_Rotation_Angle': normal_rotation,
                    'Cell_Volume': Cell_Volume,
                     'Cell_Volume_Front': FrontVolume,
                     'Cell_Volume_Left': LeftVolume,
@@ -915,10 +880,10 @@ def get_shape_info(
                     'Volume_Top_Ratio': TopVolume/Cell_Volume,
                    'Cell_SurfaceArea': Cell_SurfaceArea,
                    'Cell_Sphericity': Cell_Sphericity,
-                   'Cell_MajorAxis_Length': Cell_MajorAxis_Length,
-                   'Cell_MedianAxis_Length': Cell_MedianAxis_Length,
-                   'Cell_MinorAxis_Length': Cell_MinorAxis_Length,
-                   'Cell_Aspect_Ratio': Cell_MajorAxis_Length/Cell_MinorAxis_Length,
+                   'Cell_Major_Axis_Length': Cell_Major_Axis_Length,
+                   'Cell_Median_Axis_Length': Cell_Median_Axis_Length,
+                   'Cell_Minor_Axis_Length': Cell_Minor_Axis_Length,
+                   'Cell_Aspect_Ratio': Cell_Major_Axis_Length/Cell_Minor_Axis_Length,
                    'OriginaltoReconError': OriginaltoReconError,
                    'RecontoOriginalError': RecontoOriginalError,
                    'LengthAlongTrajectory': alignlen,
@@ -936,7 +901,6 @@ def get_shape_info(
     Shape_Stats.update(ax_angle_dict)
     #add the shcoeffs to the dict I just built
     Shape_Stats.update(coeffs_mem)
-    
     
     return Shape_Stats
 

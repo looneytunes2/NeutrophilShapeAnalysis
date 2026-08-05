@@ -16,7 +16,7 @@ import math
 import tqdm
 from scipy.stats import gaussian_kde
 from ..config.models import Config
-
+from .utils import whichpc_string
 def signed_angle(u,v):
     return math.degrees(math.atan2( u[0]*v[1] - u[1]*v[0], u[0]*v[0] + u[1]*v[1] ))
 
@@ -63,6 +63,7 @@ def contour_coords(
     return contourcoords
 
 
+_DIM_LABELS = ('x', 'y', 'z')
 
 def raw_transitions(
         time_interval, # time interval between frames in seconds
@@ -71,8 +72,8 @@ def raw_transitions(
         ):
     #how many dimensions is the space
     dims = len(whichpcs)
-    froms = [f'from_{["x","y","z"][i]}' for i in range(dims)]
-    tos = [f'to_{["x","y","z"][i]}' for i in range(dims)]
+    froms = [f'from_{_DIM_LABELS[i]}' for i in range(dims)]
+    tos = [f'to_{_DIM_LABELS[i]}' for i in range(dims)]
     
     
     #### get coordinates
@@ -84,12 +85,13 @@ def raw_transitions(
     
     ##### add a bunch of other info
     #frame will reference the timepoint at the end of the transition
-    alltrans['real_time'] = df[1:].time.values
-    alltrans['frame'] = df[1:].frame.values
+    alltrans['real_time'] = df.time.to_numpy()[1:]
+    alltrans['frame'] = df.frame.to_numpy()[1:]
     #add the cumulative time based on the imaging interval 
     alltrans['cumulative_time'] = np.arange(time_interval, len(df)*time_interval, time_interval)
     #add cell identification
-    alltrans['CellID'] = df.CellID.to_list()[:-1]
+    alltrans['CellID'] = df.CellID.iloc[0]
+    alltrans['Treatment'] = df.Treatment.iloc[0]
     
     #drop stalled "transitions" so that only true transitions are counted
     stallmask = (alltrans[froms].values == alltrans[tos].values).all(axis = 1)
@@ -104,7 +106,8 @@ def raw_transitions(
         return alltrans
 
 
-
+def raw_transitions_wrapper(args):
+    return raw_transitions(*args)
 
 
 def interpolate_trajectory(
@@ -245,9 +248,10 @@ def interpolate_trajectory(
     #add real image time so that data can be sorted even if it's not
     #from the same video
     alltrans['real_time'] = alltrans.cumulative_time + rawtrans.real_time.iloc[0] - rawtrans.time_elapsed.iloc[0]
-    #add cell name
+    #add cell name and Treatment
     alltrans['CellID'] = rawtrans.CellID.iloc[0]
-    
+    alltrans['Treatment'] = rawtrans.Treatment.iloc[0]
+
     return alltrans
 
 
@@ -258,7 +262,7 @@ def get_transition_counts(
         ):
 
     #get the number of dimensions in the CGPS from the coordinate
-    dims = ['x','y','z'][:len(coord)]
+    dims = _DIM_LABELS[:len(coord)]
     
     #get the dataframe with transitions FROM the coordinate of interest
     frombool = np.array([bsdf['from_'+dim] == coord[d] for d, dim in enumerate(dims)])
@@ -455,11 +459,9 @@ def transition_count_wrapper(
     ############## get the Boosttrapped counts of each bin position ############
     results = []
     for coord in coords:
-        results.append(get_transition_counts(
-            coord,
-            bsdf,
-            ct, #use the time actually observed during the simulation, especially important for simulations that terminate early
-            ))
+        results.append(
+            get_transition_counts(coord,bsdf,ct,) 
+            )
 
     bstrans_rate_df = pd.DataFrame(results)
     bstrans_rate_df = bstrans_rate_df.sort_values(by = dims).reset_index(drop=True)
@@ -619,37 +621,23 @@ def get_raw_cgps_trajectories(
     if not dbsavedir.exists():
         dbsavedir.mkdir()
 
-    migresults = []
-    for m, Mig in TotalFrame.groupby(group_factor):
-        results = []
-        with multiprocessing.Pool(processes=60) as pool:
-            for i, cells in Mig.groupby('CellID'):
-                cells, runs = utils.get_consecutive_timepoints(cells, 'time', time_interval)
-                for r in runs:
-                    #skip runs less than 2 frames long
-                    if len(r)<2:
-                        pass
-                    else:
-                        cell = cells.iloc[r]
-    
-                        result = pool.apply_async(raw_transitions, args = (
-                            time_interval,
-                            cell,
-                            whichpcs,
-                            ))
-                        results.append(result)
-
-            #get results
-            results = [r.get() for r in results]
-        rawtrans = pd.concat(results, ignore_index=True)
-        rawtrans = rawtrans.sort_values(by = ['CellID','real_time']).reset_index(drop=True)
-        rawtrans[group_factor] = m
-        migresults.append(rawtrans)
-        
-    rawtrans = pd.concat(migresults, ignore_index=True)
-    rawtrans.to_csv(dbsavedir.joinpath(utils.whichpc_string(whichpcs)+'_transitions_separated.csv'))
-
-    print('Aggregated transitions')
+    mapargs = []
+    for i, cells in TotalFrame.groupby('CellID'):
+        cells, runs = utils.get_consecutive_timepoints(cells, 'time', time_interval)
+        for r in runs:
+            #only use runs with 3 or more frames
+            if len(r)>2:
+                mapargs.append((
+                    time_interval,
+                    cells.iloc[r],
+                    whichpcs,
+                ))
+    print(f'Aggregating {utils.whichpc_string(whichpcs)} transitions')
+    with multiprocessing.Pool(processes=60) as pool:
+        results = list(tqdm.tqdm(pool.imap(raw_transitions_wrapper, mapargs), total=len(mapargs)))
+    rawtrans = pd.concat(results)
+    rawtrans = rawtrans.sort_values(by = ['Treatment','CellID','real_time']).reset_index(drop=True)
+    rawtrans.to_csv(dbsavedir.joinpath(utils.whichpc_string(whichpcs)+'_raw_transitions.csv'))
     
     return rawtrans
 
@@ -664,28 +652,21 @@ def get_interpolated_cgps_trajectories(
     ## get settings from config
     dbsavedir = config.common.savedir / 'detailed_balance'
     
-    migresults = []
-    for m, Mig in rawtrans.groupby(group_factor):
-        mapargs = []
-        for i, cell in Mig.groupby('CellID'):
-            cell, runs = utils.get_consecutive_transitions(cell)
-            for r in runs:
-                #skip runs less than 2 frames long
-                if len(r)>1:
-                    mapargs.append(cell.iloc[r])
+    mapargs = []
+    for i, cell in rawtrans.groupby('CellID'):
+        cell, runs = utils.get_consecutive_transitions(cell)
+        for r in runs:
+            #skip runs less than 2 frames long
+            if len(r)>1:
+                mapargs.append(cell.iloc[r])
+    print(f'Interpolating {utils.whichpc_string(whichpcs)} trajectories')
+    with multiprocessing.Pool(processes=60) as pool:
+        results = list(tqdm.tqdm(pool.imap(interpolate_trajectory, mapargs), total=len(mapargs)))
 
-        with multiprocessing.Pool(processes=60) as pool:
-            results = list(pool.imap(interpolate_trajectory, mapargs))
-
-        #separate results into transtions and transition pairs
-        transdf_sep = pd.concat(results)
-        transdf_sep = transdf_sep.sort_values(by = ['CellID','real_time']).reset_index(drop=True)
-        transdf_sep[group_factor] = m
-        migresults.append(transdf_sep)
-
-    transdf_sep = pd.concat(migresults)
-    transdf_sep.to_csv(dbsavedir.joinpath(utils.whichpc_string(whichpcs)+'_interpolated_transitions_separated.csv'))
-    print('Finished interpolating trajectories')
+    #separate results into transtions and transition pairs
+    transdf_sep = pd.concat(results)
+    transdf_sep = transdf_sep.sort_values(by = ['Treatment','CellID','real_time']).reset_index(drop=True)
+    transdf_sep.to_csv(dbsavedir.joinpath(utils.whichpc_string(whichpcs)+'_interpolated_transitions.csv'))
     
     return transdf_sep
     
@@ -705,7 +686,7 @@ def aggregate_transition_counts(
     for m, mig in transdf_sep.groupby(group_factor):
         ## get time observed in this group
         ttot = mig.time_elapsed.sum()
-        print(f'Total time observed in this CGPS was {ttot/60} minutes')
+        print(f'Total time observed in {utils.whichpc_string(whichpcs)} {m} CGPS was {ttot/60} minutes')
         trans_rate_df_sep = transition_count_wrapper((mig, nbins, ttot))
         ## add group_factor
         trans_rate_df_sep[group_factor] = m
@@ -713,8 +694,7 @@ def aggregate_transition_counts(
         trresults.append(trans_rate_df_sep)
 
     trans_rate_df_sep = pd.concat(trresults)
-    trans_rate_df_sep.to_csv(dbsavedir.joinpath(utils.whichpc_string(whichpcs)+'_binned_transition_rates_separated.csv'))
-    print('Finished finding transition rates')
+    trans_rate_df_sep.to_csv(dbsavedir.joinpath(utils.whichpc_string(whichpcs)+'_binned_transition_rates.csv'))
     
     return trans_rate_df_sep
 
@@ -751,31 +731,31 @@ def get_bootstrapped_cgps_trajectories(
         else:
             combolist = []
             for cidc, cell in mig.groupby('CellID'):
-                #sort data and get continuous transitions in order
                 cell, runs = utils.get_consecutive_transitions(cell)
                 for r in runs:
-                    limdf = cell.iloc[r]
-                    for i in range(len(limdf) - ntrans + 1):
-                        combo = limdf.iloc[i:i + ntrans].copy()
-                        combolist.append(combo)
+                    r = np.asarray(r)
+                    n_windows = len(r) - ntrans + 1
+                    if n_windows <= 0:
+                        continue
+                    # build (n_windows, ntrans) matrix of positions, then flatten
+                    window_idx = r[np.arange(n_windows)[:, None] + np.arange(ntrans)[None, :]]
+                    positions = window_idx.ravel()
+                    combo = cell.iloc[positions]
+                    combolist.append(combo)
 
-            # Combine into a single DataFrame with MultiIndex
             combodf = pd.concat(combolist)
 
-        #create multiindex for the overall dataframe (mostly applies for multiple transitions)
-        miarray = [np.repeat(range(int(len(combodf)/ntrans)),ntrans), np.tile(list(range(ntrans)),int(len(combodf)/ntrans))]
-        miindex = pd.MultiIndex.from_arrays(miarray, names = ['transition_combination','transition_index'])
-
-        #add correct multiindex to the dataframe of combinations
+        ## create and add multiindex for the number of transitions
+        miarray = [
+            # unique transition combo index
+            np.repeat(range(int(len(combodf) / ntrans)), ntrans),
+            # index of individual transitions within the combo
+            np.tile(list(range(ntrans)), int(len(combodf) / ntrans))
+        ]
+        miindex = pd.MultiIndex.from_arrays(miarray, names=['transition_combination', 'transition_index'])
         combodf.index = miindex
         
-        # #get list of tuples of arguments to pass to imap
-        # mapargs = [(combodf,ttot,False) for _ in range(bsiter)]
-        # #boostrap with multiprocessing
-        # print(f'Boostrapping trajectories with {ntrans} transition samples for {m}')
-        # with multiprocessing.Pool(processes=60) as pool:
-        #     results = list(tqdm.tqdm(pool.imap(bootstrap_trajectory, mapargs), total=bsiter))
-        
+        ### bootstrap many trajectories using the same starting arguments
         with multiprocessing.Pool(processes=60,
                                   initializer=bs_init_worker,
                                   initargs=(combodf, ttot, False)) as pool:
@@ -787,28 +767,27 @@ def get_bootstrapped_cgps_trajectories(
         #append to the larger list of dataframes
         bstrans.append(migboot)
 
-        ###### now interpolate the bootstrapped trajectories ######
-        print(f'Interpolating trajectories for {m}')
-        mapargs = [d for i, d in migboot.groupby('iter')]
+        
         with multiprocessing.Pool(processes=60) as pool:
+            ###### now interpolate the bootstrapped trajectories ######
+            print(f'Interpolating trajectories for {m}')
+            mapargs = [d for i, d in migboot.groupby('iter')]
             results = list(tqdm.tqdm(pool.imap(interpolate_trajectory, mapargs), total=bsiter))
                     
-        bsinttrans = pd.concat(results, ignore_index=True)
-        bsinttrans['iter'] = list(itertools.chain.from_iterable([[k]*len(res) for k,res in enumerate(results)]))
-        bsinttrans = bsinttrans.sort_values(by = ['iter','cumulative_time']).reset_index(drop=True)
-        bsinttrans[group_factor] = m
-        bsint.append(bsinttrans)
+            bsinttrans = pd.concat(results, ignore_index=True)
+            bsinttrans['iter'] = list(itertools.chain.from_iterable([[k]*len(res) for k,res in enumerate(results)]))
+            bsinttrans = bsinttrans.sort_values(by = ['iter','cumulative_time']).reset_index(drop=True)
+            bsinttrans[group_factor] = m
+            bsint.append(bsinttrans)
 
 
-        ###### now get transition rates
-        #get list of tuples of arguments to pass to imap
-        mapargs = [(it, nbins, it.time_elapsed.sum()) for i, it in bsinttrans.groupby('iter')]
-        
-        #boostrap with multiprocessing
-        print(f'Calculating bootstrapped CGPS transition rates for {m}')
-        with multiprocessing.Pool(processes=60) as pool:
+            ###### now get transition rates
+            #get list of tuples of arguments to pass to imap
+            mapargs = [(it, nbins, it.time_elapsed.sum()) for i, it in bsinttrans.groupby('iter')]
+            
+            #boostrap with multiprocessing
+            print(f'Calculating bootstrapped CGPS transition rates for {m}')
             results = list(tqdm.tqdm(pool.imap(transition_count_wrapper, mapargs), total=bsiter))
-
 
         #combine and add other info
         migrate = pd.concat(results, ignore_index=True)
@@ -844,26 +823,46 @@ def get_avg_current_error(
 
     #### get current field for this bootstrap realization ######
     ####### this is for looking at data spread for the current field ############
+    full_index = pd.MultiIndex.from_product(
+        [range(1, nbins + 1), range(1, nbins + 1)],
+        names=['x', 'y']
+    )
+
     bsfield = []
     for m, mig in bsframe_sep_full.groupby(group_factor):
-        for x in range(nbins):
-            for y in range(nbins):
-                current = mig[(mig['x'] == x+1) & (mig['y'] == y+1)]
-                js = np.array([[(row.x_plus_rate - row.x_minus_rate)/2,(row.y_plus_rate - row.y_minus_rate)/2] for i, row in current.iterrows()])
-                js_centered = js - np.mean(js, axis = 0)
-                avgjs = np.cov(js_centered.T)
-                evals, evecs = np.linalg.eigh(avgjs)
-                bsfield.append({'x':x+1,
-                                'y':y+1,
-                                'eval1':evals[1],
-                                'eval2':evals[0],
-                               'evec1x':evecs[0,1],
-                               'evec1y':evecs[1,1],
-                               'evec2x':evecs[0,0],
-                               'evec2y':evecs[1,0],
-                              group_factor:m})
+        rows = []
+        for (x, y), current in mig.groupby(['x', 'y']):
+            js = np.column_stack([
+                (current['x_plus_rate'].to_numpy() - current['x_minus_rate'].to_numpy()) / 2,
+                (current['y_plus_rate'].to_numpy() - current['y_minus_rate'].to_numpy()) / 2,
+            ])
+            js_centered = js - js.mean(axis=0)
+            avgjs = np.cov(js_centered.T)
+            evals, evecs = np.linalg.eigh(avgjs)
+            rows.append({'x':x+1,
+                            'y':y+1,
+                            'eval1':evals[1],
+                            'eval2':evals[0],
+                            'evec1x':evecs[0,1],
+                            'evec1y':evecs[1,1],
+                            'evec2x':evecs[0,0],
+                            'evec2y':evecs[1,0],
+                            group_factor:m})
+        default_row = {
+            'eval1': 0,
+            'eval2': 0,
+            'evec1x': 0,
+            'evec1y': 1,
+            'evec2x': 1,
+            'evec2y': 0,
+            group_factor:m,
+        }
+        df_m = pd.DataFrame(rows).set_index(['x', 'y'])
+        df_m = df_m.reindex(full_index)
+        df_m = df_m.fillna(value=default_row).reset_index()
+        bsfield.append(df_m)
 
-    bsfield_sep = pd.DataFrame(bsfield)
+    bsfield_sep = pd.concat(bsfield, ignore_index=True)
     bsfield_sep.to_csv(dbbssavedir.joinpath(utils.whichpc_string(whichpcs)+f'_bootstrapped_{ntrans}_transitions_average_currents.csv'))
     
     return bsfield_sep

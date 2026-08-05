@@ -15,7 +15,7 @@ from functools import reduce
 import matplotlib.pyplot as plt
 import pandas as pd
 from . import shtools_mod
-
+import pyvista as pv
 
 def get_shape_space(
     datadir,
@@ -77,6 +77,62 @@ def get_shape_space(
             ### save mesh
             shtools_mod.save_polydata(mesh, pcmeshdir.joinpath(f'PC{pcaxis}_{bin}.vtp'))
     
+
+
+
+
+def rotate_mesh(mesh, angle1, angle2, angle3, angle4):
+    """Apply two sequential Euler rotations (degrees), about the mesh's own center."""
+    rot = mesh.copy()
+    rot = rot.rotate_x(angle1, point=rot.center_of_mass(), inplace=False)
+    rot = rot.rotate_y(angle2, point=rot.center_of_mass(), inplace=False)
+    rot = rot.rotate_z(angle3, point=rot.center_of_mass(), inplace=False)
+    rot = rot.rotate_x(angle4, point=rot.center_of_mass(), inplace=False)
+    return rot
+
+
+def rotate_axes_actor(
+        axes,
+        euler_angles,
+        ):
+    """Apply two sequential Euler rotations (degrees) to a pv.Axes actor, about its own origin."""
+    actor = axes.axes_actor  # underlying vtkAxesActor
+    origin = axes.origin
+    actor.SetOrigin(*origin)
+    actor.RotateX(euler_angles[0])
+    actor.RotateY(euler_angles[1])
+    actor.RotateZ(euler_angles[2])
+    return axes
+
+
+def render_frame(
+        plotter,
+        mesh,
+        axes_actor = None,
+        camera_position = None,
+        mesh_color = "corn_silk",
+        background_color = "lightsteelblue",
+        ):
+    """Render the current mesh state off-screen and return an RGB image array."""
+    plotter.clear()
+    plotter.enable_lightkit()
+    plotter.add_mesh(
+        mesh,
+        color=mesh_color,
+        show_edges=False,
+        )
+    
+    if axes_actor is not None:
+        plotter.add_actor(axes_actor)
+    
+    if CAMERA_POSITION is not None:
+        plotter.camera_position = camera_position
+    else:
+        plotter.reset_camera()
+    plotter.set_background(background_color)
+    return plotter.screenshot(return_img=True)
+
+
 
 
 
