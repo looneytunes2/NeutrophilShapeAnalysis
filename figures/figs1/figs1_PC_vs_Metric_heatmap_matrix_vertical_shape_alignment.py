@@ -13,13 +13,32 @@ color_scale = pd.DataFrame({'color':list(sns.diverging_palette(20, 220, n=200).a
 
 
 
-#get directories and open separated datasets
+
 #get directories and open separated datasets
 config = load_config(microscope_type='confocal')
 config._alignment = 'shape'
+npcs = config.common.npcs
+pc_cols = [f'PC{n+1}' for n in range(npcs)]
 datadir = config.common.savedir / 'shape_data'
 TotalFrame = pd.read_csv(datadir.joinpath('All_Data_with_CGPS_bins.csv'), index_col=0)
 
+### add absolute value PCs
+pc_cols_abs = [pc+'_abs' for pc in pc_cols]
+TotalFrame[pc_cols_abs] = TotalFrame[pc_cols].abs()
+
+
+majorcols = ['Cell_Aligned_Major_Axis_Vec_X','Cell_Aligned_Major_Axis_Vec_Y','Cell_Aligned_Major_Axis_Vec_Z']
+mediancols = ['Cell_Aligned_Median_Axis_Vec_X','Cell_Aligned_Median_Axis_Vec_Y','Cell_Aligned_Median_Axis_Vec_Z']
+minorcols = ['Cell_Aligned_Minor_Axis_Vec_X','Cell_Aligned_Minor_Axis_Vec_Y','Cell_Aligned_Minor_Axis_Vec_Z']
+majormask = TotalFrame.Cell_Aligned_Major_Axis_Vec_X<0
+medianmask = TotalFrame.Cell_Aligned_Median_Axis_Vec_Y>0
+minormask = TotalFrame.Cell_Aligned_Minor_Axis_Vec_Z<0
+TotalFrame.loc[majormask, majorcols] *= -1
+TotalFrame.loc[medianmask, mediancols] *= -1
+TotalFrame.loc[minormask, minorcols] *= -1
+
+TotalFrame['Major_Minor_Ratio'] = TotalFrame.Cell_Major_Axis_Length / TotalFrame.Cell_Minor_Axis_Length
+TotalFrame['Median_Minor_Ratio'] = TotalFrame.Cell_Median_Axis_Length / TotalFrame.Cell_Minor_Axis_Length
 
 
 #all the metrics we want to plot by their name in the dataframe
@@ -30,22 +49,34 @@ metrics =  [['Cell_Volume',
              'Volume_Top_Ratio',
              'Cell_Sphericity',
              ],
-            ['Cell_MajorAxis_Length',
-             'Cell_MedianAxis_Length',
-             'Cell_MinorAxis_Length',
+            ['Cell_Major_Axis_Length',
+             'Cell_Median_Axis_Length',
+             'Cell_Minor_Axis_Length',
              'Cell_Aspect_Ratio',
-             'Cell_MajorAxis_Vec_X',
-            'Cell_MajorAxis_Vec_Y',
-            'Cell_MajorAxis_Vec_Z',
-            'Cell_MedianAxis_Vec_X',
-            'Cell_MedianAxis_Vec_Y',
-            'Cell_MedianAxis_Vec_Z',
-            'Cell_MinorAxis_Vec_X',
-            'Cell_MinorAxis_Vec_Y',
-            'Cell_MinorAxis_Vec_Z',
+             # 'Major_Minor_Ratio',
+             # 'Median_Minor_Ratio',
+            #  'Cell_Aligned_Major_Axis_Vec_X',
+            # 'Cell_Aligned_Major_Axis_Vec_Y',
+            # 'Cell_Aligned_Major_Axis_Vec_Z',
+            # 'Cell_Aligned_Median_Axis_Vec_X',
+            # 'Cell_Aligned_Median_Axis_Vec_Y',
+            # 'Cell_Aligned_Median_Axis_Vec_Z',
+            # 'Cell_Aligned_Minor_Axis_Vec_X',
+            # 'Cell_Aligned_Minor_Axis_Vec_Y',
+            # 'Cell_Aligned_Minor_Axis_Vec_Z',
+            # 'Cell_Aligned_X_Stdev',
+            # 'Cell_Aligned_Y_Stdev',
+            # 'Cell_Aligned_Z_Stdev',
              ],
             ['speed',
-             'directional_autocorrelation']
+             'directional_autocorrelation',
+             # 'Aligned_Trajectory_Vec_X',
+             # 'Aligned_Trajectory_Vec_Y',
+             # 'Aligned_Trajectory_Vec_Z',
+             # 'Aligned_Next_Trajectory_Vec_X',
+             # 'Aligned_Next_Trajectory_Vec_Y',
+             # 'Aligned_Next_Trajectory_Vec_Z'
+             ]
             ]
 
 labelz = [['Cell Volume (µm$^3$)',
@@ -59,33 +90,58 @@ labelz = [['Cell Volume (µm$^3$)',
            'Cell Median Axis\nLength (µm)',
            'Cell Minor Axis\nLength (µm)',
            'Aspect Ratio',
-           'Major Axis X\nComponent',
-           'Major Axis Y\nComponent',
-           'Major Axis Z\nComponent',
-           'Median Axis X\nComponent',
-           'Median Axis Y\nComponent',
-           'Median Axis Z\nComponent',
-           'Minor Axis X\nComponent',
-           'Minor Axis Y\nComponent',
-           'Minor Axis Z\nComponent',
+           # 'Major-Median Axis\nRatio',
+           # 'Major-Minor Axis\nRatio',
+           # 'Median-Minor Axis\nRatio',
+           # '|PC| Cell Major Axis\nLength (µm)',
+           # '|PC| Cell Median Axis\nLength (µm)',
+           # '|PC| Cell Minor Axis\nLength (µm)',
+           # '|PC| Aspect Ratio',
+        #    'Major Axis X\nComponent',
+        #    'Major Axis Y\nComponent',
+        #    'Major Axis Z\nComponent',
+        #    'Median Axis X\nComponent',
+        #    'Median Axis Y\nComponent',
+        #    'Median Axis Z\nComponent',
+        #    'Minor Axis X\nComponent',
+        #    'Minor Axis Y\nComponent',
+        #    'Minor Axis Z\nComponent',
+           # 'X Coordinate σ',
+           # 'Y Coordinate σ',
+           # 'Z Coordinate σ',
            ],
           ['Instantaneous\nSpeed (µm/sec)',
            'Persistence',
+           # 'Trajectory Vector X\nComponent',
+           # 'Trajectory Vector Y\nComponent',
+           # 'Trajectory Vector Z\nComponent',
+           # 'Next Trajectory Vector\n XComponent',
+           # 'Next Trajectory Vector\n Y Component',
+           # 'Next Trajectory Vector\n Z Component',
            ]#,'Directional Autocorrelation',
           ]
-#get PCs in order
-npcs = config.common.npcs
-PCs = ['PC'+str(i) for i in range(1,npcs+1)]
-#add them together and select them in the dataframe
-totalcorr = TotalFrame[[x for y in metrics for x in y]+PCs].corr()
-PCsAndMetrics = totalcorr.loc[:,PCs]
-PCsAndMetrics = PCsAndMetrics.drop(index=PCs)
 
-fig, axes = plt.subplots(len(metrics), 1, figsize=(15,25),
-                         gridspec_kw={'height_ratios':[len(x) for x in metrics],
+#add them together and select them in the dataframe
+totalcorr = TotalFrame[[x for y in metrics for x in y]+pc_cols].corr()
+PCsAndMetrics = totalcorr.loc[:,pc_cols]
+PCsAndMetrics = PCsAndMetrics.drop(index=pc_cols)
+
+totalcorr_abs = TotalFrame[[x for y in metrics for x in y]+pc_cols_abs].corr()
+PCsAndMetrics_abs = totalcorr_abs.loc[:,pc_cols_abs]
+PCsAndMetrics_abs = PCsAndMetrics_abs.drop(index=pc_cols_abs)
+
+fig, axes = plt.subplots(len(metrics), 1, figsize=(15,17),
+                         gridspec_kw={'height_ratios':[len(x) for x in labelz],
                                       'hspace':0.05})
 for i, m in enumerate(metrics):
     ax = axes[i]
+    # if any(['|PC|' in  l for l in labelz[i]]):
+    #     plusminus = PCsAndMetrics.loc[m, :].copy()
+    #     abss = PCsAndMetrics_abs.loc[m, :].copy()
+    #     abss = abss.rename(columns = {a:p for a,p in zip(pc_cols_abs, pc_cols)})
+    #     abss.index = [a + '_abs' for a in abss.index]
+    #     temp = pd.concat((plusminus, abss))
+    # else:
     temp = PCsAndMetrics.loc[m,:].copy()
     cbarbool = False if i != len(metrics)-1 else True
     sns.heatmap(
@@ -103,7 +159,7 @@ for i, m in enumerate(metrics):
         ax = ax)
     if  i == 0:
         ax.set_xticklabels(
-            PCs,
+            pc_cols,
             fontsize = 26
         )
         ax.tick_params('x',top=True, labeltop=True, bottom=False, labelbottom=False ,length=6, width=3)

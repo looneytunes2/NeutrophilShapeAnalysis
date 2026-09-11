@@ -42,8 +42,8 @@ for d, al in enumerate(alignlist):
                 
             ax = axes[int(bin1.split('PC')[-1])-1,int(bin2.split('PC')[-1])-1]
     
-            if dbdir.joinpath(f'{bin1}-{bin2}_binned_transition_rates_separated.csv').exists():
-                transdf_sep = pd.read_csv(dbdir.joinpath(f'{bin1}-{bin2}_interpolated_transitions_separated.csv'), index_col=0)
+            if dbdir.joinpath(f'{bin1}-{bin2}_binned_transition_rates.csv').exists():
+                transdf_sep = pd.read_csv(dbdir.joinpath(f'{bin1}-{bin2}_interpolated_transitions.csv'), index_col=0)
                 bsfield_sep = pd.read_csv(dbdir.joinpath('alldatabs', f'{bin1}-{bin2}_bootstrapped_{config.db_params.ntrans}_transitions_average_currents.csv'), index_col=0)
                 print(f'Opened {bin1}-{bin2} transition rate files')
                 
@@ -213,7 +213,7 @@ for d, al in enumerate(alignlist):
     #     plt.tight_layout() 
     plt.subplots_adjust(wspace=0.01, hspace=0.01)
     
-    plt.savefig('C:/Users/Aaron/Desktop/'+f'_{al}.png', bbox_inches='tight', dpi = 500)
+    # plt.savefig('C:/Users/Aaron/Desktop/'+f'_{al}.png', bbox_inches='tight', dpi = 500)
     plt.savefig(__file__.split('.')[0]+f'_{al}.png', bbox_inches='tight', dpi = 500)
 
 

@@ -11,7 +11,8 @@ import re
 import numpy as np
 from pathlib import Path
 
-meshdir = Path('C:/Users/Aaron/NeutrophilShapeAnalysis/data/trajectory_shape_confocal/shape_data/PC_Meshes/')
+# meshdir = Path('C:/Users/Aaron/NeutrophilShapeAnalysis/data/trajectory_shape_confocal/shape_data/PC_Meshes/')
+meshdir = Path('C:/Users/Aaron/Desktop/PC_Meshes/')
 meshfl = meshdir.glob('*.vtp')
 
 PCnum = 8

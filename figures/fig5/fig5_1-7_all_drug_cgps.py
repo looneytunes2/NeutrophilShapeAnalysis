@@ -1,6 +1,5 @@
 
 
-
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -8,20 +7,19 @@ import seaborn as sns
 from matplotlib.patches import Ellipse, Rectangle
 from pathlib import Path
 from neutrophil_shape.config.loader import load_config
-from neutrophil_shape.CustomFunctions.DetailedBalance import load_and_fill_transition_counts
 
 
-whichpcs = (1,2)
+whichpcs = (1,7)
 
 # inverse scale for arrows
 scale = 0.0008
 
 config = load_config(microscope_type='confocal')
-config._alignment = 'trajectory'
+config._alignment = 'trajectory_shape'
 treatments = ['DMSO','Para-Nitro-Blebbistatin','CK666']
 time_interval = config.im_params.time_interval
 ntrans = config.db_params.ntrans
-nbins = config.db_params.nbins
+
 
 #get directories and open separated datasets
 savedir = config.common.savedir
@@ -40,9 +38,8 @@ transdf_sep = transdf_sep[transdf_sep.Treatment.isin(treatments)].copy()
 #ensure that DMSO is the first in order
 transdf_sep['Treatment'] = pd.Categorical(transdf_sep.Treatment, categories=treatments, ordered=True)
 transdf_sep = transdf_sep.sort_values(by='Treatment')
-############## get the counts of cells leaving
-rates_path = dbdir.joinpath(f'PC{whichpcs[0]}-PC{whichpcs[1]}_binned_transition_rates.csv')
-trans_rate_df_sep = load_and_fill_transition_counts(rates_path, nbins, 'Treatment')
+############## get the counts of cells leaving 
+trans_rate_df_sep = pd.read_csv(dbdir.joinpath(f'PC{whichpcs[0]}-PC{whichpcs[1]}_binned_transition_rates.csv'), index_col=0)
 trans_rate_df_sep = trans_rate_df_sep[trans_rate_df_sep.Treatment.isin(treatments)].copy()
 #ensure that DMSO is the first in order
 trans_rate_df_sep['Treatment'] = pd.Categorical(trans_rate_df_sep.Treatment, categories=treatments, ordered=True)

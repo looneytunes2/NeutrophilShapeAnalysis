@@ -19,7 +19,7 @@ from .segment_cells2short import confocal_segmentation_wrapper, confocal_image_i
 from . import shparam_mod, metadata_funcs, segment_LLS
 from .track_functions import segment_caax_tracks_confocal_40x_fromsingle
 # from .PILRagg import read_pilr_regions
-from .utils import get_consecutive_timepoints, smooth_trajectory_wrapper, align_vec_to_xaxis_euler
+from .utils import get_consecutive_timepoints, smooth_trajectory_wrapper, remove_vector_flips
 from neutrophil_shape.config.models import Config
 from tqdm import tqdm
 
@@ -295,8 +295,7 @@ def get_alignment_angles(
 ):
     #save some variables from the config
     savedir = config.common.savedir  # where to save the normal rotations
-    align_method = config.common.align_method # how to align the cells based on shparam_mod.find_normal_width_peaks function
-    normal_method = config.common.normal_method # what method to use to find the normal rotation,
+    align_method = config.alignment # how to align the cells 
     xyres = config.im_params.xyres
     zstep = config.im_params.zstep
     time_interval = config.im_params.time_interval
@@ -314,7 +313,8 @@ def get_alignment_angles(
     ## open smooth trajectories
     smoothdf = pd.read_csv(trajdir.joinpath(f'Smooth_Trajectories_{imdir.name}.csv'), index_col = 0)
     ## merge the two
-    df = smoothdf.merge(posdf, how = 'left', on = 'cell')
+    common_cols = list(set(smoothdf.columns) & set(posdf.columns))
+    df = smoothdf.merge(posdf, how = 'left', on = common_cols)
 
     ## loop through the unique cells and measure/save the rotation angles according
     ## to the specified alignment method
@@ -325,87 +325,113 @@ def get_alignment_angles(
         celldf, runs = get_consecutive_timepoints(celldf, 'time', time_interval)
         celllist = celldf.cell.tolist()
         
-        if normal_method == 'width':
-            ### get the Euler angles for alignment from previously measured
-            ### principal axes
-            if align_method == 'long_axis':
-                ### ensure all major axes are aligned similarly
-                majors = celldf[major_ax].values
-                # dot products between consecutive vectors
-                dots = np.sum(majors[:-1] * majors[1:], axis=1)
-                # get signs
-                dot_signs = np.where(dots < 0, -1, 1)
-                # add first position and get cum prod
-                s = np.concatenate(([1], np.cumprod(dot_signs)))
-                # correct signs of the actual vectors and store in celldf
-                majors_aligned = majors * s[:, np.newaxis]
-                celldf[major_ax] = majors_aligned
-                ## get alignment eulers
-                eulers = []
-                for i, row in celldf.iterrows():
-                    ax_align, _ = R.align_vectors(
-                        [[1,0,0],[0,-1,0]],
-                        [row[major_ax].values, row[median_ax].values]
-                        )
-                    xyz = ax_align.as_euler('xyz', degrees = True)
-                    eulers.append(xyz)
-                eulers = np.stack(eulers).T
-                
-                #build dataframe
-                tempframe = pd.DataFrame({
-                    'cell': celllist,
-                    'Euler_Angles_X': eulers[0],
-                    'Euler_Angles_Y': eulers[1],
-                    'Euler_Angles_Z': eulers[2],
-                    })
+        if align_method == 'shape':
+            ### get the Euler angles for alignment from previously measured principal axes
+            ### first ensure all major axes are aligned similarly
+            majors_aligned = remove_vector_flips(celldf[major_ax].values)
+            celldf[major_ax] = majors_aligned
+            ### ensure all median axes are aligned similarly
+            medians_aligned = remove_vector_flips(celldf[median_ax].values)
+            celldf[median_ax] = medians_aligned
+            ## get alignment eulers
+            eulers = []
+            for i, row in celldf.iterrows():
+                ax_align, _ = R.align_vectors(
+                    [[1,0,0],[0,-1,0]],
+                    [row[major_ax].values, row[median_ax].values]
+                    )
+                xyz = ax_align.as_euler('xyz', degrees = True)
+                eulers.append(xyz)
+            eulers = np.stack(eulers).T
             
-                allresults.append(tempframe)   
+            #build dataframe
+            tempframe = pd.DataFrame({
+                'cell': celllist,
+                'Euler_Angles_X': eulers[0],
+                'Euler_Angles_Y': eulers[1],
+                'Euler_Angles_Z': eulers[2],
+                })
+        
+            allresults.append(tempframe)   
                 
-            ### calculate normal rotation if measuring by width perpendivular to trajectory
-            elif align_method == 'trajectory':
-                ## package arguments
-                for cellstr in celllist:
-                    mesh_path = meshdir.joinpath(cellstr+'_cell_mesh.vtp')
-                    vec = celldf[celldf.cell == cellstr][traj_cols].values[0]
-                    mapargs.append([
-                        mesh_path,
-                        vec,
-                        ])
-                
-        elif normal_method == 'planar':
+        ### collect arguments if you're calculating normal rotation
+        ### by measuring by mass perpendicular to trajectory
+        elif align_method == 'trajectory_shape':
+            ## package arguments
+            for cellstr in celllist:
+                mesh_path = meshdir.joinpath(cellstr+'_cell_mesh.vtp')
+                vec = celldf[celldf.cell == cellstr][traj_cols].values[0]
+                mapargs.append([
+                    mesh_path,
+                    vec,
+                    ])
+            # ####### align to trajectory then point long axis in consistent direction
+            # majorvecs = celldf[major_ax].values
+            # trajvecs = celldf[traj_cols].values
+            # # row-wise dot product
+            # dots = np.einsum('ij,ij->i', majorvecs, trajvecs)
+            # # get signs for flips
+            # signs = np.where(dots < 0, -1.0, 1.0)
+            # #align major axis direction to trajectory
+            # majors_aligned = majorvecs * signs[:, None]
+
+            # #get alignment eulers for trajectory and orthogonal element of long axis
+            # eulerlist = []
+            # for v1, v2 in zip(trajvecs, majors_aligned):
+            #     #pass up any nan rows
+            #     if any(np.isnan((*v1,*v2))):
+            #         eulerlist.append(np.repeat(np.nan,3))
+            #     else:
+            #         #subtract v1 from v2
+            #         v2 = v2 - np.dot(v2, v1) * v1
+            #         v2 /= np.linalg.norm(v2)
+            #         ax_align, _ = R.align_vectors(
+            #                                 np.array([[1,0,0],[0,-1,0]]),
+            #                                 np.array([v1, v2])
+            #                                 )
+            #         eulerlist.append(ax_align.as_euler('xyz', degrees = True))
+            # ### assemble dataframe
+            # tempframe = celldf[['cell']].copy().reset_index(drop = True)
+            # #also add euler angles
+            # eulers = np.array(eulerlist)
+            # eulerframe = pd.DataFrame(eulers, columns = ['Euler_Angles_X','Euler_Angles_Y','Euler_Angles_Z'])
+            # tempframe = pd.concat((tempframe, eulerframe), axis = 1)
+            # allresults.append(tempframe)
+
+        elif align_method == 'trajectory':
             ### for consecutive frames, align cells according to their current and
             ### next trajectory vectors
-            for r in runs:
-                chunk = celldf.iloc[r]
-                #get the trajectory vectors
-                trajchunk = chunk[traj_cols].values
-                nexttrajchunk = chunk[['Next_'+x for x in traj_cols]].values
 
-                eulerlist = []
-                for v1, v2 in zip(trajchunk, nexttrajchunk):
-                    #pass up any nan rows
-                    if any(np.isnan((*v1,*v2))):
-                        eulerlist.append(np.repeat(np.nan,3))
-                    else:
-                        #subtract v1 from v2
-                        v2 = v2 - np.dot(v2, v1) * v1
-                        v2 /= np.linalg.norm(v2)
-                        ax_align, _ = R.align_vectors(
-                                                np.array([[1,0,0],[0,-1,0]]),
-                                                np.array([v1, v2])
-                                                )
-                        eulerlist.append(ax_align.as_euler('xyz', degrees = True))
+            #get the vectors
+            trajvecs = celldf[traj_cols].values
+            nexttrajvecs = celldf[['Next_'+x for x in traj_cols]].values
+
+            ## iterate through and get eulers to align cells to both
+            eulerlist = []
+            for v1, v2 in zip(trajvecs, nexttrajvecs):
+                #pass up any nan rows
+                if any(np.isnan((*v1,*v2))):
+                    eulerlist.append(np.repeat(np.nan,3))
+                else:
+                    #subtract v1 from v2
+                    v2 = v2 - np.dot(v2, v1) * v1
+                    v2 /= np.linalg.norm(v2)
+                    ax_align, _ = R.align_vectors(
+                                            np.array([[1,0,0],[0,-1,0]]),
+                                            np.array([v1, v2])
+                                            )
+                    eulerlist.append(ax_align.as_euler('xyz', degrees = True))
             
-                ### assemble dataframe to match the 'width' normal_method
-                tempframe = chunk[['cell']].copy().reset_index(drop = True)
-                #also add euler angles
-                eulers = np.array(eulerlist)
-                eulerframe = pd.DataFrame(eulers, columns = ['Euler_Angles_X','Euler_Angles_Y','Euler_Angles_Z'])
-                tempframe = pd.concat((tempframe, eulerframe), axis = 1)
-                allresults.append(tempframe)
+            ### assemble dataframe
+            tempframe = celldf[['cell']].copy().reset_index(drop = True)
+            #also add euler angles
+            eulers = np.array(eulerlist)
+            eulerframe = pd.DataFrame(eulers, columns = ['Euler_Angles_X','Euler_Angles_Y','Euler_Angles_Z'])
+            tempframe = pd.concat((tempframe, eulerframe), axis = 1)
+            allresults.append(tempframe)
         
         
-    if (normal_method == 'width') and (align_method == 'trajectory'):
+    if align_method == 'trajectory_shape':
         ### get the normal alignment vectors of all cells at once
         with multiprocessing.Pool(processes=60) as pool:
             results = list(tqdm(pool.imap(
@@ -414,8 +440,13 @@ def get_alignment_angles(
         ## get eulers to align vecs
         original_vec_array = np.array([x[1] for x in mapargs])
         ortho_vec_array = np.array(results)
+        # "smoothen" these vectors, fine to do over the entire dataset at once
+        # since the start directionality of the normal vector is arbitrary
+        ortho_vecs_aligned = remove_vector_flips(ortho_vec_array)
+
+        # get all the euler rotations for each vector pair
         eulerlist = []
-        for v1, v2 in zip(original_vec_array, ortho_vec_array):
+        for v1, v2 in zip(original_vec_array, ortho_vecs_aligned):
             ax_align, _ = R.align_vectors(
                             np.array([[1,0,0],[0,-1,0]]),
                             np.array([v1, v2])

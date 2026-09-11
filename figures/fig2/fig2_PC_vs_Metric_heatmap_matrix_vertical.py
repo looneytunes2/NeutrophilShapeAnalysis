@@ -29,6 +29,18 @@ TotalFrame = pd.read_csv(datadir.joinpath('All_Data_with_CGPS_bins.csv'), index_
 
 
 
+### adjust directionality of principal axes 
+majorcols = ['Cell_Aligned_Major_Axis_Vec_X','Cell_Aligned_Major_Axis_Vec_Y','Cell_Aligned_Major_Axis_Vec_Z']
+mediancols = ['Cell_Aligned_Median_Axis_Vec_X','Cell_Aligned_Median_Axis_Vec_Y','Cell_Aligned_Median_Axis_Vec_Z']
+minorcols = ['Cell_Aligned_Minor_Axis_Vec_X','Cell_Aligned_Minor_Axis_Vec_Y','Cell_Aligned_Minor_Axis_Vec_Z']
+majormask = TotalFrame.Cell_Aligned_Major_Axis_Vec_X<0
+medianmask = TotalFrame.Cell_Aligned_Median_Axis_Vec_Y>0
+minormask = TotalFrame.Cell_Aligned_Minor_Axis_Vec_Z<0
+TotalFrame.loc[majormask, majorcols] *= -1
+TotalFrame.loc[medianmask, mediancols] *= -1
+TotalFrame.loc[minormask, minorcols] *= -1
+
+
 #all the metrics we want to plot by their name in the dataframe
 metrics =  [['Cell_Volume',
              'Cell_SurfaceArea',
@@ -37,27 +49,37 @@ metrics =  [['Cell_Volume',
              'Volume_Top_Ratio',
              'Cell_Sphericity',
              ],
-            ['Cell_MajorAxis_Length',
-             'Cell_MedianAxis_Length',
-             'Cell_MinorAxis_Length',
+            ['Cell_Major_Axis_Length',
+             'Cell_Median_Axis_Length',
+             'Cell_Minor_Axis_Length',
              'Cell_Aspect_Ratio',
-             'Cell_MajorAxis_Vec_X',
-            'Cell_MajorAxis_Vec_Y',
-            'Cell_MajorAxis_Vec_Z',
-            'Cell_MedianAxis_Vec_X',
-            'Cell_MedianAxis_Vec_Y',
-            'Cell_MedianAxis_Vec_Z',
-            'Cell_MinorAxis_Vec_X',
-            'Cell_MinorAxis_Vec_Y',
-            'Cell_MinorAxis_Vec_Z',
+             'Cell_Aligned_Major_Axis_Vec_X',
+            'Cell_Aligned_Major_Axis_Vec_Y',
+            'Cell_Aligned_Major_Axis_Vec_Z',
+            'Cell_Aligned_Median_Axis_Vec_X',
+            'Cell_Aligned_Median_Axis_Vec_Y',
+            'Cell_Aligned_Median_Axis_Vec_Z',
+            'Cell_Aligned_Minor_Axis_Vec_X',
+            'Cell_Aligned_Minor_Axis_Vec_Y',
+            'Cell_Aligned_Minor_Axis_Vec_Z',
+            # 'Cell_Aligned_X_Stdev',
+            # 'Cell_Aligned_Y_Stdev',
+            # 'Cell_Aligned_Z_Stdev',
              ],
             ['speed',
-             'directional_autocorrelation']
+             'directional_autocorrelation',
+             # 'Aligned_Trajectory_Vec_X',
+             # 'Aligned_Trajectory_Vec_Y',
+             # 'Aligned_Trajectory_Vec_Z',
+             # 'Aligned_Next_Trajectory_Vec_X',
+             # 'Aligned_Next_Trajectory_Vec_Y',
+             # 'Aligned_Next_Trajectory_Vec_Z'
+             ]
             ]
 
 labelz = [['Cell Volume (µm$^3$)',
            'Cell Surface\nArea (µm$^2$)',
-           'Front-Back Volume\nRatio',
+           'Front-Rear Volume\nRatio',
            'Left-Right Volume\nRatio',
            'Top-Bottom Volume\nRatio',
            'Cell Sphericity',
@@ -75,9 +97,18 @@ labelz = [['Cell Volume (µm$^3$)',
            'Minor Axis X\nComponent',
            'Minor Axis Y\nComponent',
            'Minor Axis Z\nComponent',
+           # 'X Coordinate σ',
+           # 'Y Coordinate σ',
+           # 'Z Coordinate σ',
            ],
           ['Instantaneous\nSpeed (µm/sec)',
            'Persistence',
+           # 'Trajectory Vector X\nComponent',
+           # 'Trajectory Vector Y\nComponent',
+           # 'Trajectory Vector Z\nComponent',
+           # 'Next Trajectory Vector\n XComponent',
+           # 'Next Trajectory Vector\n Y Component',
+           # 'Next Trajectory Vector\n Z Component',
            ]#,'Directional Autocorrelation',
           ]
 #get PCs in order
@@ -88,7 +119,7 @@ totalcorr = TotalFrame[[x for y in metrics for x in y]+PCs].corr()
 PCsAndMetrics = totalcorr.loc[:,PCs]
 PCsAndMetrics = PCsAndMetrics.drop(index=PCs)
 
-fig, axes = plt.subplots(len(metrics), 1, figsize=(15,25),
+fig, axes = plt.subplots(len(metrics), 1, figsize=(15,30),
                          gridspec_kw={'height_ratios':[len(x) for x in metrics],
                                       'hspace':0.05})
 for i, m in enumerate(metrics):

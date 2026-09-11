@@ -32,9 +32,9 @@ def get_stars(pv):
 
 #define some variables
 treatments = ['DMSO','Para-Nitro-Blebbistatin','CK666']
-whichpcs = (4,5)
+whichpcs = (1,7)
 config = load_config(microscope_type='confocal')
-config._alignment = 'trajectory'
+config._alignment = 'trajectory_shape'
 pc_combos = config.common.pc_combos
 time_interval = config.im_params.time_interval
 origin = config.db_params.origins[pc_combos.index(whichpcs)]
@@ -227,10 +227,10 @@ for i, ax in enumerate(axes):
     ax.set_xticks([])
     ax.set_yticks([])
     ax.set_xticks(np.arange(0.5,nbins_trim+0.5)[[0,nbins_trim//2,-1]])
-    ax.set_xticklabels([round(centers.PC1.iloc[x+bintrim],1) for x in [0,nbins_trim//2, int(nbins_trim-1)]],
+    ax.set_xticklabels([round(centers[f'PC{whichpcs[0]}'].iloc[x+bintrim],1) for x in [0,nbins_trim//2, int(nbins_trim-1)]],
                        fontsize = 14)
     ax.set_yticks(np.arange(0.5,nbins_trim+0.5)[[0,nbins_trim//2,-1]])
-    ax.set_yticklabels([round(centers.PC7.iloc[x+bintrim],1) for x in [0,nbins_trim//2, int(nbins_trim-1)]],
+    ax.set_yticklabels([round(centers[f'PC{whichpcs[1]}'].iloc[x+bintrim],1) for x in [0,nbins_trim//2, int(nbins_trim-1)]],
                        fontsize = 14)
     #set axis titles
     ax.set_xlabel(f'PC{whichpcs[0]}', fontsize = 24)

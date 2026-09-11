@@ -1,5 +1,5 @@
 
-import math
+import dataclasses
 import numpy as np
 import pandas as pd
 import re
@@ -45,7 +45,8 @@ def get_consecutive_timepoints(
         interval: int, #expected interval of "column"
         ):
     #sort the dataframe based on the column
-    df_sorted = df.sort_values(column).reset_index(drop = True)
+    df_ = df.copy()
+    df_sorted = df_.sort_values(column).reset_index(drop = True)
     #get differences over the column
     diff = df_sorted[column].diff()
     #create a list of all the places with time jumps starting with 0
@@ -177,6 +178,37 @@ def dist_nd(p1,p2):
     return np.sqrt(np.sum((p2-p1)**2))
 
 
+def get_pc_distance(
+        df,
+        config,
+        n_timepoints = 1,
+        ):
+    df = df.copy()
+    npcs = config.common.npcs
+    time_interval = config.im_params.time_interval
+    pc_cols = [f'PC{n+1}' for n in range(npcs)]
+    dflist = []
+    for cell, celldf in df.groupby('CellID'):
+        celldf, runs = get_consecutive_timepoints(celldf, 'time', time_interval)
+        for r in runs:
+            if len(r)<n_timepoints:
+                continue
+            rundf = celldf.iloc[r]
+            points = rundf[pc_cols].to_numpy()
+            #empty array to fill with distances
+            pc_dists = np.full(len(points), np.nan)
+            #get start and end points and measure distance
+            start_points = points[:-n_timepoints]
+            end_points = points[n_timepoints:]
+            pc_dists[n_timepoints:] = dist_nd(start_points, end_points)
+
+            rundf['PC_Distance'] = pc_dists
+            dflist.append(rundf)
+    
+    return pd.concat(dflist, ignore_index = True)
+
+
+
 #project vector a onto vector b
 def project_vector(a, b):
     b_norm_sq = np.dot(b, b)
@@ -185,6 +217,20 @@ def project_vector(a, b):
     projection = (np.dot(a, b) / b_norm_sq) * b
     return projection
 
+
+### ensure all vectors are pointed in a similar direction
+def remove_vector_flips(
+        vectors: np.array, # (N,3)
+        ):
+    # dot products between consecutive vectors
+    dots = np.sum(vectors[:-1] * vectors[1:], axis=1)
+    # get signs
+    dot_signs = np.where(dots < 0, -1, 1)
+    # add first position and get cum prod
+    s = np.concatenate(([1], np.cumprod(dot_signs)))
+    # correct signs of the actual vectors
+    vecs_aligned = vectors * s[:, np.newaxis]
+    return vecs_aligned
 
 #### sorts data for an individual cell and adds the raw speed projected onto
 #### the smoothened trajectory
@@ -245,6 +291,7 @@ def filename_match_llscellid(
 
 def smoothen_aer(
         cell, #dataframe with 'time', 'aer', and 'time_elapsed' columns for a single cell
+        s = 30, #splprep s factor
         ):
     #ensure the cell is in time order
     cell_ = cell.sort_values('time').reset_index(drop=True)
@@ -264,7 +311,7 @@ def smoothen_aer(
     #interpolate for smoothening
     tck, u = interpolate.splprep(np.array((cellnona.time.values,
                                             cellnona.area_enclosed.cumsum().values)),
-                                    k=3, s = 30, w = w)#k=1, s=2, w = w)
+                                    k=3, s = s, w = w)#k=1, s=2, w = w)
     #get the derivative of the smoothened curve
     dx, dy = interpolate.splev(u, tck, der=1)
     #get derivative in correct units of time (area enclosed / sec)
@@ -278,19 +325,19 @@ def smoothen_aer(
 ####### threshold smoothened area enclosing rate 
 def get_aer_state(
         cell, #a dataframe with 'time', 'aer', and 'time_elapsed' columns for a single cell
-        low_thresh = 0.01, #threshold for low state in area enclosed rate
-        high_thresh = 0.05 #threshold for area enclosed "jumps"
+        thresholds = [0.05, 0.01], #thresholds for aer in decreasing order, defaults are trajectory 1-2 cycle
+        state_labels = ['high','low','zero'], #labels for state above each threshold, last is default
+        s = 30 #splprep smoothing factor default is trajectory 1-2 cycle
         ):
     
     cell_ = cell.reset_index(drop = True).copy()
 
     ### get smoothened aer
-    smooth_aer,_,_ = smoothen_aer(cell)
+    smooth_aer,_,_ = smoothen_aer(cell, s=s)
 
     #threshold with np.select
-    threshs = [smooth_aer>=high_thresh, smooth_aer>=low_thresh]
-    choices = ['high', 'low']
-    statethresh = np.select(threshs, choices, default = 'zero')
+    threshs = [smooth_aer>=x for x in thresholds]
+    statethresh = np.select(threshs, state_labels[:-1], default = state_labels[-1])
     #add new values to dataframe
     cell_.loc[smooth_aer.index,'aer_smooth'] = smooth_aer
     cell_.loc[smooth_aer.index,'aer_state'] = statethresh
@@ -340,9 +387,9 @@ def get_observed_aer_state_chunk_starts_stops(
     Returns
     -------
     observedstarts : list
-        List of indices in the input dataframe where observed states start.
+        List of chunk_ids in the input dataframe where observed states start.
     observedstops : list
-        List of indices in the input dataframe where observed states stop.
+        List of chunk_ids in the input dataframe where observed states stop.
     Other parameters
     ----------------
     group_factor : str, optional
@@ -378,7 +425,43 @@ def get_observed_aer_state_chunk_starts_stops(
     return observedstarts, observedstops
 
 
-######## perform regression on AE over time in minutes
+######## calculate average metrics over time in minutes
+def calculate_rates(
+        df, # dataframe of transitions with 'time' in seconds
+        group_factor, # factor column
+        rate_cols = ['aer','angular_velocity','pc_speed'], #iterable with column names of rate quantities to fit with lr
+        ):
+    #make sure data is sorted by time
+    time_col = 'real_time' if 'real_time' in df.columns else 'time'
+    df, runs = get_consecutive_transitions(df)
+    dropdf = df[~df[rate_cols[0]].isna()]
+    ### make dict to update
+    rate_fit_dict = {
+        'Treatment': df.iloc[0].Treatment,
+        group_factor: df.iloc[0][group_factor],
+    }
+    for rc in rate_cols:
+        #get value per time instead of per sec
+        time_value_col = 'time_interval_'+rc
+        value_cumsum_col = time_value_col + '_cumsum'
+        dropdf[time_value_col] = dropdf[rc].values*dropdf['time_elapsed'].values
+        dropdf[value_cumsum_col] = dropdf[time_value_col].cumsum()
+        #linear regression
+        total_change = 0
+        total_time = 0
+        for r in runs:
+            total_change += dropdf[value_cumsum_col].iloc[r[-1]] - dropdf[value_cumsum_col].iloc[r[0]]
+            total_time += dropdf[time_col].iloc[r[-1]] - dropdf[time_col].iloc[r[0]]
+        avg_rate = total_change / total_time
+        #add to dictionary of metrics
+        rate_fit_dict.update({
+            rc+'_avg': avg_rate,
+            })
+    
+    return rate_fit_dict
+
+
+######## perform regression on metrics over time in minutes
 def fit_rates_linear(
         df, # dataframe with 'time' in seconds
         rate_cols, #iterable with column names of rate quantities to fit with lr
@@ -527,63 +610,63 @@ def to_numpy_basis(mat_xyz):
 
 ### rotate LLS image to shape alignment frame
 def align_raw_image(
-        cell: str,
-        trajectory_eulers: np.array,
-        normal_angle: float,
+        cellser: pd.Series,
         config: Config,
-        down_factor: int = 2,
+        down_factor: int = 1,
         ):
     #get directory
-    localdir = config.experiment.lls.localdir
+    configdict = dataclasses.asdict(config)
+    localdir = configdict['experiment'][cellser.Experiment]['localdir']
     imdir = localdir / 'processed_images'
     #open image
-    im = tifffile.imread(imdir.joinpath(cell + '_raw.ome.tiff'))
+    if cellser.Experiment == 'lls':
+        im = tifffile.imread(imdir.joinpath(cellser.cell + '_raw.ome.tiff'))
+    else:
+        im = tifffile.imread(imdir.joinpath(cellser.cell + '_raw.tiff'))
+        #scale these images to so that z is proportional to xy
+        xyres = config.im_params.xyres
+        zstep = config.im_params.zstep
+        im = skimage.transform.rescale(im, [zstep/xyres, 1, 1], preserve_range=True)
+
+    ## add a dimension if there's only 3
+    if len(im.shape)<4:
+        im = im[np.newaxis, ...]
     #optionally shrink image
     if down_factor>1:
         downlist = []
         for c in range(im.shape[-4]):
             downlist.append(skimage.transform.rescale(im[c], 1/down_factor, preserve_range=True))
         im = np.stack(downlist)
-        
+
+    # get image centroid (which should be cell centroid) to calculate offset for rotation
+    # also get some array shape info
     center = (np.array(im.shape[-3:])-1)/2
     imshape = np.array(im.shape)
     maxdim = np.repeat(np.max(imshape[-3:])*1.5,3).astype(np.uint16)
     maxcenter = (maxdim - 1)/ 2
-    ###### get rotation matrices
-    firstmatrix  = to_numpy_basis(R.from_euler('xyz', trajectory_eulers,  degrees=True).as_matrix()).T
-    secondmatrix = to_numpy_basis(R.from_euler('x', normal_angle,  degrees=True).as_matrix()).T
+    
+
+    ###### get rotation matrix
+    euler_cols = [x for x in cellser.index if 'Euler' in x]
+    trajectory_eulers = cellser[euler_cols].values
+    matrix = to_numpy_basis(R.from_euler('xyz', trajectory_eulers,  degrees=True).as_matrix()).T
+    offset = center - matrix @ maxcenter
 
     rotated_img = np.zeros(np.insert(maxdim, 0, imshape[-4]))
     ### rotate each channel individually
     for c in range(imshape[0]):
-        ### apply both rotations
-        #### trajectory rotation
-        firstoffset = center - firstmatrix @ maxcenter
-        rot1 = affine_transform(
+        ### apply rotation
+        rotated_img[c] = affine_transform(
             im[c],
-            firstmatrix,
-            offset = firstoffset,
+            matrix,
+            offset = offset,
             output_shape = maxdim,
             order=0,
             mode='constant',
             cval=0,
-            )
-        
-        ### normal rotation
-        secondoffset = maxcenter - secondmatrix @ maxcenter
-        rot2 = affine_transform(
-            rot1,
-            secondmatrix,
-            offset = secondoffset,
-            # output_shape = np.array([maxdim]*3),
-            # # output = rotated_img[frame,c],
-            order=0,
-            mode='constant',
-            cval=0,
-            )
-        rotated_img[c] = rot2
+        )
     
-    return rotated_img
+    return rotated_img #CZYX
 
 
 

@@ -1,6 +1,5 @@
 
 
-######### do contour integrals for all migration modes ################
 import vtk
 import os
 import numpy as np
@@ -21,7 +20,7 @@ def get_shape_space(
     datadir,
     config,
     nbins: int = 5,
-    npoints: int = 512,
+    npoints: int = 24576,
     ):
     """
     Parameters
@@ -51,6 +50,8 @@ def get_shape_space(
     df_dig = pd.read_csv(datadir.joinpath('Shape_Space_Digitized_PCs.csv'), index_col = 0)
     pca = pk.load(open(datadir.joinpath("pca.pkl"),'rb')) 
     pcmeshdir = datadir.joinpath('PC_meshes')
+    if not pcmeshdir.exists():
+        pcmeshdir.mkdir()
     npcs = config.common.npcs
     lmax = config.common.l_order
         
@@ -81,13 +82,12 @@ def get_shape_space(
 
 
 
-def rotate_mesh(mesh, angle1, angle2, angle3, angle4):
+def rotate_mesh(mesh, angle1, angle2, angle3):
     """Apply two sequential Euler rotations (degrees), about the mesh's own center."""
     rot = mesh.copy()
     rot = rot.rotate_x(angle1, point=rot.center_of_mass(), inplace=False)
     rot = rot.rotate_y(angle2, point=rot.center_of_mass(), inplace=False)
     rot = rot.rotate_z(angle3, point=rot.center_of_mass(), inplace=False)
-    rot = rot.rotate_x(angle4, point=rot.center_of_mass(), inplace=False)
     return rot
 
 
@@ -120,16 +120,21 @@ def render_frame(
         mesh,
         color=mesh_color,
         show_edges=False,
+        smooth_shading = True
         )
     
     if axes_actor is not None:
         plotter.add_actor(axes_actor)
     
-    if CAMERA_POSITION is not None:
+    if camera_position is not None:
         plotter.camera_position = camera_position
     else:
         plotter.reset_camera()
+
     plotter.set_background(background_color)
+
+    plotter.render()
+
     return plotter.screenshot(return_img=True)
 
 

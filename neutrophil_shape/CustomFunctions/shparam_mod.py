@@ -7,7 +7,6 @@ import re
 import vtk
 import warnings
 import pyshtools
-import tifffile
 import numpy as np
 import pandas as pd
 from vtk.util import numpy_support
@@ -66,7 +65,6 @@ def calculate_coordinate_principal_axes(
     ### return eigenvectors Major->Minor along axis 0
     ### and xyz along axis 1
     return cell_evecs[::-1].T
-
 
 
 def extract_object_principal_axes(
@@ -786,7 +784,7 @@ def get_shape_info(
     RecontoOriginalError = np.mean(d)
     
     
-    #Get physical properties of cell
+    #Get surface and volume properties of cell
     CellMassProperties = vtk.vtkMassProperties()
     CellMassProperties.SetInputData(cell_mesh)
     Cell_Volume = CellMassProperties.GetVolume()
@@ -798,7 +796,7 @@ def get_shape_info(
     TopVolume = measure_volume_half(cell_mesh, 'z')
     
     
-    #get cell major, median, and minor axes using the aligned mesh
+    #get coordinates of the cell in the aligned frame
     cell_coords = numpy_support.vtk_to_numpy(cell_mesh.GetPoints().GetData())
     #remove duplicate coordinates
     cell_coords = np.unique(cell_coords, axis = 0)
@@ -812,7 +810,10 @@ def get_shape_info(
     alignlen = alignlenfront-alignlenrear
     alignwid = alignwidleft-alignwidright
     alignheight = alignheighttop-alignheightbottom
-
+    ## also get std of the coordinates along dimensions in the aligned frame
+    Cell_Aligned_X_Stdev = np.std(cell_coords[:,0])
+    Cell_Aligned_Y_Stdev = np.std(cell_coords[:,1])
+    Cell_Aligned_Z_Stdev = np.std(cell_coords[:,2])
 
     ### unpack evecs as measured previously from cell info
     cell_evecs = np.array([[df[f"Cell_{axis}_Axis_Vec_{dim}"] for dim in dims] for axis in ax_names])
@@ -826,15 +827,22 @@ def get_shape_info(
     next_traj = df[['Next_'+x for x in trajectory_columns]].values
     next_trajectory_aligned = euler_rotation.apply(next_traj)
 
-    #rotate the ALIGNED cell coordinates to align the major axis with the x,
+    #rotate the ORIGINAL cell coordinates to align the major axis with the x,
     #the median axis to the y and the minor axis to the z
     rotationthing, _ = R.align_vectors(np.array([[1,0,0],[0,1,0]]), cell_evecs_aligned[:2,:])
     #apply to the already rotated coordinates
-    cell_coords_aligned = rotationthing.apply(coords)
-    #get lengths of the cell's absolute axes
-    Cell_Major_Axis_Length = np.ptp(cell_coords_aligned[:,0])
-    Cell_Median_Axis_Length = np.ptp(cell_coords_aligned[:,1])
-    Cell_Minor_Axis_Length = np.ptp(cell_coords_aligned[:,2])
+    principal_axes_cell_coords = rotationthing.apply(coords)
+    #partial principal axes lengths
+    Cell_Major_Axis_Min = np.min(principal_axes_cell_coords[:,0])
+    Cell_Major_Axis_Max = np.max(principal_axes_cell_coords[:,0])
+    Cell_Median_Axis_Min = np.min(principal_axes_cell_coords[:,1])
+    Cell_Median_Axis_Max = np.max(principal_axes_cell_coords[:,1])
+    Cell_Minor_Axis_Min = np.min(principal_axes_cell_coords[:,2])
+    Cell_Minor_Axis_Max = np.max(principal_axes_cell_coords[:,2])
+    # total principal axes lengths
+    Cell_Major_Axis_Length = Cell_Major_Axis_Max - Cell_Major_Axis_Min
+    Cell_Median_Axis_Length = Cell_Median_Axis_Max - Cell_Median_Axis_Min
+    Cell_Minor_Axis_Length = Cell_Minor_Axis_Max - Cell_Minor_Axis_Min
 
 
     ######### Build dict of angles between principle axes relative to the alignment axis #############
@@ -843,18 +851,18 @@ def get_shape_info(
     ax_angle_dict.update({f'Aligned_Trajectory_Vec_{dim}':trajectory_aligned[d] for d, dim in enumerate(dims)})
     ##add next trajectory in aligned frame
     ax_angle_dict.update({f'Aligned_Next_Trajectory_Vec_{dim}':next_trajectory_aligned[d] for d, dim in enumerate(dims)})
-    ### enforce consistent directionality of the principal axes to
-    ### calculate vector component values
+
+    ### enforce consistent directionality of the principal axes prior to
+    ### calculating aligned vector component values
     # major axis points +x
     if cell_evecs_aligned[0,0]<0:
-        cell_evecs_aligned[:,0] *= -1
+        cell_evecs_aligned[0,:] *= -1
     # median axis points -y
     if cell_evecs_aligned[1,1]>0:
-        cell_evecs_aligned[:,1] *= -1
-    # minor axis is right handed to the other two
-    righth = np.cross(cell_evecs_aligned[:,0], cell_evecs_aligned[:,1])
-    if (cell_evecs_aligned[2,2] * righth[2]) < 0:
-        cell_evecs_aligned[:,2] *= -1
+        cell_evecs_aligned[1,:] *= -1
+    # minor axis points +z
+    if cell_evecs_aligned[2,2]<0:
+        cell_evecs_aligned[2,:] *= -1
             
     for a, arr in enumerate(cell_evecs_aligned):
         #get angle between the vector and the planes
@@ -880,6 +888,12 @@ def get_shape_info(
                     'Volume_Top_Ratio': TopVolume/Cell_Volume,
                    'Cell_SurfaceArea': Cell_SurfaceArea,
                    'Cell_Sphericity': Cell_Sphericity,
+                    'Cell_Major_Axis_Min': Cell_Major_Axis_Min,
+                    'Cell_Major_Axis_Max': Cell_Major_Axis_Max,
+                    'Cell_Median_Axis_Min': Cell_Median_Axis_Min,
+                    'Cell_Median_Axis_Max': Cell_Median_Axis_Max,
+                    'Cell_Minor_Axis_Min': Cell_Minor_Axis_Min,
+                    'Cell_Minor_Axis_Max': Cell_Minor_Axis_Max,
                    'Cell_Major_Axis_Length': Cell_Major_Axis_Length,
                    'Cell_Median_Axis_Length': Cell_Median_Axis_Length,
                    'Cell_Minor_Axis_Length': Cell_Minor_Axis_Length,
@@ -895,6 +909,9 @@ def get_shape_info(
                    'HeightAlongTrajectory': alignheight,
                    'HeightAlongTrajectoryTop': alignheighttop,
                    'HeightAlongTrajectoryBottom': alignheightbottom,
+                    'Cell_Aligned_X_Stdev': Cell_Aligned_X_Stdev,
+                    'Cell_Aligned_Y_Stdev': Cell_Aligned_Y_Stdev,
+                    'Cell_Aligned_Z_Stdev': Cell_Aligned_Z_Stdev,
                     }
 
     #add the principal axes angles

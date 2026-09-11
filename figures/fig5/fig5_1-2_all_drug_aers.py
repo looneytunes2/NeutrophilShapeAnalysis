@@ -24,12 +24,14 @@ def get_stars(pv):
         stars = 'n.s.'
     return stars
 
-treatments = ['DMSO','Para-Nitro-Blebbistatin','CK666']
 whichpcs = (1,2)
+
+treatments = ['DMSO','Para-Nitro-Blebbistatin','CK666']
 config = load_config(microscope_type='confocal')
+config._alignment = 'trajectory'
 ntrans = config.db_params.ntrans
 time_interval = config.im_params.time_interval
-config._alignment = 'trajectory'
+
 savedir = config.common.savedir
 dbbsdir = savedir.joinpath('detailed_balance','separatedatabs')
 

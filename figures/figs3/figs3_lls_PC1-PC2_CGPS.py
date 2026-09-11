@@ -25,12 +25,11 @@ scale = 0.0012
 #load the clonfig
 config = load_config(microscope_type='lls')
 ### first set the alignment
-config._alignment = 'trajectory'
+config._alignment = 'trajectory_shape'
 
 #load some constants
 nbins = config.db_params.nbins
 pc_list = [(1,2),(4,5),(2,8)] #PC combinations to plot
-
 
 
 ## get the directories and some CGPS info
@@ -39,6 +38,7 @@ datadir = savedir.joinpath('shape_data')
 dbdir = savedir.joinpath('detailed_balance')
 dbbsdir = dbdir.joinpath('separatedatabs')
 centers = pd.read_csv(datadir.joinpath('PC_bin_centers.csv'), index_col=0)
+nbins = centers.shape[0]
 pclist = centers.columns.to_list()
 pc_combos = config.common.pc_combos
 origins = config.db_params.origins
@@ -48,9 +48,9 @@ for whichpcs in pc_list:
 
     ######## open all of the data
     ########### interpolate all transitions so that only individual transitions are made ###########
-    transdf_sep = pd.read_csv(dbdir.joinpath(f'PC{whichpcs[0]}-PC{whichpcs[1]}_interpolated_transitions_separated.csv'), index_col=0)
+    transdf_sep = pd.read_csv(dbdir.joinpath(f'PC{whichpcs[0]}-PC{whichpcs[1]}_interpolated_transitions.csv'), index_col=0)
     ############## get the counts of cells leaving 
-    trans_rate_df_sep = pd.read_csv(dbdir.joinpath(f'PC{whichpcs[0]}-PC{whichpcs[1]}_binned_transition_rates_separated.csv'), index_col=0)
+    trans_rate_df_sep = pd.read_csv(dbdir.joinpath(f'PC{whichpcs[0]}-PC{whichpcs[1]}_binned_transition_rates.csv'), index_col=0)
     # ############# open average bootstrapped currents ###################
     bsfield_sep = pd.read_csv(dbbsdir.joinpath(f'PC{whichpcs[0]}-PC{whichpcs[1]}_bootstrapped_{config.db_params.ntrans}_transitions_average_currents.csv'), index_col=0)
 
@@ -96,8 +96,12 @@ for whichpcs in pc_list:
     for x in range(1,nbins+1):
         for y in range(1,nbins+1):
             current = elldf[(elldf['x'] == x) & (elldf['y'] == y)]
-            xcurrent = ((current.x_plus_rate - current.x_minus_rate)/2).iloc[0]
-            ycurrent = ((current.y_plus_rate - current.y_minus_rate)/2).iloc[0]
+            if current.empty:
+                xcurrent = 0
+                ycurrent = 0
+            else:
+                xcurrent = ((current.x_plus_rate - current.x_minus_rate)/2).iloc[0]
+                ycurrent = ((current.y_plus_rate - current.y_minus_rate)/2).iloc[0]
             ax.quiver(x-0.5,
                         y-0.5, 
                         xcurrent,

@@ -109,17 +109,6 @@ class Config():
             'trajectory_shape': [1,2,7],#0,1,2,3,6],
             'trajectory': [1,3,7],
         }[value]
-        ### variably set the alignment methods based on the overall alignment
-        self.common.align_method = {
-            'shape':'long_axis',
-            'trajectory_shape':'trajectory',
-            'trajectory':'trajectory',
-            }[value]
-        self.common.normal_method = {
-            'shape':'width',
-            'trajectory_shape':'width',
-            'trajectory':'planar',
-            }[value]
         ### change the savedir based on the alignment
         self.common.savedir = self.common.basedir.joinpath(
             'data',
@@ -129,6 +118,3 @@ class Config():
         ### set the origins from all_origins based on alignment
         self.db_params.origins = self.db_params.all_origins[value]
     
-    # Derived attributes
-    def __post_init__(self):
-        self.pc_combos = Path(__file__).parents[2]

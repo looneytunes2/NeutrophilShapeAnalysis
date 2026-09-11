@@ -15,7 +15,6 @@ from neutrophil_shape.config.loader import load_config
 from neutrophil_shape.CustomFunctions import utils
 import math
 from matplotlib import cm
-import seaborn as sns
 
 
 def color_interpolation(pointarray):
@@ -37,7 +36,7 @@ def color_interpolation(pointarray):
 
 
 
-whichpcs = (4,5)
+whichpcs = (1,7)
 
 ## choose a cmap
 cmap = cm.Greys_r
@@ -45,21 +44,21 @@ tail_length = 15 # seconds
 
 ### open config and get directories
 config = load_config(microscope_type='lls')
-config._alignment = 'trajectory'
+config._alignment = 'trajectory_shape'
 savedir = config.common.savedir
 datadir = savedir / 'shape_data'
 dbdir = savedir / 'detailed_balance'
 localdir = config.experiment.lls.localdir
 moviedir = localdir / 'singlecells'
 time_interval = config.im_params.time_interval
-nbins = config.db_params.nbins
+
 
 
 
 #open all of the data
 aers = pd.read_csv(dbdir / f'{utils.whichpc_string(whichpcs)}_raw_transition_aer_cf.csv', index_col = 0)
 centers = pd.read_csv(datadir / 'PC_bin_centers.csv', index_col = 0)
-
+nbins = centers.shape[0]
 
 
 # cellname = '20240611_488_EGFP-CAAX_640_actin-halotag_cell2_01'
@@ -68,7 +67,7 @@ for cellname in aers.CellID.unique():
     TotalFrame = aers[aers.CellID==cellname].sort_values('real_time').reset_index(drop=True)
 
     ###### BUILD DWELL TIME MAP
-    transdf_sep = pd.read_csv(dbdir.joinpath(f'PC{whichpcs[0]}-PC{whichpcs[1]}_interpolated_transitions_separated.csv'), index_col=0)
+    transdf_sep = pd.read_csv(dbdir.joinpath(f'PC{whichpcs[0]}-PC{whichpcs[1]}_interpolated_transitions.csv'), index_col=0)
 
     ########### calculate the DWELL TIME in the WHOLE CGPS #############
     hms = np.zeros((len(transdf_sep.CellID.unique()), nbins, nbins))

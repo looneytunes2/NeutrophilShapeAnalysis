@@ -8,6 +8,7 @@ Created on Wed Jun 14 14:52:46 2023
 from scipy import interpolate
 import pandas as pd
 import numpy as np
+from pathlib import Path
 import random
 from . import utils
 import multiprocessing
@@ -24,43 +25,6 @@ def clock_counterclock_angle(u,v):
     return -signed_angle(u,v)
 
 
-## build a rectangle with diagonal corners
-## this is for taking contour integrals around a specific flux path
-def contour_coords_slant_corners(
-        uple, #[x,y] list of upper left coordinate of rectangular contour
-        lori, #[x,y] list of lower right coordinate of rectangular contour
-        ):
-    contourcoords = []
-    #add upper side of box
-    contourcoords.extend([[n,uple[1]] for n in range(uple[0]+1, lori[0])])
-    #right side minus upper left corner
-    contourcoords.extend([[lori[0],n] for n in reversed(range(lori[1]+1,uple[1]))])
-    #lower side minus lower right corner
-    contourcoords.extend([[n,lori[1]] for n in reversed(range(uple[0]+1,lori[0]))])
-    #lower left to upper right
-    contourcoords.extend([[uple[0],n] for n in range(lori[1]+1,uple[1])])
-    #add the first coordinate to the end
-    contourcoords.extend([contourcoords[0]])
-    return contourcoords
-
-## build a rectangle from upper left and lower right coordinates
-## this is for taking contour integrals around a specific flux path
-def contour_coords(
-        uple, #[x,y] list of upper left coordinate of rectangular contour
-        lori, #[x,y] list of lower right coordinate of rectangular contour
-        ):
-    contourcoords = []
-    #add upper side of box
-    contourcoords.extend([[n,uple[1]] for n in range(uple[0], lori[0]+1)])
-    #right side minus upper left corner
-    contourcoords.extend([[lori[0],n] for n in reversed(range(lori[1],uple[1]))])
-    #lower side minus lower right corner
-    contourcoords.extend([[n,lori[1]] for n in reversed(range(uple[0],lori[0]))])
-    #left side minus lower and upper left corners
-    contourcoords.extend([[uple[0],n] for n in range(lori[1]+1,uple[1])])
-    #add the first coordinate to the end
-    contourcoords.extend([contourcoords[0]])
-    return contourcoords
 
 
 _DIM_LABELS = ('x', 'y', 'z')
@@ -112,6 +76,7 @@ def raw_transitions_wrapper(args):
 
 def interpolate_trajectory(
         rawtrans, # continuous-time dataframe with transitions sorted by frame # 
+        time_interval, # time between frames of the data
         ):
     
     #reset index just in case
@@ -122,6 +87,8 @@ def interpolate_trajectory(
     
     ##get a list of movie frames for tracking time and frame identity
     frames = rawtrans.frame.to_list()
+
+    ### the mimimal time_elapsed for a given transition is the 
     
     #get the CGPS POSITIONS for this trajectory segment
     traj = np.vstack((rawtrans[[x for x in rawtrans.columns.to_list() if 'from_' in x]].values,
@@ -136,8 +103,6 @@ def interpolate_trajectory(
     #start the transition list with a dummy transition that will be dropped later
     trans = [ [frames[0]] + list(traj[0]) + list(traj[0]) + [0,0] ]
     for t in range(len(traj)-1):
-        if t == 35:
-            break
         #determine if there's a transition in this frame
         frame_to_frame_diff = abs(traj[t+1]-traj[t])
         statechange = frame_to_frame_diff.sum()
@@ -184,10 +149,20 @@ def interpolate_trajectory(
             #measure the trajectory and interpolate evenly by distance
             di = np.sqrt(np.sum(frame_to_frame_diff**2))
             intt = round(di/0.001)
-            #get interpolated coordinates
-            interpoints = np.linspace(start=time_units[t], stop = time_units[t+1], num = intt, endpoint = False)
+            ## get interpolated coordinates
+            interpoints = np.linspace(start=time_units[t], stop = time_units[t+1], num = intt + 1)
             splev_coords = interpolate.splev(interpoints,tck)
             interp_coords = np.round(splev_coords).T
+            # if there was longer than one time_interval from the last transition,
+            # the observed transition only occurred during the most recent time interval,
+            # so change the timing after the actual interpolation such that spatial interpolation
+            # stays the same, but the timescale changes
+            if np.diff(time_units[t:t+2])[0] > time_interval:
+                interpoints = np.linspace(
+                    start=time_units[t+1]-time_interval,
+                    stop = time_units[t+1],
+                    num = intt+1,
+                    )
             #get all the spatial differences between the interpolated coordinates
             interp_diffs = abs(np.diff(interp_coords, axis = 0))
             interp_diff_ind = np.where(np.sum(interp_diffs, axis = 1)>0)[0]
@@ -199,8 +174,6 @@ def interpolate_trajectory(
                 #update current time and position
                 current_coord = interp_coords[idi+1]
                 current_time = interpoints[idi]#round(interpoints[i]) if interpoints[i]%5-5>-0.01 else interpoints[i]
-                # if i == interp_diff_ind[2]:
-                #     break
                 #collect all of the single moves
                 if ai_d.sum() == 1:
                     trans.append([frames[t]] + trans[-1][int(1+dims):int(1+2*dims)] + list(current_coord) + [current_time-trans[-1][-1], current_time])
@@ -253,6 +226,9 @@ def interpolate_trajectory(
     alltrans['Treatment'] = rawtrans.Treatment.iloc[0]
 
     return alltrans
+
+def interpolate_trajectory_wrapper(args):
+    return interpolate_trajectory(*args)
 
 
 def get_transition_counts(
@@ -310,138 +286,204 @@ def get_transition_counts(
 
 
 
-def bootstrap_trajectory(
-        imap_args
+def build_graph(combodf, dims):
+    """
+    combodf : MultiIndex (transition_combination, transition_index) DataFrame
+              with columns from_<dim>, to_<dim>, time_elapsed.
+    dims    : list of dimension names, e.g. ['x', 'y']
+ 
+    Returns a dict describing the transition graph as flat integer arrays:
+      - to_node[c]     : ending position (node id) of combo c
+      - total_time[c]  : summed time_elapsed of combo c's sub-transitions
+      - offsets / flat_combo_idx : CSR index -> "which combos start at node p"
+      - combo_rows[c]  : the original sub-transition rows for combo c
+                         (used only at the very end, to rebuild the df)
+    """
+
+    firsttrans = combodf.xs(0, level='transition_index')
+    lasttrans = combodf.groupby(level='transition_combination').apply(
+        lambda g: g.iloc[[-1]]
+    )
+    combo_ids = firsttrans.index.to_numpy()
+ 
+    # get from and to position tuples
+    from_tuples = list(zip(*[firsttrans['from_' + d].to_numpy() for d in dims]))
+    to_tuples = list(zip(*[lasttrans['to_' + d].to_numpy() for d in dims]))
+    # all position nodes observed and give them id
+    all_nodes = sorted(set(from_tuples) | set(to_tuples))
+    node_to_id = {node: i for i, node in enumerate(all_nodes)}
+    # translate position tuples to node ids
+    from_node = np.array([node_to_id[t] for t in from_tuples], dtype=np.int64)
+    to_node = np.array([node_to_id[t] for t in to_tuples], dtype=np.int64)
+    # get total time elapsed in each transition combo
+    total_time = (
+        combodf.groupby(level='transition_combination')['time_elapsed']
+        .sum()
+        .loc[combo_ids]
+        .to_numpy()
+    )
+ 
+    # CSR layout: sort combos by their starting node so each node's outgoing
+    # combos are contiguous; offsets[p]:offsets[p+1] gives that node's slice.
+    order = np.argsort(from_node, kind='stable')
+    from_node_sorted = from_node[order]
+    n_nodes = len(all_nodes)
+    offsets = np.searchsorted(from_node_sorted, np.arange(n_nodes + 1))
+    #get rows from the original dataframe to reconstruct bootstrapped dataframes
+    combo_rows = {c: combodf.loc[c].reset_index(drop=True) for c in combo_ids}
+ 
+    return {
+        'node_to_id': node_to_id,
+        'to_node': to_node,
+        'total_time': total_time,
+        'offsets': offsets,
+        'flat_combo_idx': order,
+        'combo_ids': combo_ids,
+        'combo_rows': combo_rows,
+        'n_nodes': n_nodes,
+    }
+
+
+ 
+def _handle_dead_end(graph, history, stuck_pos, dead_idx, rng, max_backtrack=20):
+    """
+    Very small, simple backtracking stand-in: since dead ends are rare,
+    this can afford to just pick a fresh random start node rather than
+    doing true path backtracking. Swap in your original backtracking
+    logic here if you need exact behavioral parity.
+    """
+    n_nodes = graph['n_nodes']
+    offsets = graph['offsets']
+    # for _ in range(max_backtrack):
+    #     back_combo = history[-r][dead_idx]
+    #     back_combo_idx = flat_combo_ix[]
+    #     candidate = rng.integers(0, n_nodes)
+    #     if offsets[candidate + 1] > offsets[candidate]:
+    #         return candidate, 0.0, True
+    # return stuck_pos, 0.0, False
+ 
+ 
+def batched_walk(
+        graph,
+        B,
+        ttot,
+        avoid_dead=False,
+        max_steps=10000,
         ):
-        
-    #unpack args
-    # combodf: multi-indexed dataframe with tansition_combination and trandition_index names
-    # ttot: int total time for the simulation
-    # avoiddead: bool whether or not to avoid dead ends in the trajectory
-    combodf,ttot,avoiddead = imap_args
+    """
+    Advance B independent bootstrap replicates at once.
+ 
+    Returns:
+      history : list of 1D int arrays, one per step, giving the chosen
+                combo index (into graph['combo_ids']) for each *active*
+                replicate at that step, or -1 for replicates already done.
+      cum_time: (B,) array of each replicate's final cumulative time.
+    """
+    offsets = graph['offsets']
+    flat_combo_idx = graph['flat_combo_idx']
+    to_node = graph['to_node']
+    total_time = graph['total_time']
+    n_nodes = graph['n_nodes']
 
-    #get dims
-    dims = [x.split('from_')[-1] for x in combodf.columns if 'from_' in x]
-
-    #get just the first transition of each combination
-    firsttrans = combodf.xs(0,level='transition_index')
-
-    #create an empty dataframe with the correct columns and indexing
-    allbs = []
-    #find the first random position
-    rando = combodf.index.levels[0].to_list()
-    random_choice = random.choice(rando)
-    pick = combodf.loc[combodf.index.get_level_values('transition_combination') == random_choice]
-    allbs.append(pick)
-    ## start time with first pick
-    ct = pick.time_elapsed.sum()
-    while ct<ttot:
-        #find the next postition after the second transition
-        cur = allbs[-1][['to_'+c for c in dims]].values[-1]
-        #get the indices of all the transitions at the new position
-        frombool = np.array([firsttrans['from_'+dim] == cur[d] for d, dim in enumerate(dims)])
-        allat = np.where(np.all(frombool, axis = 0))[0]
-
-        #if the next transition doesn't have any future transitions, don't go there and pick a new one
-        if len(allat) == 0:
-            if avoiddead:
-                #drop the "dead" transition
-                allbs = allbs[:-1]
-                #check is this happened at the beginning of the simulation and it needs to be started again 
-                #from another position, otherwise trim the last transition and continue
-                if len(allbs)==0:
-                    allbs = []
-                    #find the first random position
-                    rando = combodf.index.levels[0].to_list()
-                    random_choice = random.choice(rando)
-                    pick = combodf.loc[combodf.index.get_level_values('transition_combination') == random_choice]
-                    #restart time
-                    ct = pick.time_elapsed.sum()
-                    #add the random pick to the dataframe
-                    allbs.append(pick)
-                #subtract the time these transitions take
-                ct = ct - pick.time_elapsed.sum()
-                #set a timer for extreme cases of single transitions to deadends
-                loops = 0
-                while len(allat) == 0:
-                    #find the next postition after the second transition
-                    cur = allbs[-1][['to_'+c for c in dims]].values[-1]
-                    #get all the transitions at the new position
-                    frombool = np.array([firsttrans['from_'+dim] == cur[d] for d, dim in enumerate(dims)])
-                    allat = np.where(np.all(frombool, axis = 0))[0]
-
-                    #randomly select a transition pair
-                    random_choice = random.choice(allat)
-                    pick = combodf.loc[combodf.index.get_level_values('transition_combination') == random_choice]
-                    #add to the timer for extreme cases
-                    loops = loops + 1
-                    #if the current position only has one transition (to the empty position)
-                    #then trim it back an additional transition as well
-                    #or if this while loop has gone for 20 iterations and still not found a suitable transition
-                    #back up an additional transition
-                    if (len(allat)==1) or (loops == 20):
-                        #subtract the time these transitions take
-                        print('subtracting time for deadend')
-                        ct = ct - allbs[-1].time_elapsed.sum()
-                        #delete a further two transitions
-                        allbs = allbs[:-1]
-                        #check if this happened at the beginning of the simulation and it needs to be started again 
-                        #from another position, otherwise trim the last transition and continue
-                        if len(allbs)==0:
-                            allbs = []
-                            #find the first random position
-                            rando = combodf.index.levels[0].to_list()
-                            random_choice = random.choice(rando)
-                            pick = combodf.loc[combodf.index.get_level_values('transition_combination') == random_choice]
-                            #restart time
-                            ct = pick.time_elapsed.sum()
-                            #add the random pick to the dataframe
-                            allbs.append(pick)
-                        #find the next postition after the second transition
-                        cur = allbs[-1][['to_'+c for c in dims]].values[-1]
-                        #get all the transitions at the new position
-                        frombool = np.array([firsttrans['from_'+dim] == cur[d] for d, dim in enumerate(dims)])
-                        allat = np.where(np.all(frombool, axis = 0))[0]
-
-                        #randomly select a transition pair
-                        random_choice = random.choice(allat)
-                        pick = combodf.loc[combodf.index.get_level_values('transition_combination') == random_choice]
-                #append the pair of transitions to a list
-                allbs.append(pick)
-                #add the time these transitions take
-                ct = ct + pick.time_elapsed.sum()
+    
+    # start every replicate at a random node
+    rng = np.random.default_rng()
+    valid_starts = np.where(np.diff(graph['offsets']) > 0)[0]
+    positions = rng.choice(valid_starts, size=B)
+    cum_time = np.zeros(B)
+    active = np.ones(B, dtype=bool)
+    history = []
+ 
+    for _ in range(max_steps):
+        if not active.any():
+            break
+ 
+        idx = np.where(active)[0]
+        pos = positions[idx]
+ 
+        start = offsets[pos]
+        end = offsets[pos + 1]
+        degree = end - start
+ 
+        dead = degree == 0
+        if dead.any():
+            # rare path: fix up stuck replicates one at a time
+            if avoid_dead:
+                for i in idx[dead]:
+                    new_pos, extra_time, ok = _handle_dead_end(
+                        graph, positions[i], rng
+                    )
+                    if not ok:
+                        active[i] = False   # nowhere left to go; stop this one
+                    else:
+                        positions[i] = new_pos
+                        cum_time[i] += extra_time
             else:
-                break
-        else:
-            #randomly select a transition pair
-            random_choice = random.choice(allat)
-            pick = combodf.loc[combodf.index.get_level_values('transition_combination') == random_choice]
-            #append the pair of transitions to a list
-            allbs.append(pick)
-            #add the time these transitions take
-            ct = ct + pick.time_elapsed.sum()
-    #convert allbs list to a dataframe
-    allbs = pd.concat(allbs, ignore_index=True)
-    #make cumulative time actually cumulative time
-    allbs.loc[:,'cumulative_time'] = allbs['time_elapsed'].cumsum()
-    #make a mock "real_time" so that simulated dataframes match real ones
-    allbs.loc[:,'real_time'] = allbs.cumulative_time
+                active[idx[dead]] = False
+            # recompute the active subset now that dead ones were resolved
+            idx = np.where(active)[0]
+            pos = positions[idx]
+            start = offsets[pos]
+            end = offsets[pos + 1]
+            degree = end - start
+ 
+        # vectorized random choice among each replicate's outgoing combos
+        rand_offset = (rng.random(len(idx)) * degree).astype(np.int64)
+        chosen_slot = start + rand_offset
+        chosen_combo = flat_combo_idx[chosen_slot]
+ 
+        step_choices = np.full(B, -1, dtype=np.int64)
+        step_choices[idx] = chosen_combo
+        history.append(step_choices)
+ 
+        positions[idx] = to_node[chosen_combo]
+        cum_time[idx] += total_time[chosen_combo]
+ 
+        active[idx] = cum_time[idx] < ttot
+ 
+    return history, cum_time
+ 
 
-    return allbs
 
+ 
+ 
+def reconstruct_trajectories(graph, history):
+    """
+    Reconstruct transition dataframes from graph positions
+    mapped to combodf indices
+    """
 
-def bootstrap_trajectory_wrapper(_):
-    return bootstrap_trajectory((shared_combodf, shared_ttot, shared_avoiddead))
+    combo_ids = graph['combo_ids']
+    combo_rows = graph['combo_rows']
+    B = history[0].shape[0]
+ 
+    trajectories = []
+    for b in range(B):
+        pieces = []
+        for step_choices in history:
+            c = step_choices[b]
+            if c == -1:
+                continue
+            combo_id = combo_ids[c]
+            pieces.append(combo_rows[combo_id])
+        if not pieces:
+            trajectories.append(pd.DataFrame())
+            continue
+        traj = pd.concat(pieces, ignore_index=True)
+        traj['cumulative_time'] = traj['time_elapsed'].cumsum()
+        traj['real_time'] = traj['cumulative_time']
+        traj['iter'] = b
+        trajectories.append(traj)
+ 
+    return pd.concat(trajectories, ignore_index = True)
+ 
+ 
 
-def bs_init_worker(combodf, ttot, avoiddead):
-    global shared_combodf, shared_ttot, shared_avoiddead
-    shared_combodf = combodf
-    shared_ttot = ttot
-    shared_avoiddead = avoiddead
 
 
 def transition_count_wrapper(
-        args # tuple of arguments
+        args, # tuple of arguments
+        sparse: bool = True, #remove zeros if true
         ):
     #unpack args from imap
     #bsdf: transition dataframe from bootstrap_trajectory()
@@ -466,72 +508,57 @@ def transition_count_wrapper(
     bstrans_rate_df = pd.DataFrame(results)
     bstrans_rate_df = bstrans_rate_df.sort_values(by = dims).reset_index(drop=True)
     
+    if sparse:
+        rate_count_cols = [c for c in bstrans_rate_df.columns if any([col in c for col in ['count','rate']])]
+        nonzero_mask = (bstrans_rate_df[rate_count_cols] != 0).any(axis=1)
+        bstrans_rate_df = bstrans_rate_df[nonzero_mask].reset_index(drop=True)
+
     return bstrans_rate_df
+    
 
 
+def load_and_fill_transition_counts(
+        filepath: Path,
+        nbins: int,
+        group_factor: str | list | tuple,
+        ):
+    """
+    Load a sparse transition-rate csv (containing only coordinates with
+    non-zero counts) and reconstruct the full CGPS grid, filling every
+    missing coordinate's counts/rates with 0.
+    """
+    sparse_df = pd.read_csv(filepath, index_col=0)
+    ## get column names
+    dims = list(np.unique([c.split('_')[0] for c in sparse_df.columns if 'count' in c]))
+    value_cols = [c for c in sparse_df.columns if any([val in c for val in ['rate','count']])]
 
+    # build the full coordinate grid once
+    axes = [np.arange(1, nbins + 1)] * len(dims)
+    grid = np.meshgrid(*axes, indexing='ij')
+    coords = np.stack(grid, axis=-1).reshape(-1, len(dims))
+    coords_df = pd.DataFrame(coords, columns=dims)
 
+    ### get non-value columns as list
+    group_factor = list(group_factor) if not isinstance(group_factor, str) else [group_factor]
+    idx_cols = group_factor + dims
 
-def contour_integral(
-    cdf, #dataframe that contains the transition rates in and out of each state space position
-    uple, #[x,y] list of upper left coordinate of rectangular contour
-    lori, #[x,y] list of lower right coordinate of rectangular contour
-    norm: bool = True,
-    ):
+    # unique factor combinations actually present in the data
+    factor_combos = sparse_df[group_factor].drop_duplicates()
 
-    contourcoords = []
-    #add upper side of box
-    contourcoords.extend([[n,uple[1]] for n in range(uple[0], lori[0]+1)])
-    #right side minus upper left corner
-    contourcoords.extend([[lori[0],n] for n in reversed(range(lori[1],uple[1]))])
-    #lower side minus lower right corner
-    contourcoords.extend([[n,lori[1]] for n in reversed(range(uple[0],lori[0]))])
-    #left side minus lower and upper left corners
-    contourcoords.extend([[uple[0],n] for n in range(lori[1]+1,uple[1])])
+    # single cross join
+    coords_df['_key'] = 1
+    factor_combos = factor_combos.assign(_key=1)
+    full_index_df = factor_combos.merge(coords_df, on='_key').drop(columns='_key')
 
-    corners = [uple,lori,[lori[0], uple[1]], [uple[0], lori[1]]]
-    omega = 0
-    dottlist = []
-    for i, c in enumerate(contourcoords):
-        #get tangent vector
-        current = cdf[(cdf.x == c[0]) & (cdf.y == c[1])]
-        if current.empty:
-            tanv = [0,0]
-        else:
-            xcurrent = (current.x_plus_rate - current.x_minus_rate)/2
-            ycurrent = (current.y_plus_rate - current.y_minus_rate)/2
-            tanv = [xcurrent.values[0],ycurrent.values[0]]
-        #avoid [positions where positive and negative rates are perfectly balanced]
-        if tanv == [0,0]:
-            dottlist.append([cdf.bs_iteration.values[0], c[0], c[1], 0])
-        else:
-            if norm:
-                unittan = tanv/np.linalg.norm(tanv)
-            else:
-                unittan = tanv.copy()
-            #get derivative of the contour
-            der = -1*(np.array(contourcoords[i-1]) - np.array(c))
-            if c in corners:
-                cornerline = -1*(np.array(contourcoords[i-1]) - np.array(c) + np.array(c) - np.array(contourcoords[i+1]))
-                unitcon = cornerline/np.linalg.norm(cornerline)
-                dott = np.dot(unitcon, unittan)
-                if not np.isnan(dott):
-                    omega = omega + dott
-                dottlist.append([cdf.bs_iteration.values[0], c[0], c[1], dott])
-            elif der[0]==0:
-                dott = np.dot(der, unittan)
-                if not np.isnan(dott):
-                    omega = omega + dott
-                dottlist.append([cdf.bs_iteration.values[0], c[0], c[1], dott])
-            elif der[1]==0:
-                dott = np.dot(der, unittan)
-                omega = omega + dott
-                dottlist.append([cdf.bs_iteration.values[0], c[0], c[1], dott])
-    return omega, dottlist
+    # index-based join
+    full_index_df = full_index_df.set_index(idx_cols)
+    sparse_indexed = sparse_df.set_index(idx_cols)[value_cols]
+    full_df = full_index_df.join(sparse_indexed, how='left')
+    full_df[value_cols] = full_df[value_cols].fillna(0)
 
+    full_df = full_df.reset_index().sort_values(by=idx_cols).reset_index(drop=True)
 
-   
-
+    return full_df[idx_cols + value_cols]
 
 
 
@@ -545,7 +572,7 @@ def get_area_enclosing_rate(
     #nbins, #number of bins in the CGPS
     #xyscaling = list, # list of the PC factors by which to scale the x and y coordinates of the CGPS in [x,y] format
     #center = 'center', or coordinates of origin
-    cell, nbins, xyscaling, origin = args
+    cell, xyscaling, origin = args
     
     #get values to shift coordinates to the origin of the current
     shiftbyx = origin[0]
@@ -555,7 +582,7 @@ def get_area_enclosing_rate(
     aerlist = []
     avlist = []
     pcspeedlist = []
-    for i, row in cell.iterrows():
+    for _, row in cell.iterrows():
         #center the row values on zero and scale them
         row['from_x'] = (row['from_x'] - shiftbyx) * xyscaling[0]
         row['to_x'] = (row['to_x'] - shiftbyx) * xyscaling[0]
@@ -587,33 +614,26 @@ def get_area_enclosing_rate(
 
 
 
-def rate_fit_bs_wrap(
+def get_linear_rates_wrap(
         args
         ):
     
     ### unpack args
     # df, #dataframe containing "iter" bootstrap iteration ID, some group_factor, and "aer"
-    # group_factor,
-    # time_interval, #time interval of the imaging data
     df, group_factor = args
-    
-    ## create a dict with ID info
-    id_dict = {
-        group_factor: df.iloc[0][group_factor],
-        'iter': df.iloc[0].iter,
-        }
+
     ## fit rate
-    rate_fit_dict = utils.fit_rates_linear(df, ['aer','angular_velocity','pc_speed'])
-    ## update dict
-    id_dict.update(rate_fit_dict)
-    return id_dict
+    rate_fit_dict = utils.calculate_rates(
+        df,
+        group_factor,
+        )
+    return rate_fit_dict
 
 
 def get_raw_cgps_trajectories(
         TotalFrame, #pandas dataframe with all of the cgps binned data
         whichpcs, #which two PCs to use in the cgps [x,y]
         config: Config,
-        group_factor: str = 'Treatment', #column with factor to separate the data on
         ):
     ## get settings from config
     time_interval = config.im_params.time_interval
@@ -622,7 +642,7 @@ def get_raw_cgps_trajectories(
         dbsavedir.mkdir()
 
     mapargs = []
-    for i, cells in TotalFrame.groupby('CellID'):
+    for i, cells in TotalFrame.groupby(['Treatment','CellID']):
         cells, runs = utils.get_consecutive_timepoints(cells, 'time', time_interval)
         for r in runs:
             #only use runs with 3 or more frames
@@ -632,12 +652,12 @@ def get_raw_cgps_trajectories(
                     cells.iloc[r],
                     whichpcs,
                 ))
-    print(f'Aggregating {utils.whichpc_string(whichpcs)} transitions')
+    print(f'Aggregating {whichpc_string(whichpcs)} transitions')
     with multiprocessing.Pool(processes=60) as pool:
         results = list(tqdm.tqdm(pool.imap(raw_transitions_wrapper, mapargs), total=len(mapargs)))
     rawtrans = pd.concat(results)
     rawtrans = rawtrans.sort_values(by = ['Treatment','CellID','real_time']).reset_index(drop=True)
-    rawtrans.to_csv(dbsavedir.joinpath(utils.whichpc_string(whichpcs)+'_raw_transitions.csv'))
+    rawtrans.to_csv(dbsavedir.joinpath(whichpc_string(whichpcs)+'_raw_transitions.csv'))
     
     return rawtrans
 
@@ -646,27 +666,27 @@ def get_interpolated_cgps_trajectories(
         rawtrans, #pandas dataframe with raw transitions from get_raw_cgps_trajectories
         whichpcs, #which two PCs to use in the cgps [x,y]
         config: Config,
-        group_factor: str = 'Treatment', #column with factor to separate the data on
         ):
     
     ## get settings from config
     dbsavedir = config.common.savedir / 'detailed_balance'
-    
+    time_interval = config.im_params.time_interval
+
     mapargs = []
     for i, cell in rawtrans.groupby('CellID'):
         cell, runs = utils.get_consecutive_transitions(cell)
         for r in runs:
             #skip runs less than 2 frames long
             if len(r)>1:
-                mapargs.append(cell.iloc[r])
-    print(f'Interpolating {utils.whichpc_string(whichpcs)} trajectories')
+                mapargs.append((cell.iloc[r], time_interval))
+    print(f'Interpolating {whichpc_string(whichpcs)} trajectories')
     with multiprocessing.Pool(processes=60) as pool:
-        results = list(tqdm.tqdm(pool.imap(interpolate_trajectory, mapargs), total=len(mapargs)))
+        results = list(tqdm.tqdm(pool.imap(interpolate_trajectory_wrapper, mapargs), total=len(mapargs)))
 
     #separate results into transtions and transition pairs
     transdf_sep = pd.concat(results)
     transdf_sep = transdf_sep.sort_values(by = ['Treatment','CellID','real_time']).reset_index(drop=True)
-    transdf_sep.to_csv(dbsavedir.joinpath(utils.whichpc_string(whichpcs)+'_interpolated_transitions.csv'))
+    transdf_sep.to_csv(dbsavedir.joinpath(whichpc_string(whichpcs)+'_interpolated_transitions.csv'))
     
     return transdf_sep
     
@@ -686,7 +706,7 @@ def aggregate_transition_counts(
     for m, mig in transdf_sep.groupby(group_factor):
         ## get time observed in this group
         ttot = mig.time_elapsed.sum()
-        print(f'Total time observed in {utils.whichpc_string(whichpcs)} {m} CGPS was {ttot/60} minutes')
+        print(f'Total time observed in {whichpc_string(whichpcs)} {m} CGPS was {ttot/60} minutes')
         trans_rate_df_sep = transition_count_wrapper((mig, nbins, ttot))
         ## add group_factor
         trans_rate_df_sep[group_factor] = m
@@ -694,30 +714,115 @@ def aggregate_transition_counts(
         trresults.append(trans_rate_df_sep)
 
     trans_rate_df_sep = pd.concat(trresults)
-    trans_rate_df_sep.to_csv(dbsavedir.joinpath(utils.whichpc_string(whichpcs)+'_binned_transition_rates.csv'))
+    trans_rate_df_sep.to_csv(dbsavedir.joinpath(whichpc_string(whichpcs)+'_binned_transition_rates.csv'))
     
     return trans_rate_df_sep
 
 
+
+def match_dataset_distribution(
+        real_df: pd.DataFrame,
+        bs_df: pd.DataFrame,
+        num_replicates: int = 1,
+        ):
+    """
+    Trims bootstrapped iterations to the size and number of
+    real tracks from the original dataset a number of times equal
+    to num_replicates.
+
+    """
+    treatments = bs_df.Treatment.unique()
+    all_indices = []
+    dataset_replicates = []
+
+    for treat in treatments:
+        real_df_treat = real_df[real_df.Treatment == treat]
+        bs_df_treat = bs_df[bs_df.Treatment == treat]
+
+        # sorted bs track lengths
+        bs_tracks = bs_df_treat.groupby('iter').cumulative_time.max().sort_values()
+        sorted_vals = bs_tracks.values
+        sorted_iters = bs_tracks.index.to_numpy()
+        n_iters = len(sorted_iters)
+        available = np.ones(n_iters, dtype=bool)
+
+        # precompute per-iter lookups
+        iter_time_sets = {}
+        iter_time_arrays = {}
+        for it, g in bs_df_treat.groupby('iter'):
+            values = g['cumulative_time'].to_numpy()
+            orig_index = g.index.to_numpy()
+            iter_time_sets[it] = set(values.tolist())
+            iter_time_arrays[it] = (values, orig_index)
+
+        for cellid, cell_track in real_df_treat.groupby('CellID'):
+            ## order track by time and get indices of consecutive runs
+            cell_track, runs = utils.get_consecutive_transitions(cell_track)
+            #get the times for this track and shift them to start at 10
+            #which is the minimum time in the bs datasets
+            cell_times = cell_track.real_time.to_numpy(copy=True)
+            cell_times -= cell_times.min() - 10
+            # get the start and end indices of each run
+            run_start_end = [[cell_times[run[0]], cell_times[run[-1]]] for run in runs]
+            #make a set to match with bs times
+            target_times = set(x for run in run_start_end for x in run)
+        
+            # jump straight to the first viable candidate
+            threshold = cell_track.time_elapsed.sum()
+            start_idx = np.searchsorted(sorted_vals, threshold, side='left')
+            # iterate to find a bs iter that has all the starts and ends of
+            # the real track
+            for r in range(num_replicates):
+                first_greater = None
+                chosen_pos = None
+                for pos in range(start_idx, n_iters):
+                    if not available[pos]:
+                        continue
+                    it = sorted_iters[pos]
+                    if target_times.issubset(iter_time_sets[it]):
+                        first_greater = it
+                        chosen_pos = pos
+                        break
+
+                if first_greater is None:
+                    raise ValueError(
+                        f"No bootstrapped iter found containing all timepoints for CellID={cellid}"
+                    )
+                #get the bs iter that was chosen
+                values, orig_index = iter_time_arrays[first_greater]
+                #get all the indices between starts and ends of real runs
+                iter_indices = []
+                for start, end in run_start_end:
+                    mask = (values >= start) & (values <= end)
+                    iter_indices.extend(orig_index[mask].tolist())
+
+                all_indices.extend(iter_indices)
+                dataset_replicates.extend([r] * len(iter_indices))
+                #remove the chosen index from future consideration
+                available[chosen_pos] = False
+
+    return pd.DataFrame({
+        'replicate_id': dataset_replicates,
+        'bs_indices': all_indices,
+    })
 
 ############## BOOTSTRAP MANY TRAJECTORIES ##########
 def get_bootstrapped_cgps_trajectories(
         rawtrans, #raw transitions from get_raw_cgps_trajectories
         whichpcs, #which two PCs to use in the cgps [x,y]
         config: Config,
-        bssavedir: str, #where to save the bootstrapped dataframes
+        dbbssavedir: Path, #where to save the bootstrapped dataframes
         group_factor: str = 'Treatment', #column with factor to separate the data on
         ):
     
     ### get some settings from config
-    dbbssavedir = config.common.savedir / 'detailed_balance' / bssavedir #where to save the aggregated counts
     if not dbbssavedir.exists():
         dbbssavedir.mkdir()
     nbins = config.db_params.nbins #how many bins in the x and y cgps axes
     ttot = config.db_params.ttot #set the total bootstrap time
     ntrans = config.db_params.ntrans #how many transitions to sample at each step
     bsiter = config.db_params.bsiter #number of times to bootstrap
-
+    time_interval = config.im_params.time_interval #time between frames of the data
 
     #make a bunch of lists that I will append things to as I go for each treatment
     bstrans = []
@@ -725,54 +830,55 @@ def get_bootstrapped_cgps_trajectories(
     bsframe_sep_full = []
     
     #bootstrap from raw trajectories
-    for m, mig in rawtrans.groupby(group_factor):            
-        if ntrans == 1:
-            combodf = mig.copy()
-        else:
-            combolist = []
-            for cidc, cell in mig.groupby('CellID'):
-                cell, runs = utils.get_consecutive_transitions(cell)
-                for r in runs:
-                    r = np.asarray(r)
-                    n_windows = len(r) - ntrans + 1
-                    if n_windows <= 0:
-                        continue
-                    # build (n_windows, ntrans) matrix of positions, then flatten
-                    window_idx = r[np.arange(n_windows)[:, None] + np.arange(ntrans)[None, :]]
-                    positions = window_idx.ravel()
-                    combo = cell.iloc[positions]
-                    combolist.append(combo)
+    with multiprocessing.Pool(processes=60) as pool:
+        for m, mig in rawtrans.groupby(group_factor):            
+            if ntrans == 1:
+                combodf = mig.copy()
+            else:
+                combolist = []
+                for cidc, cell in mig.groupby('CellID'):
+                    cell, runs = utils.get_consecutive_transitions(cell)
+                    for r in runs:
+                        r = np.asarray(r)
+                        n_windows = len(r) - ntrans + 1
+                        if n_windows <= 0:
+                            continue
+                        # build (n_windows, ntrans) matrix of positions, then flatten
+                        window_idx = r[np.arange(n_windows)[:, None] + np.arange(ntrans)[None, :]]
+                        positions = window_idx.ravel()
+                        combo = cell.iloc[positions]
+                        combolist.append(combo)
 
-            combodf = pd.concat(combolist)
+                combodf = pd.concat(combolist)
 
-        ## create and add multiindex for the number of transitions
-        miarray = [
-            # unique transition combo index
-            np.repeat(range(int(len(combodf) / ntrans)), ntrans),
-            # index of individual transitions within the combo
-            np.tile(list(range(ntrans)), int(len(combodf) / ntrans))
-        ]
-        miindex = pd.MultiIndex.from_arrays(miarray, names=['transition_combination', 'transition_index'])
-        combodf.index = miindex
+            ## create and add multiindex for the number of transitions
+            miarray = [
+                # unique transition combo index
+                np.repeat(range(int(len(combodf) / ntrans)), ntrans),
+                # index of individual transitions within the combo
+                np.tile(list(range(ntrans)), int(len(combodf) / ntrans))
+            ]
+            miindex = pd.MultiIndex.from_arrays(miarray, names=['transition_combination', 'transition_index'])
+            combodf.index = miindex
+
+            ## build a graph of the observed transitions to quickly
+            ## walk through with random sampling
+            dims = [x.split('from_')[-1] for x in combodf.columns if 'from_' in x]
+            graph = build_graph(combodf, dims)
+            ## use graph to bootstrap CGPS trajectories
+            history, cum_time = batched_walk(graph, bsiter, ttot)
+            ## convert transition indices to a dataframe with all
+            ## bootstrapped interations
+            migboot = reconstruct_trajectories(graph, history)
+            #append to the larger list of dataframes
+            bstrans.append(migboot)
+
         
-        ### bootstrap many trajectories using the same starting arguments
-        with multiprocessing.Pool(processes=60,
-                                  initializer=bs_init_worker,
-                                  initargs=(combodf, ttot, False)) as pool:
-            results = list(tqdm.tqdm(pool.imap_unordered(bootstrap_trajectory_wrapper, range(bsiter)), total=bsiter))
 
-        #get results
-        migboot = pd.concat(results, ignore_index=True)
-        migboot['iter'] = list(itertools.chain.from_iterable([[k]*len(res) for k,res in enumerate(results)]))
-        #append to the larger list of dataframes
-        bstrans.append(migboot)
-
-        
-        with multiprocessing.Pool(processes=60) as pool:
             ###### now interpolate the bootstrapped trajectories ######
             print(f'Interpolating trajectories for {m}')
-            mapargs = [d for i, d in migboot.groupby('iter')]
-            results = list(tqdm.tqdm(pool.imap(interpolate_trajectory, mapargs), total=bsiter))
+            mapargs = [(d, time_interval) for _, d in migboot.groupby('iter')]
+            results = list(tqdm.tqdm(pool.imap(interpolate_trajectory_wrapper, mapargs), total=bsiter))
                     
             bsinttrans = pd.concat(results, ignore_index=True)
             bsinttrans['iter'] = list(itertools.chain.from_iterable([[k]*len(res) for k,res in enumerate(results)]))
@@ -789,39 +895,48 @@ def get_bootstrapped_cgps_trajectories(
             print(f'Calculating bootstrapped CGPS transition rates for {m}')
             results = list(tqdm.tqdm(pool.imap(transition_count_wrapper, mapargs), total=bsiter))
 
-        #combine and add other info
-        migrate = pd.concat(results, ignore_index=True)
-        migrate[group_factor] = m
-        migrate['bs_iteration'] = np.repeat(np.arange(bsiter),nbins**2)
-        bsframe_sep_full.append(migrate)
+            #combine and add other info
+            migrate = pd.concat(results, ignore_index=True)
+            migrate[group_factor] = m
+            migrate['iter'] = list(itertools.chain.from_iterable([[k]*len(res) for k,res in enumerate(results)]))
+            bsframe_sep_full.append(migrate)
         
 
     ####### pull everything together and save
     bstrans = pd.concat(bstrans, ignore_index=True)
-    bstrans.to_csv(dbbssavedir.joinpath(utils.whichpc_string(whichpcs)+f'_bootstrapped_{ntrans}_transitions.csv'))
+    bstrans.to_csv(dbbssavedir.joinpath(whichpc_string(whichpcs)+f'_bootstrapped_{ntrans}_transitions.csv'))
     bsint = pd.concat(bsint, ignore_index=True)
-    bsint.to_csv(dbbssavedir.joinpath(utils.whichpc_string(whichpcs)+f'_bootstrapped_{ntrans}_interpolated_transitions.csv'))
+    bsint.to_csv(dbbssavedir.joinpath(whichpc_string(whichpcs)+f'_bootstrapped_{ntrans}_interpolated_transitions.csv'))
     bsframe_sep_full = pd.concat(bsframe_sep_full, ignore_index=True)
-    bsframe_sep_full.to_csv(dbbssavedir.joinpath(utils.whichpc_string(whichpcs)+f'_bootstrapped_{ntrans}_transition_rates.csv'))
+    bsframe_sep_full.to_csv(dbbssavedir.joinpath(whichpc_string(whichpcs)+f'_bootstrapped_{ntrans}_transition_rates.csv'))
     print('Finished bootstrapping')
+
+    ### finally, match the distribution of bs data to real data
+    replicate_df = match_dataset_distribution(rawtrans, bstrans,)
+    replicate_df.to_csv(dbbssavedir.joinpath(whichpc_string(whichpcs)+f'_real_data-matched_bootstrapped_indices.csv'))
     
-    return bstrans, bsint, bsframe_sep_full
+    return bstrans, bsint, bsframe_sep_full, replicate_df
     
 
 ############# open average bootstrapped currents ###################
 def get_avg_current_error(
-        bsframe_sep_full, #transition rates in the cgps from get_bootstrapped_cgps_trajectories
         whichpcs, #which two PCs to use in the cgps [x,y]
+        dbbssavedir: Path, #where to save the bootstrapped dataframes
         config: Config,
-        bssavedir: str, #where to save the bootstrapped dataframes
-        group_factor: str = 'Treatment', #column with factor to separate the data on
+        group_factor: str | list | tuple, #column with factor to separate the data on
         ):
     ### get some settings from config
-    dbbssavedir = config.common.savedir / 'detailed_balance' / bssavedir #where to save the aggregated counts
     nbins = config.db_params.nbins #how many bins in the x and y cgps axes
     ntrans = config.db_params.ntrans #how many transitions to sample at each step
+    group_factor = [group_factor] if isinstance(group_factor, str) else list(group_factor)
+    ### open the data and fill sparse gaps with zeros to get real means
+    bsframe_sep_full = load_and_fill_transition_counts(
+        dbbssavedir.joinpath(f'{whichpc_string(whichpcs)}_bootstrapped_{ntrans}_transition_rates.csv'),
+        nbins,
+        group_factor,
+    )
 
-    #### get current field for this bootstrap realization ######
+    #### estimate error in current field for this set of bootstrap realizations ######
     ####### this is for looking at data spread for the current field ############
     full_index = pd.MultiIndex.from_product(
         [range(1, nbins + 1), range(1, nbins + 1)],
@@ -829,25 +944,31 @@ def get_avg_current_error(
     )
 
     bsfield = []
-    for m, mig in bsframe_sep_full.groupby(group_factor):
+    for m, mig in bsframe_sep_full.groupby('Treatment'):
         rows = []
         for (x, y), current in mig.groupby(['x', 'y']):
             js = np.column_stack([
                 (current['x_plus_rate'].to_numpy() - current['x_minus_rate'].to_numpy()) / 2,
                 (current['y_plus_rate'].to_numpy() - current['y_minus_rate'].to_numpy()) / 2,
             ])
-            js_centered = js - js.mean(axis=0)
-            avgjs = np.cov(js_centered.T)
-            evals, evecs = np.linalg.eigh(avgjs)
+            if js.shape[0] < 2:
+                # not enough samples to estimate covariance/error at this bin
+                evals = np.array([0.0, 0.0])
+                evecs = np.eye(2)
+            else:
+                js_centered = js - js.mean(axis=0)
+                avgjs = np.cov(js_centered.T)
+                evals, evecs = np.linalg.eigh(avgjs)
             rows.append({'x':x+1,
-                            'y':y+1,
-                            'eval1':evals[1],
-                            'eval2':evals[0],
-                            'evec1x':evecs[0,1],
-                            'evec1y':evecs[1,1],
-                            'evec2x':evecs[0,0],
-                            'evec2y':evecs[1,0],
-                            group_factor:m})
+                        'y':y+1,
+                        'eval1':evals[1],
+                        'eval2':evals[0],
+                        'evec1x':evecs[0,1],
+                        'evec1y':evecs[1,1],
+                        'evec2x':evecs[0,0],
+                        'evec2y':evecs[1,0],
+                        'Treatment':m,
+                        })
         default_row = {
             'eval1': 0,
             'eval2': 0,
@@ -855,7 +976,7 @@ def get_avg_current_error(
             'evec1y': 1,
             'evec2x': 1,
             'evec2y': 0,
-            group_factor:m,
+            'Treatment':m,
         }
         df_m = pd.DataFrame(rows).set_index(['x', 'y'])
         df_m = df_m.reindex(full_index)
@@ -863,27 +984,22 @@ def get_avg_current_error(
         bsfield.append(df_m)
 
     bsfield_sep = pd.concat(bsfield, ignore_index=True)
-    bsfield_sep.to_csv(dbbssavedir.joinpath(utils.whichpc_string(whichpcs)+f'_bootstrapped_{ntrans}_transitions_average_currents.csv'))
+    bsfield_sep.to_csv(dbbssavedir.joinpath(whichpc_string(whichpcs)+f'_bootstrapped_{ntrans}_transitions_average_currents.csv'))
     
     return bsfield_sep
 
 
 ########## calculate all the aers and cycling frequencies from the bootstrapped data
 def get_aer_cf(
-        bstrans, #boostrapped transitions from get_bootstrapped_cgps_trajectories
+        transdf, #dataframe with transitions
         whichpcs, #which two PCs to use in the cgps [x,y]
         config: Config,
-        bssavedir: str, #where to save the bootstrapped dataframes
-        group_factor: str = 'Treatment', #column with factor to separate the data on
+        group_factor: str, #column with factor to separate the data on
         ):
     
     ### get some settings from config
     time_interval = config.im_params.time_interval
     savedir = config.common.savedir
-    dbbssavedir = savedir / 'detailed_balance' / bssavedir #where to save the aggregated counts
-    nbins = config.db_params.nbins #how many bins in the x and y cgps axes
-    ntrans = config.db_params.ntrans #how many transitions to sample at each step
-    bsiter = config.db_params.bsiter #number of times to bootstrap
     pc_combos = config.common.pc_combos #unique PC pairs
     origins = config.db_params.origins #flux origins for this dataset and alignment
     origin = origins[pc_combos.index(whichpcs)]
@@ -894,24 +1010,31 @@ def get_aer_cf(
     #scaling of the bins in real units of whatever the CGPS axis parameters are
     xyscaling = [centers[f'PC{wpc}'].diff().mean() for wpc in whichpcs]
 
-
     #make list of imap arguments
-    mapargs = [(df.sort_values('cumulative_time').reset_index(drop = True),nbins,xyscaling,origin) for i, df in bstrans.groupby([group_factor,'iter'])]
-
     with multiprocessing.Pool(processes=60) as pool:
-        results = list(tqdm.tqdm(pool.imap(get_area_enclosing_rate, mapargs), total=bsiter))
+        #collect args for instantaneous aer
+        mapargs = []
+        for _, df in transdf.groupby(['Treatment',group_factor]):
+            df, runs = utils.get_consecutive_transitions(df)
+            for r in runs:
+                mapargs.append((df.iloc[r].reset_index(drop = True),xyscaling,origin))
 
-    allaers = pd.concat(results, ignore_index=True)
-    allaers.to_csv(dbbssavedir.joinpath(utils.whichpc_string(whichpcs)+f'_bootstrapped_{ntrans}_Area_Enclosing_Rates.csv'))
-    
-    ### get AE rate and fit 
-    lrmapargs = [(df.sort_values('cumulative_time').reset_index(drop = True),group_factor) for i, df in allaers.groupby([group_factor,'iter'])]
-    with multiprocessing.Pool(processes=60) as pool:
-        lrresults = list(tqdm.tqdm(pool.imap(rate_fit_bs_wrap, lrmapargs), total=bsiter))
 
-    ## save the AE rate and fit
-    pd.DataFrame(lrresults).to_csv(dbbssavedir.joinpath(utils.whichpc_string(whichpcs)+f'_bootstrapped_{ntrans}_Area_Enclosed_Linear_Reg.csv'))
+        results = list(tqdm.tqdm(pool.imap(get_area_enclosing_rate, mapargs), total=len(mapargs)))
+        allaers = pd.concat(results, ignore_index=True)
+        ## keep only new columns and those needed for ID
+        new_cols = [x for x in allaers.columns if x not in transdf.columns]
+        keep_cols = ['Treatment', group_factor] + [x for x in allaers.columns if 'time' in x]
+        allaers = allaers[keep_cols + new_cols]
 
+        ### collect args for average aer, etc.
+        lrmapargs = [(df.sort_values('cumulative_time').reset_index(drop = True),
+                    group_factor) for _, df in allaers.groupby(['Treatment',group_factor])]
+
+        lrresults = list(tqdm.tqdm(pool.imap(get_linear_rates_wrap, lrmapargs), total=len(lrmapargs)))
+        lrrdf = pd.DataFrame(lrresults)
+
+    return allaers, lrrdf
 
 def get_run_stats(
         df, #dataframe containing aer info
@@ -1025,7 +1148,7 @@ def get_lls_gapped_bootstrap(
     dbdir = savedir / 'detailed_balance'
     dbbsdir = dbdir / 'separatedatabs'
 
-    justaers = pd.read_csv(dbdir.joinpath(utils.whichpc_string(whichpcs)+'_raw_transition_aer_cf.csv'), index_col = 0)
+    justaers = pd.read_csv(dbdir.joinpath(whichpc_string(whichpcs)+'_raw_transition_aer_cf.csv'), index_col = 0)
 
     ########## measure gap frequency and duration
     allrunlengths, allrunlengthmeans, allgaplengths, allgaplengthmeans, allgapfrequencies = get_run_stats(
@@ -1036,8 +1159,8 @@ def get_lls_gapped_bootstrap(
     print(f'Average track run length mean for real data is {np.mean(allrunlengthmeans)} and mean gap frequency is {np.mean(allgapfrequencies)})')
 
     #### get bs data with gaps
-    bsaers = pd.read_csv(dbbsdir.joinpath(utils.whichpc_string(whichpcs)+f'_bootstrapped_{ntrans}_Area_Enclosing_Rates.csv'), index_col=0)
-    bstrans = pd.read_csv(dbbsdir.joinpath(utils.whichpc_string(whichpcs)+f'_bootstrapped_{ntrans}_transitions.csv'), index_col = 0)
+    bsaers = pd.read_csv(dbbsdir.joinpath(whichpc_string(whichpcs)+f'_bootstrapped_{ntrans}_Area_Enclosing_Rates.csv'), index_col=0)
+    bstrans = pd.read_csv(dbbsdir.joinpath(whichpc_string(whichpcs)+f'_bootstrapped_{ntrans}_transitions.csv'), index_col = 0)
 
     bs_with_gaps = bootstrap_runs(
         bsaers, #dataframe with bootstrap iterations (doesn't actually need aer)
@@ -1059,7 +1182,7 @@ def get_lls_gapped_bootstrap(
     print(f'Average track run length mean for bootstrapped data is {np.mean(bsallrunlengthmeans)} and mean gap frequency is {np.mean(bsallgapfrequencies)})')
 
     ### save the gapped bootstrap data
-    bs_with_gaps.to_csv(dbbsdir.joinpath(utils.whichpc_string(whichpcs)+f'_bootstrapped_{ntrans}_Area_Enclosing_Rates_gaps.csv'))
+    bs_with_gaps.to_csv(dbbsdir.joinpath(whichpc_string(whichpcs)+f'_bootstrapped_{ntrans}_Area_Enclosing_Rates_gaps.csv'))
 
 
     ### merged gaps with actual bootstrapped aers so we can do linear regression with the gapped data
@@ -1072,4 +1195,4 @@ def get_lls_gapped_bootstrap(
 
     ## save the AE rate and fit
     fitframe = pd.DataFrame(lrresults)
-    fitframe.to_csv(dbbsdir.joinpath(utils.whichpc_string(whichpcs)+f'_bootstrapped_{ntrans}_Area_Enclosed_Linear_Reg_gaps.csv'))
+    fitframe.to_csv(dbbsdir.joinpath(whichpc_string(whichpcs)+f'_bootstrapped_{ntrans}_Area_Enclosed_Linear_Reg_gaps.csv'))

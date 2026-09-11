@@ -11,7 +11,7 @@ from neutrophil_shape.config.loader import load_config
 from neutrophil_shape.CustomFunctions.DetailedBalance import load_and_fill_transition_counts
 
 
-whichpcs = (1,2)
+whichpcs = (4,5)
 
 # inverse scale for arrows
 scale = 0.0008
