@@ -53,7 +53,19 @@ trajectory = [[7,8],[8,6],[8,7],[8,8],[8,8],[8,8],[9,8],
                             [7,9],[7,8],[9,8],
                                 [8,7],[8,8],
                                     [8,8]]
-
+[db_params.confocal.cycle_thresh]
+[db_params.confocal.cycle_thresh.PC1-PC2]
+low = 0.006
+high = 0.03
+smooth = 10
+[db_params.confocal.cycle_thresh.PC4-PC5]
+low = 0.004
+high = 0.013
+smooth = 5
+[db_params.confocal.cycle_thresh.PC1-PC7]
+low = 0.0025
+high = 0.01
+smooth = 5
 
 [db_params.lls]
 nbins = 25 #number of bins to use for the CGPSs
@@ -82,7 +94,19 @@ trajectory = [[13,13],[8,6],[8,9],[8,8],[8,8],[8,8],[9,7],
                             [8,8],[8,8],[8,8],
                                 [8,7],[8,8],
                                     [8,8]]
-
+[db_params.lls.cycle_thresh]
+[db_params.lls.cycle_thresh.PC1-PC2]
+low = 0.01
+high = 0.05
+smooth = 30
+[db_params.lls.cycle_thresh.PC4-PC5]
+low = 0.005
+high = 0.018
+smooth = 20
+[db_params.lls.cycle_thresh.PC1-PC7]
+low = 0.005
+high = 0.015
+smooth = 20
 
 
 [data.galv]

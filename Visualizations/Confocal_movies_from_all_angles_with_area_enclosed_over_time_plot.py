@@ -17,11 +17,11 @@ from neutrophil_shape.CustomFunctions import utils
 import dataclasses
 
 
-whichpcs = (1,2)
+whichpcs = (1,7)
 
 ### open config and get directories
 config = load_config(microscope_type='confocal')
-config._alignment = 'trajectory'
+config._alignment = 'trajectory_shape'
 xyres = config.im_params.xyres
 zstep = config.im_params.zstep
 savedir = config.common.savedir
@@ -232,11 +232,11 @@ def generate_confocal_ae_movie(
     
     # plt.show()
     
-    ani.save(moviedir.joinpath(cellname + '_allaxes_aeplot.mp4'), fps=4, dpi = 300)#, extra_args=['-vcodec', 'libx264'])
+    ani.save(moviedir.joinpath(cellname + f'_{utils.whichpc_string(whichpcs)}_allaxes_aeplot.mp4'), fps=4, dpi = 300)#, extra_args=['-vcodec', 'libx264'])
     plt.close(fig)
 
 
-cellname = '20231116_488EGFP-CAAX_3mA_37C_1_cell_0'
+cellname = '20231116_488EGFP-CAAX_3mA_37C_1_cell_42'
 
 FullFrame = pd.read_csv(savedir / 'shape_data' / 'All_Data_with_CGPS_bins.csv', index_col = 0)
 randomframe = FullFrame[FullFrame.Treatment == 'Random'].copy()

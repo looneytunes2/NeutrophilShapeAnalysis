@@ -1,7 +1,6 @@
 
 
 
-
 import pandas as pd
 import numpy as np
 import scipy.stats
@@ -27,7 +26,9 @@ def get_stars(pv):
     return stars
 
 #get directories and open separated datasets
-treatments = ['DMSO','Para-Nitro-Blebbistatin','CK666']
+treatments = ['Random','Galvanotaxis']
+colorlist = ['0.65','#8adb93']
+treat_color_dict = {t:c for t,c in zip(treatments, colorlist)}
 config = load_config(microscope_type='confocal')
 time_interval = config.im_params.time_interval
 npcs = config.common.npcs
@@ -149,42 +150,33 @@ includelist = metriclist + pclist
 #iterate through remaining columns and do two-way ttest between each drug and control
 reslist = []
 for col in includelist:
-    for t in treatments[1:]:
-        if col not in ['Treatment']:
-            tempframe = avgdf_filtered[['Treatment', col]].dropna()
-            if tempframe.loc[tempframe.Treatment=='DMSO', col].std() < 0.000001:
-                print(col)
-            tstat, pval = scipy.stats.mannwhitneyu(
-                tempframe.loc[tempframe.Treatment=='DMSO', col].values,
-                tempframe.loc[tempframe.Treatment==t, col].values
-                )
-            reslist.append({'metric': col, 'Treatment': t, 'pvalue': pval})
-pvdf = pd.DataFrame(reslist).sort_values('Treatment')
+    if col not in ['Treatment']:
+        tempframe = avgdf_filtered[['Treatment', col]].dropna()
+        tstat, pval = scipy.stats.mannwhitneyu(
+            tempframe.loc[tempframe.Treatment==treatments[0], col].values,
+            tempframe.loc[tempframe.Treatment==treatments[1], col].values
+            )
+        reslist.append({'metric': col, 'pvalue': pval})
+pvdf = pd.DataFrame(reslist)
 
 
 #separately test statistics by treatment and metrics vs PCs
-bothtreatsig = []
-for tr in treatments[1:]:
-    tpvdf = pvdf[pvdf.Treatment == tr].copy().reset_index(drop=True)
-    metricdf = tpvdf[tpvdf.metric.isin(metriclist)].copy()
-    #correct pvalues for metrics
-    metric_reject, metrics_pvcorr = multipletests(metricdf['pvalue'],method='fdr_bh')[:2]
-    #correct pvalues for PCs per alignment
-    pc_rejects = []
-    pc_pvcorrs = []
-    for align in alignlist:
-        alignpcs = [x for x in pclist if align in x]
-        pcdf = tpvdf[tpvdf.metric.isin([pc+'_'+align for pc in pccols])].copy()
-        PC_reject, PC_pvcorr = multipletests(pcdf['pvalue'],method='fdr_bh')[:2]
-        pc_rejects.append(pcdf[PC_reject])
-        pc_pvcorrs.append(PC_pvcorr[PC_reject])
-    #combine rejected hypotheses
-    tempsigframe = pd.concat((metricdf[metric_reject], *pc_rejects), ignore_index=True)
-    #add corrected PCs
-    tempsigframe['pvcorr'] = np.concatenate((metrics_pvcorr[metric_reject], *pc_pvcorrs))
-    bothtreatsig.append(tempsigframe)
-## combine treatments
-sigframe = pd.concat(bothtreatsig, ignore_index=True)
+metricdf = pvdf[pvdf.metric.isin(metriclist)].copy()
+#correct pvalues for metrics
+metric_reject, metrics_pvcorr = multipletests(metricdf['pvalue'],method='fdr_bh')[:2]
+#correct pvalues for PCs per alignment
+pc_rejects = []
+pc_pvcorrs = []
+for align in alignlist:
+    alignpcs = [x for x in pclist if align in x]
+    pcdf = pvdf[pvdf.metric.isin([pc+'_'+align for pc in pccols])].copy()
+    PC_reject, PC_pvcorr = multipletests(pcdf['pvalue'],method='fdr_bh')[:2]
+    pc_rejects.append(pcdf[PC_reject])
+    pc_pvcorrs.append(PC_pvcorr[PC_reject])
+#combine rejected hypotheses
+sigframe = pd.concat((metricdf[metric_reject], *pc_rejects), ignore_index=True)
+#add corrected PCs
+sigframe['pvcorr'] = np.concatenate((metrics_pvcorr[metric_reject], *pc_pvcorrs))
 
 #all significant comparisons
 allsiglist = sigframe.metric.unique()
@@ -192,50 +184,30 @@ allsiglist = sigframe.metric.unique()
 
 print(allsiglist)
 
-siglist = allsiglist.copy()#[
-    # 'speed',
-    # 'Cell_MajorAxis_Vec_X',
-    # 'Cell_MajorAxis_Vec_Y',
-    # 'PC1',
-    # 'PC2',
-    # 'PC3',
-    # 'Volume_Front_Ratio',
-    # ]
+siglist = ['speed']#,'PC7']#,'Turn_Angle','relative_angle']
 
-ylabels = siglist.copy()#[
-    # 'Instantaneous\nSpeed (µm/s)',
-    # 'Major Axis X\nComponent',
-    # 'Major Axis Y\nComponent',
-    # 'PC1',
-    # 'PC2',
-    # 'PC3',
-    # 'Front-Rear\nVolume Ratio',
-    # ]
+ylabels = ['Instantaneous Speed (µm/sec)']#, 'PC7']#,'Turn Angle (°)','Alignment to Electric Field (°)']
 
 ############### CELL AVERAGES OF SIGNIFICANT METRICS #################################
-colorlist = ['#9c836b','#faa7a7','#faf191']
-# sns.set_palette(palette=colorlist)
 
-scale = int(len(siglist)/2)
-linewid= 1.2
 
-sq = int(np.ceil(np.sqrt(len(siglist))))
+scale = len(siglist)
+linewid= 2
 
-fig, axes = plt.subplots(sq,sq,figsize=(3*sq,4*sq))
-flatax = axes.flatten()
+fig, axes = plt.subplots(1,scale,figsize=(scale*4*0.7,4))
 for i, sig in enumerate(siglist):
-    ax = flatax[i]
-    sns.swarmplot(data = avgdf_filtered, x = 'Treatment', y = sig, hue = 'Treatment', palette=colorlist,
-                    size = 1.3, ax = ax, zorder = 1)
-    sns.boxplot(data = avgdf_filtered, x = 'Treatment', y = sig, width = 0.5,
+    ax = axes#[i]
+    sns.swarmplot(x = 'Treatment', y = sig, data = avgdf_filtered, size = 2.5, 
+                  hue = 'Treatment', palette = treat_color_dict, ax = ax, zorder = 1)
+    sns.boxplot(x = 'Treatment', y = sig, data = avgdf_filtered, width = 0.5,
                 boxprops={
                     'fill': False,
-                    'linewidth': linewid,
+                    'linewidth': 1.5,
                     'edgecolor': 'black',
                     'zorder':2
                     },
                 medianprops={
-                    'linewidth': linewid,
+                    'linewidth': 1.5,
                     'color': 'black'
                     },
                 whiskerprops={
@@ -246,14 +218,18 @@ for i, sig in enumerate(siglist):
                     'linewidth': 0,
                     'color': 'black'
                     },
-                showfliers=False, ax = ax, zorder = 2)
+                showfliers=False, ax = ax, zorder=2)
     
-    #set ylim min to zero
-    # ax.set_ylim(0, ax.get_ylim()[1])
+    
+    #set ylim min to zero if no negative values
+    if ax.get_ylim()[0]>0:
+        ax.set_ylim(0,ax.get_ylim()[1])
+    
+
     #tick stuff
     ax.set_ylabel(ylabels[i], fontsize = 16)#, labelpad=-0.5)
     ax.set_xlabel('')
-    ax.set_xticklabels([x[:11]+'\n'+x[11:] if x == 'Para-Nitro-Blebbistatin' else x for x in treatments])
+    ax.set_xticklabels(['Undirected','Electrotaxis'])
     # ax.set_xticks([])
     # Turn off all spines and ticks
     ax.spines['top'].set_visible(False)
@@ -263,37 +239,96 @@ for i, sig in enumerate(siglist):
     ax.legend_ = None
 
 
-    #get plot extrema
+    #get only the significantly different comparisons
+    starframe = pvdf[pvdf.metric == sig].reset_index(drop=True)
+
+    print(f'pval for {ylabels[i]} is {pvdf[pvdf.metric == sig].pvalue.iloc[0]}')
+    pstar = 'n.s.' if starframe.empty else get_stars(starframe['pvalue'].values[0])
+    #use different font sizes for stars vs n.s.
+    nsfs = 10 if pstar=='n.s.' else 12
+
     ymin,ymax = ax.get_ylim()
+    ax.text(0.5, ymax-(ymax-ymin)*0.03, pstar, fontsize = nsfs, ha = 'center')
+        
+
+plt.tight_layout()
+
+
+plt.savefig(__file__.split('.')[0] + '_speed.png', dpi = 500, bbox_inches='tight')
+
+
+
+
+siglist = allsiglist
+
+ylabels = allsiglist #[
+           # 'Cell Aspect Ratio',
+           # ]
+
+############### CELL AVERAGES OF SIGNIFICANT METRICS #################################
+
+scale = len(siglist)
+linewid= 2
+
+fig, axes = plt.subplots(1,scale,figsize=(scale*4*0.7,4))
+for i, sig in enumerate(siglist):
+    ax = axes[i]
+    sns.swarmplot(x = 'Treatment', y = sig, data = avgdf_filtered, size = 2.5, 
+                  hue = 'Treatment', palette = treat_color_dict, ax = ax, zorder = 1)
+    sns.boxplot(x = 'Treatment', y = sig, data = avgdf_filtered, width = 0.5,
+                boxprops={
+                    'fill': False,
+                    'linewidth': 1.5,
+                    'edgecolor': 'black',
+                    'zorder':2
+                    },
+                medianprops={
+                    'linewidth': 1.5,
+                    'color': 'black'
+                    },
+                whiskerprops={
+                    'linewidth': 0,
+                    'color': 'black'
+                    },
+                capprops={
+                    'linewidth': 0,
+                    'color': 'black'
+                    },
+                showfliers=False, ax = ax, zorder=2)
     
+    # #set axlim to 1 since that is the lowest value possible
+    # ax.set_ylim(0,ax.get_ylim()[1])
+        
+    #tick stuff
+    ax.set_ylabel(ylabels[i], fontsize = 16)#, labelpad=-0.5)
+    ax.set_xlabel('')
+    ax.set_xticklabels(['Undirected','Electrotaxis'])
+    # ax.set_xticks([])
+    # Turn off all spines and ticks
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    
+    #remove legends
+    ax.legend_ = None
+
+
+
     #get only the significantly different comparisons
     starframe = sigframe[sigframe.metric == sig].reset_index(drop=True)
 
+    print(f'pval for {ylabels[i]} is {sigframe[sigframe.metric == sig].pvcorr.iloc[0]}')
+    pstar = 'n.s.' if starframe.empty else get_stars(starframe['pvcorr'].values[0])
+    #use different font sizes for stars vs n.s.
+    nsfs = 10 if pstar=='n.s.' else 12
 
-    #bar placement adjustment
-    barinc = (ymax-ymin)*0.08
-    for t, treat in enumerate(treatments[1:]):
-        ### plot star or ns for DMSO-PNB
-        row = starframe[starframe.Treatment==treat]
-        #print
-        print(f'{treat} pval for {ylabels[i]} is {pvdf[(pvdf.metric == sig) & (pvdf.Treatment == treat)].pvalue.iloc[0]}')
-        pstar = 'n.s.' if row.empty else get_stars(row['pvcorr'].values[0])
-        #use different font sizes for stars vs n.s.
-        nsfs = 10 if pstar=='n.s.' else 12
-        xp = np.array([0,t+1])
-        starinc = (ymax-ymin)*0.02 if pstar == 'n.s.' else (ymax-ymin)*0.001
-
-        #star
-        ax.text(xp.mean(), ymax+(barinc*t)+starinc, pstar, fontsize = nsfs, ha='center')
-        #bar
-        ax.plot([xp[0]+0.1,xp[1]-0.1], [ymax+(barinc*t),ymax+(barinc*t)], color = 'black')
-
-for a in range(i+1, len(flatax)):
-    ax = flatax[a]
-    ax.remove()
+    ymin,ymax = ax.get_ylim()
+    ax.text(0.5, ymax-(ymax-ymin)*0.03, pstar, fontsize = nsfs, ha = 'center')
+        
 
 plt.tight_layout()
 
 
 plt.savefig(__file__.split('.')[0] + '.png', dpi = 500, bbox_inches='tight')
+
+
 

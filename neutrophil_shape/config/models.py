@@ -68,7 +68,9 @@ class Detailed_Balance:
     bsiter: int
     ttot: int
     all_origins: dict
+    cycle_thresh: dict
     origins: list = field(init=False, default=None)
+
 
 @dataclass
 class Experiment:

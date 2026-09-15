@@ -520,7 +520,7 @@ def transition_count_wrapper(
 def load_and_fill_transition_counts(
         filepath: Path,
         nbins: int,
-        group_factor: str | list | tuple,
+        group_factor: str,
         ):
     """
     Load a sparse transition-rate csv (containing only coordinates with
@@ -539,11 +539,10 @@ def load_and_fill_transition_counts(
     coords_df = pd.DataFrame(coords, columns=dims)
 
     ### get non-value columns as list
-    group_factor = list(group_factor) if not isinstance(group_factor, str) else [group_factor]
-    idx_cols = group_factor + dims
+    idx_cols = ['Treatment', group_factor] + dims
 
     # unique factor combinations actually present in the data
-    factor_combos = sparse_df[group_factor].drop_duplicates()
+    factor_combos = sparse_df[['Treatment', group_factor]].drop_duplicates()
 
     # single cross join
     coords_df['_key'] = 1
@@ -923,12 +922,11 @@ def get_avg_current_error(
         whichpcs, #which two PCs to use in the cgps [x,y]
         dbbssavedir: Path, #where to save the bootstrapped dataframes
         config: Config,
-        group_factor: str | list | tuple, #column with factor to separate the data on
+        group_factor: str, #column with factor to separate the data on
         ):
     ### get some settings from config
     nbins = config.db_params.nbins #how many bins in the x and y cgps axes
     ntrans = config.db_params.ntrans #how many transitions to sample at each step
-    group_factor = [group_factor] if isinstance(group_factor, str) else list(group_factor)
     ### open the data and fill sparse gaps with zeros to get real means
     bsframe_sep_full = load_and_fill_transition_counts(
         dbbssavedir.joinpath(f'{whichpc_string(whichpcs)}_bootstrapped_{ntrans}_transition_rates.csv'),

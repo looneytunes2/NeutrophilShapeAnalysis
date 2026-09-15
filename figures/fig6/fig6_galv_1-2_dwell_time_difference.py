@@ -13,6 +13,7 @@ import seaborn as sns
 from scipy import stats
 from matplotlib.lines import Line2D
 from neutrophil_shape.config.loader import load_config
+from neutrophil_shape.CustomFunctions.DetailedBalance import load_and_fill_transition_counts
 import scikit_posthocs
 
 
@@ -52,28 +53,29 @@ nbins_trim = nbins - 2*bintrim
 
 ######## open all of the data
 ########### interpolate all transitions so that only individual transitions are made ###########
-transdf_sep = pd.read_csv(dbdir.joinpath(f'PC{whichpcs[0]}-PC{whichpcs[1]}_interpolated_transitions_separated.csv'), index_col=0)
+transdf = pd.read_csv(dbdir.joinpath(f'PC{whichpcs[0]}-PC{whichpcs[1]}_interpolated_transitions.csv'), index_col=0)
 #limit to treatments
-transdf_sep = transdf_sep[transdf_sep.Treatment.isin(treatments)]
-transdf_sep['Treatment'] = pd.Categorical(transdf_sep.Treatment, categories=treatments, ordered=True)
-transdf_sep = transdf_sep.sort_values(by='Treatment')
+transdf = transdf[transdf.Treatment.isin(treatments)]
+transdf['Treatment'] = pd.Categorical(transdf.Treatment, categories=treatments, ordered=True)
+transdf = transdf.sort_values(by='Treatment')
 
 
 
 ############## get the counts of cells leaving 
-trans_rate_df_sep = pd.read_csv(dbdir.joinpath(f'PC{whichpcs[0]}-PC{whichpcs[1]}_binned_transition_rates_separated.csv'), index_col=0)
-#limit to treatments
-trans_rate_df_sep = trans_rate_df_sep[trans_rate_df_sep.Treatment.isin(treatments)]
-trans_rate_df_sep['Treatment'] = pd.Categorical(trans_rate_df_sep.Treatment, categories=treatments, ordered=True)
-trans_rate_df_sep = trans_rate_df_sep.sort_values(by='Treatment')
+rates_path = dbdir.joinpath(f'PC{whichpcs[0]}-PC{whichpcs[1]}_binned_transition_rates.csv')
+trans_rate_df = load_and_fill_transition_counts(rates_path, nbins, 'Treatment')
+trans_rate_df = trans_rate_df[trans_rate_df.Treatment.isin(treatments)]
+#ensure that DMSO is the first in order
+trans_rate_df['Treatment'] = pd.Categorical(trans_rate_df.Treatment, categories=treatments, ordered=True)
+trans_rate_df = trans_rate_df.sort_values(by='Treatment')
 
 
 
 
 ########### calculate the DWELL TIME DIFFERENCE of the treatments in the WHOLE CGPS #############
-hms = np.zeros((len(transdf_sep.Treatment.unique()), nbins, nbins))
-countmap = np.zeros((len(transdf_sep.Treatment.unique()), nbins, nbins))
-for i, (treat, tdf) in enumerate(transdf_sep.groupby('Treatment')):
+hms = np.zeros((len(transdf.Treatment.unique()), nbins, nbins))
+countmap = np.zeros((len(transdf.Treatment.unique()), nbins, nbins))
+for i, (treat, tdf) in enumerate(transdf.groupby('Treatment')):
     for x in range(nbins):
         for y in range(nbins):
             current =  tdf[(tdf['from_x'] == x+1) & (tdf['from_y'] == y+1)]
@@ -126,7 +128,7 @@ ax.set_yticklabels([round(centers[f'PC{whichpcs[1]}'].iloc[x],2) for x in [0,nbi
 
 
 ######################### vector map of probability flux ################
-mdf = trans_rate_df_sep[trans_rate_df_sep.Treatment==treatments[1]]
+mdf = trans_rate_df[trans_rate_df.Treatment==treatments[1]]
 scale = 0.0008
 for x in range(1,nbins+1):
     for y in range(1,nbins+1):
@@ -174,9 +176,9 @@ plt.savefig(__file__.split('.')[0] + '.png', dpi = 500, bbox_inches='tight')
 
 
 ########### calculate the DWELL TIME DIFFERENCE of the treatments in the CGPS #############
-hms = np.zeros((len(transdf_sep.Treatment.unique()), nbins_trim, nbins_trim))
-countmap = np.zeros((len(transdf_sep.Treatment.unique()), nbins_trim, nbins_trim))
-for i, (treat, tdf) in enumerate(transdf_sep.groupby('Treatment')):
+hms = np.zeros((len(transdf.Treatment.unique()), nbins_trim, nbins_trim))
+countmap = np.zeros((len(transdf.Treatment.unique()), nbins_trim, nbins_trim))
+for i, (treat, tdf) in enumerate(transdf.groupby('Treatment')):
     ################ heatmap of counts ###############
     tdf[[x for x in tdf.columns.to_list() if 'to_' in x or 'from_' in x]] = \
         tdf[[x for x in tdf.columns.to_list() if 'to_' in x or 'from_' in x]] - bintrim

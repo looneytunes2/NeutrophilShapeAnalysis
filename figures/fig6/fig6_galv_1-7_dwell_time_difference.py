@@ -30,9 +30,9 @@ def get_stars(pv):
 
 
 treatments = ['Random','Galvanotaxis']
-whichpcs = (4,5)
+whichpcs = (1,7)
 config = load_config(microscope_type='confocal')
-config._alignment = 'trajectory'
+config._alignment = 'trajectory_shape'
 pc_combos = config.common.pc_combos
 nbins = config.db_params.nbins
 origin = config.db_params.origins[pc_combos.index(whichpcs)]

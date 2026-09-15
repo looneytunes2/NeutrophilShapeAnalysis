@@ -15,7 +15,7 @@ from neutrophil_shape.config.loader import load_config
 from neutrophil_shape.CustomFunctions import utils
 import math
 from matplotlib import cm
-
+import dataclasses
 
 def color_interpolation(pointarray):
     timepoints = np.unique(pointarray[:,0])
@@ -36,43 +36,50 @@ def color_interpolation(pointarray):
 
 
 
-whichpcs = (1,7)
+whichpcs = (1,2)
 
 ## choose a cmap
 cmap = cm.Greys_r
 tail_length = 15 # seconds
 
 ### open config and get directories
-config = load_config(microscope_type='lls')
-config._alignment = 'trajectory_shape'
+config = load_config(microscope_type='confocal')
+config._alignment = 'trajectory'
 savedir = config.common.savedir
 datadir = savedir / 'shape_data'
 dbdir = savedir / 'detailed_balance'
-localdir = config.experiment.lls.localdir
-moviedir = localdir / 'singlecells'
 time_interval = config.im_params.time_interval
 
 
 
 
 #open all of the data
+alldata = pd.read_csv(datadir / 'All_Data_with_CGPS_bins.csv', index_col = 0)
+transdf = pd.read_csv(dbdir / f'{utils.whichpc_string(whichpcs)}_raw_transitions.csv', index_col = 0)
 aers = pd.read_csv(dbdir / f'{utils.whichpc_string(whichpcs)}_raw_transition_aer_cf.csv', index_col = 0)
+Fullframe = transdf.merge(aers[['CellID','real_time','aer']], on = ['CellID','real_time'], how = 'left')
 centers = pd.read_csv(datadir / 'PC_bin_centers.csv', index_col = 0)
 nbins = centers.shape[0]
 
 
-# cellname = '20240611_488_EGFP-CAAX_640_actin-halotag_cell2_01'
+# cellname = '20231116_488EGFP-CAAX_3mA_37C_1_cell_29'
 for cellname in aers.CellID.unique():
-
-    TotalFrame = aers[aers.CellID==cellname].sort_values('real_time').reset_index(drop=True)
-
+    ### get specific cell and relevant directories
+    TotalFrame = Fullframe[Fullframe.CellID==cellname].sort_values('real_time').reset_index(drop=True)
+    exp = alldata[alldata.CellID == cellname].Experiment.iloc[0]
+    localdir = dataclasses.asdict(config.experiment)[exp]['localdir']
+    moviedir = localdir / 'singlecells'
+    
+    
     ###### BUILD DWELL TIME MAP
     transdf_sep = pd.read_csv(dbdir.joinpath(f'PC{whichpcs[0]}-PC{whichpcs[1]}_interpolated_transitions.csv'), index_col=0)
 
     ########### calculate the DWELL TIME in the WHOLE CGPS #############
-    hms = np.zeros((len(transdf_sep.CellID.unique()), nbins, nbins))
-    countmap = np.zeros((len(transdf_sep.CellID.unique()), nbins, nbins))
-    for i, (treat, tdf) in enumerate(transdf_sep.groupby('CellID')):
+    ### onyl build the heatmap for the treatment of the cell in question
+    treat_trans = transdf_sep[transdf_sep.Treatment == TotalFrame.Treatment.iloc[0]].copy()
+    hms = np.zeros((len(treat_trans.CellID.unique()), nbins, nbins))
+    countmap = np.zeros((len(treat_trans.CellID.unique()), nbins, nbins))
+    for i, (treat, tdf) in enumerate(treat_trans.groupby('CellID')):
         for x in range(nbins):
             for y in range(nbins):
                 current =  tdf[(tdf['from_x'] == x+1) & (tdf['from_y'] == y+1)]
@@ -292,8 +299,10 @@ for cellname in aers.CellID.unique():
 
     plt.show()
 
-
-    ani.save(moviedir.joinpath(cellname, cellname + f'_animated_{utils.whichpc_string(whichpcs)}_CGPS_and_AER.mp4'), fps=30, dpi = 300)#, extra_args=['-vcodec', 'libx264'])
+    cellmoviedir = moviedir.joinpath(cellname)
+    if not cellmoviedir.exists():
+        cellmoviedir.mkdir()
+    ani.save(cellmoviedir.joinpath(cellname + f'_animated_{utils.whichpc_string(whichpcs)}_CGPS_and_AER.mp4'), fps=30, dpi = 300)#, extra_args=['-vcodec', 'libx264'])
 
 
     plt.close(fig)

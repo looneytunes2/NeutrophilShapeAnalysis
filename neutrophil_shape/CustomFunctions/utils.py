@@ -294,7 +294,7 @@ def smoothen_aer(
         s = 30, #splprep s factor
         ):
     #ensure the cell is in time order
-    cell_ = cell.sort_values('time').reset_index(drop=True)
+    cell_ = cell.sort_values('real_time').reset_index(drop=True)
     #get rid of NA in aer which will ruin cumulative sums etc.
     cellnona = cell_[~cell_.aer.isna()].copy()
     #get area enclosed from aer
@@ -309,7 +309,7 @@ def smoothen_aer(
 
     ####interpolation method
     #interpolate for smoothening
-    tck, u = interpolate.splprep(np.array((cellnona.time.values,
+    tck, u = interpolate.splprep(np.array((cellnona.real_time.values,
                                             cellnona.area_enclosed.cumsum().values)),
                                     k=3, s = s, w = w)#k=1, s=2, w = w)
     #get the derivative of the smoothened curve
@@ -324,25 +324,41 @@ def smoothen_aer(
 
 ####### threshold smoothened area enclosing rate 
 def get_aer_state(
-        cell, #a dataframe with 'time', 'aer', and 'time_elapsed' columns for a single cell
-        thresholds = [0.05, 0.01], #thresholds for aer in decreasing order, defaults are trajectory 1-2 cycle
-        state_labels = ['high','low','zero'], #labels for state above each threshold, last is default
-        s = 30 #splprep smoothing factor default is trajectory 1-2 cycle
+        df, #a dataframe with 'real_time', 'aer', and 'time_elapsed' columns
+        whichpcs, #(x,y) PCs that define the CGPS of this cycle
+        config,
+        group_factor, #factor column to group dataframe by for determining consecutive transitions
         ):
+
+
+    ### get threshold info from config
+    thresh_dict = config.db_params.cycle_thresh[whichpc_string(whichpcs)]
+    low_thresh = thresh_dict['low']
+    negative_thresh = -low_thresh
+    high_thresh = thresh_dict['high']
+    #thresholds for aer in decreasing order
+    thresholds = [high_thresh, low_thresh, negative_thresh] 
+    #labels for state above each threshold, last is default
+    state_labels = ['high', 'low', 'zero', 'neg']
+    #splprep smoothing factor
+    smooth = thresh_dict['smooth'] 
     
-    cell_ = cell.reset_index(drop = True).copy()
+    df_ = df.reset_index(drop = True)
 
     ### get smoothened aer
-    smooth_aer,_,_ = smoothen_aer(cell, s=s)
-
+    smooth_aer = []
+    for idd, cell in df_.groupby(['Treatment', group_factor]):
+        s_a ,_,_ = smoothen_aer(cell, s=smooth)
+        smooth_aer.extend(s_a.to_list())
+    smooth_array = np.array(smooth_aer)
     #threshold with np.select
-    threshs = [smooth_aer>=x for x in thresholds]
+    threshs = [smooth_array >=x for x in thresholds]
     statethresh = np.select(threshs, state_labels[:-1], default = state_labels[-1])
     #add new values to dataframe
-    cell_.loc[smooth_aer.index,'aer_smooth'] = smooth_aer
-    cell_.loc[smooth_aer.index,'aer_state'] = statethresh
+    df_.loc[:,'aer_smooth'] = smooth_array
+    df_.loc[:,'aer_state'] = statethresh
 
-    return cell_
+    return df_
 
 
 
@@ -351,12 +367,11 @@ def get_aer_state_chunk_ids(
     df, # dataframe with 'aer_state' and 'chunk_id' columns
     group_factor = 'CellID', #factor that separates group of interest
     ):
-    df_ = df.copy()
     ### ensure the dataframe is sorted by cell and time
-    df_ = df_.sort_values([group_factor,'time']).reset_index(drop=True)
+    df_ = df.sort_values(['Treatment',group_factor,'real_time']).reset_index(drop=True)
     ### get where aer state changes or cell changes
-    run_change = pd.Series(False, index=df.index)
-    for col in ['aer_state',group_factor]:
+    run_change = pd.Series(False, index=df_.index)
+    for col in ['aer_state','Treatment',group_factor]:
         run_change |= (df_[col] != df_[col].shift())
     runs = run_change.cumsum()
 
@@ -364,8 +379,9 @@ def get_aer_state_chunk_ids(
     df_['chunk_id'] = runs
 
     #### add chunk run info
-    df_['chunk_run_time'] = df_.groupby('chunk_id').time_elapsed.cumsum()
-    df_['chunk_run_time_norm'] = df_['chunk_run_time'] / df_.groupby("chunk_id")["time_elapsed"].transform("sum")
+    g = df_.groupby('chunk_id')['time_elapsed']
+    df_['chunk_run_time'] = g.cumsum()
+    df_['chunk_run_time_norm'] = df_['chunk_run_time'] / g.transform('sum')
 
     return df_
 
@@ -405,25 +421,40 @@ def get_observed_aer_state_chunk_starts_stops(
 
     observedstarts = []
     observedstops = []
-    for _, cell in df.groupby(group_factor):
-        ##### get places where states start
-        statechangeforward = np.where(cell.aer_state != cell.aer_state.shift(1))[0]
-        for sc in statechangeforward:
-            if sc != 0:
-                ### only count non-nan states with non-nan before
-                if not any(cell.iloc[sc-1:sc+1].aer_state.isna()):
-                    observedstarts.append(cell.chunk_id.iloc[sc])
-        ##### get places where states stop
-        statechangebackward = np.where(cell.aer_state != cell.aer_state.shift(-1))[0]
-        for sc in statechangebackward:
-            if sc != cell.shape[0]-1:
-                ### only count non-nan states with non-nan afterwards
-                if not any(cell.iloc[sc:sc+2].aer_state.isna()):
-                    observedstops.append(cell.chunk_id.iloc[sc])
+    for _, cell in df.groupby(['Treatment',group_factor]):
+        #get all cell states
+        state = cell.aer_state
+
+        # starts: state changed from previous row (excluding the very first row)
+        changed_fwd = state != state.shift(1)
+        changed_fwd.iloc[0] = False
+        observedstarts.extend(cell.chunk_id[changed_fwd].tolist())
+
+        # stops: state changes vs next row (excluding the very last row)
+        changed_bwd = state != state.shift(-1)
+        changed_bwd.iloc[-1] = False
+        observedstops.extend(cell.chunk_id[changed_bwd].tolist())
 
     ### return chunk_ids where states start and stop
     return observedstarts, observedstops
 
+
+def get_whole_chunk_df(
+        df,
+        group_factor,
+        ):
+    """
+    run get_observed_aer_state_chunk_starts_stops and use them to return
+    a dataframe with only whole chunk_ids
+    df, # dataframe with 'aer_state' and 'chunk_id' columns
+    group_factor = 'CellID', #factor that separates group of interest
+    """
+    observedstarts, observedstops = get_observed_aer_state_chunk_starts_stops(
+        df,
+        group_factor,
+        )
+    whole_chunks = set(observedstarts) & set(observedstops)
+    return df[df.chunk_id.isin(whole_chunks)].copy()
 
 ######## calculate average metrics over time in minutes
 def calculate_rates(
