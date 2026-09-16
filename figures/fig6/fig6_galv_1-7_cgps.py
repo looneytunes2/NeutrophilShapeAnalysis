@@ -1,56 +1,60 @@
-# -*- coding: utf-8 -*-
-"""
-Created on Wed Feb 12 15:35:03 2025
-
-@author: Aaron
-"""
 
 import pandas as pd
 import numpy as np
-import os
 import matplotlib.pyplot as plt
-import matplotlib.transforms
 import seaborn as sns
-from cmocean import cm
 from matplotlib.patches import Ellipse, Rectangle
-from pathlib import Path
+from neutrophil_shape.config.loader import load_config
+from neutrophil_shape.CustomFunctions.DetailedBalance import load_and_fill_transition_counts
+from neutrophil_shape.CustomFunctions.utils import whichpc_string
 
-
-#get directories and open separated datasets
-
-ntrans = 1
-treatments = ['Galvanotaxis']
-time_interval = 10 #sec/frame
-whichpcs = [1,2]
-
-#get directories and open separated datasets
-basedir = Path('E:/Aaron/Combined_37C_Confocal_PCA_planar')
-datadir = basedir.joinpath('Data_and_Figs')
-savedir = basedir.joinpath('Detailed_Balance')
-    
-
-
-#open the centers of the binned PCs
-centers = pd.read_csv(datadir.joinpath('PC_bin_centers.csv'), index_col=0)
-nbins = centers.shape[0]
-
-
-######## open all of the data
-########### interpolate all transitions so that only individual transitions are made ###########
-transdf_sep = pd.read_csv(savedir.joinpath(f'PC{whichpcs[0]}-PC{whichpcs[1]}_interpolated_transitions_separated.csv'), index_col=0)
-transdf_sep = transdf_sep[transdf_sep.Treatment.isin(treatments)]
-############## get the counts of cells leaving 
-trans_rate_df_sep = pd.read_csv(savedir.joinpath(f'PC{whichpcs[0]}-PC{whichpcs[1]}_binned_transition_rates_separated.csv'), index_col=0)
-trans_rate_df_sep = trans_rate_df_sep[trans_rate_df_sep.Treatment.isin(treatments)]
-############# open average bootstrapped currents ###################
-bsfield_sep = pd.read_csv(savedir.joinpath(f'PC{whichpcs[0]}-PC{whichpcs[1]}_bootstrapped_{ntrans}_transitions_average_currents.csv'), index_col=0)
-bsfield_sep = bsfield_sep[bsfield_sep.Treatment.isin(treatments)]
-
-
-
+whichpcs = (1,7)
+wpcs = whichpc_string(whichpcs)
 
 # inverse scale for arrows
 scale = 0.0012
+
+#get directories and open separated datasets
+config = load_config(microscope_type='confocal')
+config._alignment = 'trajectory_shape'
+treatments = ['Galvanotaxis']
+time_interval = config.im_params.time_interval
+ntrans = config.db_params.ntrans
+nbins = config.db_params.nbins
+
+#get directories and open separated datasets
+savedir = config.common.savedir
+datadir = savedir / 'shape_data'
+dbdir = savedir / 'detailed_balance'
+dbbsdir = dbdir / 'separatedatabs'
+
+#open the centers of the binned PCs
+centers = pd.read_csv(datadir.joinpath('PC_bin_centers.csv'), index_col=0)
+nbins = config.db_params.nbins
+
+######## open all of the data
+########### interpolate all transitions so that only individual transitions are made ###########
+transdf_sep = pd.read_csv(dbdir.joinpath(f'{wpcs}_interpolated_transitions.csv'), index_col=0)
+transdf_sep = transdf_sep[transdf_sep.Treatment.isin(treatments)].copy()
+#ensure that DMSO is the first in order
+transdf_sep['Treatment'] = pd.Categorical(transdf_sep.Treatment, categories=treatments, ordered=True)
+transdf_sep = transdf_sep.sort_values(by='Treatment')
+############## get the counts of cells leaving
+rates_path = dbdir.joinpath(f'{wpcs}_binned_transition_rates.csv')
+trans_rate_df_sep = load_and_fill_transition_counts(rates_path, nbins,)
+trans_rate_df_sep = trans_rate_df_sep[trans_rate_df_sep.Treatment.isin(treatments)].copy()
+#ensure that DMSO is the first in order
+trans_rate_df_sep['Treatment'] = pd.Categorical(trans_rate_df_sep.Treatment, categories=treatments, ordered=True)
+trans_rate_df_sep = trans_rate_df_sep.sort_values(by='Treatment')
+############# open average bootstrapped currents ###################
+bsfield_sep = pd.read_csv(dbbsdir.joinpath(f'{wpcs}_bootstrapped_{ntrans}_transitions_average_currents.csv'), index_col=0)
+bsfield_sep = bsfield_sep[bsfield_sep.Treatment.isin(treatments)].copy()
+#ensure that DMSO is the first in order
+bsfield_sep['Treatment'] = pd.Categorical(bsfield_sep.Treatment, categories=treatments, ordered=True)
+bsfield_sep = bsfield_sep.sort_values(by='Treatment')
+
+
+
 
 # combine fake error data with real transition data
 elldf = bsfield_sep.merge(trans_rate_df_sep,left_on = ['x','y'], right_on = ['x','y'])
@@ -92,8 +96,8 @@ sns.heatmap(
 for x in range(1,nbins+1):
     for y in range(1,nbins+1):
         current = elldf[(elldf['x'] == x) & (elldf['y'] == y)]
-        xcurrent = (current.x_plus_rate - current.x_minus_rate)/2
-        ycurrent = (current.y_plus_rate - current.y_minus_rate)/2
+        xcurrent = ((current.x_plus_rate - current.x_minus_rate)/2).iloc[0]
+        ycurrent = ((current.y_plus_rate - current.y_minus_rate)/2).iloc[0]
 
         #add flux current arrow        
         ax.quiver(x-0.5,
@@ -107,21 +111,24 @@ for x in range(1,nbins+1):
                     zorder = 3 * 5)
 
 
+
         #determine ellipse width, height and angle
         #always set eval1 to width and adjust angle accordingly
-        eh = np.sqrt(abs(current.eval2))*(2/scale)
-        ew = np.sqrt(abs(current.eval1))*(2/scale)
+        ex = xcurrent*(1/scale)
+        ey = ycurrent*(1/scale)
+        eh = np.sqrt(abs(current.eval2.iloc[0]))*(2/scale)
+        ew = np.sqrt(abs(current.eval1.iloc[0]))*(2/scale)
         evec = current[['evec1x','evec1y']].values[0]
+        evec = evec if evec[1]>0 else -evec
         eang = np.degrees(np.arctan2(evec[1],evec[0]))
-        
-        #define the error oval
-        ell = Ellipse(xy=(x-0.5+(xcurrent.values*(1/scale)),y-0.5+(ycurrent.values*(1/scale))),
-                      width=ew,
-                      height=eh,
-                      angle=eang,
-                      color = 'lightblue',
-                      alpha = 0.10,
-                      zorder = 2)
+
+        ell = Ellipse(xy=(x-0.5+ex,y-0.5+ey),
+                        width=ew,
+                        height=eh,
+                        angle=eang,
+                        color = 'lightblue',
+                        alpha = 0.12,
+                        zorder = 2)
         ax.add_artist(ell)
         
 

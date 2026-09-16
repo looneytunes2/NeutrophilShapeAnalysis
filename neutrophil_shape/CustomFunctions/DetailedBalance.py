@@ -520,7 +520,7 @@ def transition_count_wrapper(
 def load_and_fill_transition_counts(
         filepath: Path,
         nbins: int,
-        group_factor: str,
+        group_factor: str = None,
         ):
     """
     Load a sparse transition-rate csv (containing only coordinates with
@@ -539,10 +539,11 @@ def load_and_fill_transition_counts(
     coords_df = pd.DataFrame(coords, columns=dims)
 
     ### get non-value columns as list
-    idx_cols = ['Treatment', group_factor] + dims
+    groups = ['Treatment', group_factor] if group_factor else ['Treatment']
+    idx_cols = groups + dims
 
     # unique factor combinations actually present in the data
-    factor_combos = sparse_df[['Treatment', group_factor]].drop_duplicates()
+    factor_combos = sparse_df[groups].drop_duplicates()
 
     # single cross join
     coords_df['_key'] = 1

@@ -42,7 +42,7 @@ transdf_sep['Treatment'] = pd.Categorical(transdf_sep.Treatment, categories=trea
 transdf_sep = transdf_sep.sort_values(by='Treatment')
 ############## get the counts of cells leaving
 rates_path = dbdir.joinpath(f'PC{whichpcs[0]}-PC{whichpcs[1]}_binned_transition_rates.csv')
-trans_rate_df_sep = load_and_fill_transition_counts(rates_path, nbins, 'Treatment')
+trans_rate_df_sep = load_and_fill_transition_counts(rates_path, nbins)
 trans_rate_df_sep = trans_rate_df_sep[trans_rate_df_sep.Treatment.isin(treatments)].copy()
 #ensure that DMSO is the first in order
 trans_rate_df_sep['Treatment'] = pd.Categorical(trans_rate_df_sep.Treatment, categories=treatments, ordered=True)
