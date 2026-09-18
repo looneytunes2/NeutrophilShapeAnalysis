@@ -54,6 +54,7 @@ def raw_transitions(
     #add the cumulative time based on the imaging interval 
     alltrans['cumulative_time'] = np.arange(time_interval, len(df)*time_interval, time_interval)
     #add cell identification
+    alltrans['cell'] = df.cell.iloc[0]
     alltrans['CellID'] = df.CellID.iloc[0]
     alltrans['Treatment'] = df.Treatment.iloc[0]
     
@@ -222,6 +223,7 @@ def interpolate_trajectory(
     #from the same video
     alltrans['real_time'] = alltrans.cumulative_time + rawtrans.real_time.iloc[0] - rawtrans.time_elapsed.iloc[0]
     #add cell name and Treatment
+    alltrans['cell'] = rawtrans.cell.iloc[0]
     alltrans['CellID'] = rawtrans.CellID.iloc[0]
     alltrans['Treatment'] = rawtrans.Treatment.iloc[0]
 
@@ -232,56 +234,70 @@ def interpolate_trajectory_wrapper(args):
 
 
 def get_transition_counts(
-        coord, #array-like with coordinate (in xyz order) to count transitions in and out of
         bsdf, #dataframe with all transitions
+        nbins, #bins in the CGPS
         ttot, #total time represented by the experiment
+        dims, #list of dimension names, e.g. ['x', 'y']
         ):
+    """
+    Vectorized replacement for the old per-coordinate loop: for a bin's
+    outgoing "for" counts, group membership already forces from_dim==coord[dim],
+    so "to_dim < coord[dim]" is just "to_dim < from_dim" -- a per-transition
+    direction flag that doesn't depend on which bin it's in. Symmetrically,
+    a bin's incoming "rev" counts use the same per-transition flag, just
+    grouped by the to_ coordinate instead of the from_ coordinate. So every
+    bin's counts can be obtained with two groupby-sums over the whole
+    dataframe instead of nbins**len(dims) separate full-dataframe scans.
+    """
+    #per-transition, per-dimension direction flags (independent of bin)
+    flag_cols = []
+    flags = pd.DataFrame(index=bsdf.index)
+    for dim in dims:
+        flags[f'{dim}_minus'] = (bsdf[f'to_{dim}'] < bsdf[f'from_{dim}']).astype(int)
+        flags[f'{dim}_plus'] = (bsdf[f'to_{dim}'] > bsdf[f'from_{dim}']).astype(int)
+        flag_cols += [f'{dim}_minus', f'{dim}_plus']
 
-    #get the number of dimensions in the CGPS from the coordinate
-    dims = _DIM_LABELS[:len(coord)]
-    
-    #get the dataframe with transitions FROM the coordinate of interest
-    frombool = np.array([bsdf['from_'+dim] == coord[d] for d, dim in enumerate(dims)])
-    frommask = np.where(np.all(frombool, axis = 0))
-    fromm = bsdf.iloc[frommask]
-    
-    #get the dataframe with transitions TO the coordinate of interest
-    tobool = np.array([bsdf['to_'+dim] == coord[d] for d, dim in enumerate(dims)])
-    tomask = np.where(np.all(tobool, axis = 0))
-    to = bsdf.iloc[tomask]
-    
-    #### iteritively build dict of transition counts and rates
-    trans_count = {dims[i]:c for i, c in enumerate(coord)}
-    for d, dim in enumerate(dims):
-        #get the rate going over the - x side of the box (rate going left)
-        minus_count_for = fromm[fromm['to_'+dim]<coord[d]].shape[0]
-        minus_for_rate = minus_count_for/ttot
-        minus_count_rev = to[to['from_'+dim]<coord[d]].shape[0]
-        minus_rev_rate = minus_count_rev/ttot
-        minus_rate = (minus_count_for - minus_count_rev)/ttot
-    
-        #get the rate going over the + x side of the box (rate going right)
-        plus_count_for = fromm[fromm['to_'+dim]>coord[d]].shape[0]
-        plus_for_rate = plus_count_for/ttot
-        plus_count_rev = to[to['from_'+dim]>coord[d]].shape[0]
-        plus_rev_rate = plus_count_rev/ttot
-        plus_rate = (plus_count_for - plus_count_rev)/ttot
-    
-        #add all to dict
-        trans_count.update({
-            dim+'_minus_count':minus_count_for,
-            dim+'_minus_count_rev':minus_count_rev,
-            dim+'_minus_for_rate':minus_for_rate,
-            dim+'_minus_rev_rate':minus_rev_rate,
-            dim+'_minus_rate':minus_rate,
-            dim+'_plus_count':plus_count_for,
-            dim+'_plus_count_rev':plus_count_rev,
-            dim+'_plus_for_rate':plus_for_rate,
-            dim+'_plus_rev_rate':plus_rev_rate,
-            dim+'_plus_rate':plus_rate
-            })
-    
-    return trans_count
+    #outgoing ("_for") counts: group by the transition's starting bin
+    from_cols = [f'from_{dim}' for dim in dims]
+    counts_for = pd.concat([bsdf[from_cols], flags], axis=1).groupby(from_cols)[flag_cols].sum()
+    counts_for.index = counts_for.index.set_names(dims)
+
+    #incoming ("_rev") counts: group by the transition's ending bin
+    to_cols = [f'to_{dim}' for dim in dims]
+    counts_rev = pd.concat([bsdf[to_cols], flags], axis=1).groupby(to_cols)[flag_cols].sum()
+    counts_rev.index = counts_rev.index.set_names(dims)
+
+    #full coordinate grid so every bin appears, even ones with zero transitions
+    axes = [np.arange(1, nbins+1)] * len(dims)
+    grid = np.meshgrid(*axes, indexing='ij')
+    coords = np.stack(grid, axis=-1).reshape(-1, len(dims))
+    full_index = pd.MultiIndex.from_arrays(coords.T, names=dims)
+
+    counts_for = counts_for.reindex(full_index, fill_value=0)
+    counts_rev = counts_rev.reindex(full_index, fill_value=0)
+
+    trans_count = pd.DataFrame(index=full_index)
+    for dim in dims:
+        minus_for = counts_for[f'{dim}_minus']
+        plus_for = counts_for[f'{dim}_plus']
+        #an arrival "from the minus side" (from_dim < to_dim) is a transition
+        #that moved in the + direction, so the rev columns read the opposite
+        #flag from the for columns
+        minus_rev = counts_rev[f'{dim}_plus']
+        plus_rev = counts_rev[f'{dim}_minus']
+
+        trans_count[f'{dim}_minus_count'] = minus_for
+        trans_count[f'{dim}_minus_count_rev'] = minus_rev
+        trans_count[f'{dim}_minus_for_rate'] = minus_for/ttot
+        trans_count[f'{dim}_minus_rev_rate'] = minus_rev/ttot
+        trans_count[f'{dim}_minus_rate'] = (minus_for - minus_rev)/ttot
+        trans_count[f'{dim}_plus_count'] = plus_for
+        trans_count[f'{dim}_plus_count_rev'] = plus_rev
+        trans_count[f'{dim}_plus_for_rate'] = plus_for/ttot
+        trans_count[f'{dim}_plus_rev_rate'] = plus_rev/ttot
+        trans_count[f'{dim}_plus_rate'] = (plus_for - plus_rev)/ttot
+
+    return trans_count.reset_index()
 
 
 
@@ -301,9 +317,7 @@ def build_graph(combodf, dims):
     """
 
     firsttrans = combodf.xs(0, level='transition_index')
-    lasttrans = combodf.groupby(level='transition_combination').apply(
-        lambda g: g.iloc[[-1]]
-    )
+    lasttrans = combodf.groupby(level='transition_combination').tail(1)
     combo_ids = firsttrans.index.to_numpy()
  
     # get from and to position tuples
@@ -329,9 +343,20 @@ def build_graph(combodf, dims):
     from_node_sorted = from_node[order]
     n_nodes = len(all_nodes)
     offsets = np.searchsorted(from_node_sorted, np.arange(n_nodes + 1))
-    #get rows from the original dataframe to reconstruct bootstrapped dataframes
-    combo_rows = {c: combodf.loc[c].reset_index(drop=True) for c in combo_ids}
- 
+    #keep only the identity columns needed to look up precomputed raw/interpolated
+    #data for a sampled transition
+    #combodf is built (in get_bootstrapped_cgps_trajectories) with combo ids
+    #0..n_combos-1 assigned in contiguous, ascending row order, ntrans rows
+    #each -- so a per-column reshape to (n_combos, ntrans) lines up exactly
+    #with combo_ids, one array per column 
+    id_cols = ['Treatment', 'cell', 'CellID', 'frame']
+    n_combos = len(combo_ids)
+    ntrans = len(combodf) // n_combos
+    combo_col_arrays = {
+        col: combodf[col].to_numpy().reshape(n_combos, ntrans)
+        for col in id_cols
+    }
+
     return {
         'node_to_id': node_to_id,
         'to_node': to_node,
@@ -339,7 +364,8 @@ def build_graph(combodf, dims):
         'offsets': offsets,
         'flat_combo_idx': order,
         'combo_ids': combo_ids,
-        'combo_rows': combo_rows,
+        'id_cols': id_cols,
+        'combo_col_arrays': combo_col_arrays,
         'n_nodes': n_nodes,
     }
 
@@ -449,33 +475,69 @@ def batched_walk(
  
 def reconstruct_trajectories(graph, history):
     """
-    Reconstruct transition dataframes from graph positions
-    mapped to combodf indices
-    """
+    Reconstruct identity-only transition dataframes (Treatment, cell, CellID,
+    frame) from graph positions mapped to combodf indices. time_elapsed/
+    cumulative_time/real_time are not tracked here; see
+    construct_bstrans_from_lookup to add those back in from the raw
+    transitions.
 
-    combo_ids = graph['combo_ids']
-    combo_rows = graph['combo_rows']
+    Fully vectorized: builds one flat list of (replicate, step) choices for
+    every valid step across the whole walk, then looks up all their identity
+    values with a single numpy fancy-index per column, instead of looping
+    over replicates and pd.concat-ing pieces one at a time.
+    """
+    id_cols = graph['id_cols']
+    combo_col_arrays = graph['combo_col_arrays']
+    ntrans = next(iter(combo_col_arrays.values())).shape[1]
     B = history[0].shape[0]
- 
-    trajectories = []
-    for b in range(B):
-        pieces = []
-        for step_choices in history:
-            c = step_choices[b]
-            if c == -1:
-                continue
-            combo_id = combo_ids[c]
-            pieces.append(combo_rows[combo_id])
-        if not pieces:
-            trajectories.append(pd.DataFrame())
-            continue
-        traj = pd.concat(pieces, ignore_index=True)
-        traj['cumulative_time'] = traj['time_elapsed'].cumsum()
-        traj['real_time'] = traj['cumulative_time']
-        traj['iter'] = b
-        trajectories.append(traj)
- 
-    return pd.concat(trajectories, ignore_index = True)
+
+    #(B, n_steps) grid of chosen local combo index per replicate/step, -1 = inactive
+    Ht = np.stack(history, axis=1)
+    valid = Ht != -1
+    #row-major nonzero order = replicate-major, ascending step within each replicate
+    b_idx, step_idx = np.nonzero(valid)
+    combo_local = Ht[b_idx, step_idx]
+
+    data = {
+        col: combo_col_arrays[col][combo_local].reshape(-1)
+        for col in id_cols
+    }
+    data['iter'] = np.repeat(b_idx, ntrans)
+
+    return pd.DataFrame(data)
+
+
+def construct_bstrans_from_lookup(id_bstrans, raw_data, id_cols=('Treatment', 'cell', 'CellID', 'frame')):
+    """
+    Rebuild the full data for an identity-only bootstrapped trajectory (from
+    reconstruct_trajectories, or a saved identity-only bstrans CSV) by
+    looking up each sampled transition's row in raw_data (any dataframe
+    indexed by the same identity, e.g. rawtrans for the full raw trajectory,
+    or a raw_..._aer_cf table for per-transition aer/angular_velocity/
+    pc_speed) on demand, then recomputing cumulative_time/real_time for the
+    spliced replicate order.
+    """
+    id_cols = list(id_cols)
+    raw_lookup = raw_data.set_index(id_cols)
+    raw_rows = raw_lookup.reindex(pd.MultiIndex.from_frame(id_bstrans[id_cols])).reset_index(drop=True)
+    bstrans = pd.concat([id_bstrans.reset_index(drop=True), raw_rows], axis=1)
+    bstrans['cumulative_time'] = bstrans.groupby('iter')['time_elapsed'].cumsum()
+    bstrans['real_time'] = bstrans['cumulative_time']
+    return bstrans
+
+
+def interpolate_bootstrapped_trajectories(migboot, interpolated_trans, id_cols=('Treatment', 'cell', 'CellID', 'frame')):
+    """
+    Reconstruct the interpolated trajectories for every bootstrapped
+    replicate at once by merging the identity-only bstrans (from
+    reconstruct_trajectories) against the precomputed interpolated
+    transitions (from get_interpolated_cgps_trajectories) on identity.
+    """
+    id_cols = list(id_cols)
+    bsinttrans = migboot.merge(interpolated_trans, on=id_cols, how='left')
+    bsinttrans['cumulative_time'] = bsinttrans.groupby('iter')['time_elapsed'].cumsum()
+    bsinttrans['real_time'] = bsinttrans['cumulative_time']
+    return bsinttrans
  
  
 
@@ -488,24 +550,17 @@ def transition_count_wrapper(
     #unpack args from imap
     #bsdf: transition dataframe from bootstrap_trajectory()
     #nbins: bins in the CGPS
-    # ct: the cumulative time actually observed during the simulation, especially important for simulations that terminate early
-    bsdf, nbins, ct = args
-    
+    bsdf, nbins = args
+
+    ## get ttot
+    ttot = bsdf.time_elapsed.sum()
+
     ## determine dimensions in the CGPS
     dims = [x.split('from_')[-1] for x in bsdf.columns if 'from_' in x]
-    ## build all the possible coordinates in the space
-    axes = [np.arange(1,nbins+1)] * len(dims)
-    grid = np.meshgrid(*axes)
-    coords = np.stack(grid, axis=-1).reshape(-1, len(dims))
-    
-    ############## get the Boosttrapped counts of each bin position ############
-    results = []
-    for coord in coords:
-        results.append(
-            get_transition_counts(coord,bsdf,ct,) 
-            )
 
-    bstrans_rate_df = pd.DataFrame(results)
+    ############## get the counts of each bin position, vectorized over the
+    ############## whole dataframe at once instead of looping per coordinate
+    bstrans_rate_df = get_transition_counts(bsdf, nbins, ttot, dims)
     bstrans_rate_df = bstrans_rate_df.sort_values(by = dims).reset_index(drop=True)
     
     if sparse:
@@ -564,53 +619,37 @@ def load_and_fill_transition_counts(
 
 ######## get area enclosing rates the "real" way with individual interpolated transitions
 def get_area_enclosing_rate(
-        args
+        transdf, #dataframe with from_x/from_y/to_x/to_y/time_elapsed columns (any row grouping)
+        xyscaling, #list of the PC factors by which to scale the x and y coordinates of the CGPS in [x,y] format
+        origin, #coordinates of the flux origin in [x,y] format
         ):
-    
-    #unpack args for imap
-    #cell dataframe with the consecutive CGPS transitions
-    #nbins, #number of bins in the CGPS
-    #xyscaling = list, # list of the PC factors by which to scale the x and y coordinates of the CGPS in [x,y] format
-    #center = 'center', or coordinates of origin
-    cell, xyscaling, origin = args
-    
-    #get values to shift coordinates to the origin of the current
-    shiftbyx = origin[0]
-    shiftbyy = origin[1]
+    """
+    Instantaneous area enclosing rate, angular velocity (cycling frequency),
+    and pc_speed for every transition in transdf.
+    """
+    transdf = transdf.copy()
 
-    #calculate aer per transition
-    aerlist = []
-    avlist = []
-    pcspeedlist = []
-    for _, row in cell.iterrows():
-        #center the row values on zero and scale them
-        row['from_x'] = (row['from_x'] - shiftbyx) * xyscaling[0]
-        row['to_x'] = (row['to_x'] - shiftbyx) * xyscaling[0]
-        row['from_y'] = (row['from_y'] - shiftbyy) * xyscaling[1]
-        row['to_y'] = (row['to_y'] - shiftbyy) * xyscaling[1]
-        aerlist.append(
-            ((row.from_y*row.to_x) - (row.from_x*row.to_y)) / 
-                (2*row.time_elapsed)
-                        )
-        ######## "For instance, we could track a pair of degrees of freedom 𝐱r={𝑥𝑖,𝑥𝑗} and measure the time average of the angular velocity ⟨̇𝛽𝑖⁢𝑗⟩,
-        ######## or equivalently, the rate at which the trajectory revolves around the origin in this reduced two-dimensional subspace (Fig. 2). 
-        ######## This simple measurement does not require any discretization of phase space or inference of the force field. 
-        ######## We shall refer to ⟨̇𝛽𝑖⁢𝑗⟩ as the cycling frequency.
-        ######## https://doi.org/10.1103/PhysRevE.99.052406
-        angle_deg = clock_counterclock_angle([row.from_x,row.from_y],[row.to_x,row.to_y])
-        avlist.append(
-            angle_deg/row.time_elapsed
-            )
+    #center coordinates on the flux origin and scale them
+    from_x = (transdf['from_x'] - origin[0]) * xyscaling[0]
+    to_x = (transdf['to_x'] - origin[0]) * xyscaling[0]
+    from_y = (transdf['from_y'] - origin[1]) * xyscaling[1]
+    to_y = (transdf['to_y'] - origin[1]) * xyscaling[1]
 
-        ### also calculate "pc_speed"
-        pcspeedlist.append(
-            np.sqrt((row.to_x - row.from_x)**2 + (row.to_y - row.from_y)**2) / row.time_elapsed
-        )
+    transdf['aer'] = ((from_y*to_x) - (from_x*to_y)) / (2*transdf['time_elapsed'])
 
-    cell['aer'] = aerlist
-    cell['angular_velocity'] = avlist
-    cell['pc_speed'] = pcspeedlist
-    return cell
+    ######## "For instance, we could track a pair of degrees of freedom 𝐱r={𝑥𝑖,𝑥𝑗} and measure the time average of the angular velocity ⟨̇𝛽𝑖⁢𝑗⟩,
+    ######## or equivalently, the rate at which the trajectory revolves around the origin in this reduced two-dimensional subspace (Fig. 2).
+    ######## This simple measurement does not require any discretization of phase space or inference of the force field.
+    ######## We shall refer to ⟨̇𝛽𝑖⁢𝑗⟩ as the cycling frequency.
+    ######## https://doi.org/10.1103/PhysRevE.99.052406
+    #vectorized clock_counterclock_angle(from, to) = -signed_angle(from, to)
+    angle_deg = -np.degrees(np.arctan2(from_x*to_y - from_y*to_x, from_x*to_x + from_y*to_y))
+    transdf['angular_velocity'] = angle_deg / transdf['time_elapsed']
+
+    ### also calculate "pc_speed"
+    transdf['pc_speed'] = np.sqrt((to_x - from_x)**2 + (to_y - from_y)**2) / transdf['time_elapsed']
+
+    return transdf
 
 
 
@@ -676,9 +715,11 @@ def get_interpolated_cgps_trajectories(
     for i, cell in rawtrans.groupby('CellID'):
         cell, runs = utils.get_consecutive_transitions(cell)
         for r in runs:
-            #skip runs less than 2 frames long
-            if len(r)>1:
-                mapargs.append((cell.iloc[r], time_interval))
+            #interpolate_trajectory works fine on a single-transition run (just
+            #the from/to endpoints), so every run is interpolated -- otherwise an
+            #isolated single-transition run would be sampleable by
+            #get_bootstrapped_cgps_trajectories but missing from the lookup here
+            mapargs.append((cell.iloc[r], time_interval))
     print(f'Interpolating {whichpc_string(whichpcs)} trajectories')
     with multiprocessing.Pool(processes=60) as pool:
         results = list(tqdm.tqdm(pool.imap(interpolate_trajectory_wrapper, mapargs), total=len(mapargs)))
@@ -704,10 +745,7 @@ def aggregate_transition_counts(
     
     trresults = []
     for m, mig in transdf_sep.groupby(group_factor):
-        ## get time observed in this group
-        ttot = mig.time_elapsed.sum()
-        print(f'Total time observed in {whichpc_string(whichpcs)} {m} CGPS was {ttot/60} minutes')
-        trans_rate_df_sep = transition_count_wrapper((mig, nbins, ttot))
+        trans_rate_df_sep = transition_count_wrapper((mig, nbins))
         ## add group_factor
         trans_rate_df_sep[group_factor] = m
         ## append to list of all group transition counts
@@ -809,12 +847,13 @@ def match_dataset_distribution(
 ############## BOOTSTRAP MANY TRAJECTORIES ##########
 def get_bootstrapped_cgps_trajectories(
         rawtrans, #raw transitions from get_raw_cgps_trajectories
+        interpolated_trans, #already-interpolated transitions from get_interpolated_cgps_trajectories
         whichpcs, #which two PCs to use in the cgps [x,y]
         config: Config,
         dbbssavedir: Path, #where to save the bootstrapped dataframes
         group_factor: str = 'Treatment', #column with factor to separate the data on
         ):
-    
+
     ### get some settings from config
     if not dbbssavedir.exists():
         dbbssavedir.mkdir()
@@ -822,13 +861,11 @@ def get_bootstrapped_cgps_trajectories(
     ttot = config.db_params.ttot #set the total bootstrap time
     ntrans = config.db_params.ntrans #how many transitions to sample at each step
     bsiter = config.db_params.bsiter #number of times to bootstrap
-    time_interval = config.im_params.time_interval #time between frames of the data
 
     #make a bunch of lists that I will append things to as I go for each treatment
     bstrans = []
-    bsint = []
     bsframe_sep_full = []
-    
+
     #bootstrap from raw trajectories
     with multiprocessing.Pool(processes=60) as pool:
         for m, mig in rawtrans.groupby(group_factor):            
@@ -870,28 +907,23 @@ def get_bootstrapped_cgps_trajectories(
             ## convert transition indices to a dataframe with all
             ## bootstrapped interations
             migboot = reconstruct_trajectories(graph, history)
-            #append to the larger list of dataframes
+            #append the identity-only trajectory to the larger list of dataframes;
             bstrans.append(migboot)
 
         
 
-            ###### now interpolate the bootstrapped trajectories ######
-            print(f'Interpolating trajectories for {m}')
-            mapargs = [(d, time_interval) for _, d in migboot.groupby('iter')]
-            results = list(tqdm.tqdm(pool.imap(interpolate_trajectory_wrapper, mapargs), total=bsiter))
-                    
-            bsinttrans = pd.concat(results, ignore_index=True)
-            bsinttrans['iter'] = list(itertools.chain.from_iterable([[k]*len(res) for k,res in enumerate(results)]))
+            ###### now look up precomputed interpolated segments for the bootstrapped
+            ###### trajectories, all replicates at once via a single merge
+            print(f'Looking up interpolated trajectories for {m}')
+            bsinttrans = interpolate_bootstrapped_trajectories(migboot, interpolated_trans)
             bsinttrans = bsinttrans.sort_values(by = ['iter','cumulative_time']).reset_index(drop=True)
             bsinttrans[group_factor] = m
-            bsint.append(bsinttrans)
 
 
             ###### now get transition rates
             #get list of tuples of arguments to pass to imap
-            mapargs = [(it, nbins, it.time_elapsed.sum()) for i, it in bsinttrans.groupby('iter')]
-            
-            #boostrap with multiprocessing
+            mapargs = [(it, nbins) for _, it in bsinttrans.groupby('iter')]
+            #calculate bootstrapped transition rates
             print(f'Calculating bootstrapped CGPS transition rates for {m}')
             results = list(tqdm.tqdm(pool.imap(transition_count_wrapper, mapargs), total=bsiter))
 
@@ -905,17 +937,14 @@ def get_bootstrapped_cgps_trajectories(
     ####### pull everything together and save
     bstrans = pd.concat(bstrans, ignore_index=True)
     bstrans.to_csv(dbbssavedir.joinpath(whichpc_string(whichpcs)+f'_bootstrapped_{ntrans}_transitions.csv'))
-    bsint = pd.concat(bsint, ignore_index=True)
-    bsint.to_csv(dbbssavedir.joinpath(whichpc_string(whichpcs)+f'_bootstrapped_{ntrans}_interpolated_transitions.csv'))
     bsframe_sep_full = pd.concat(bsframe_sep_full, ignore_index=True)
     bsframe_sep_full.to_csv(dbbssavedir.joinpath(whichpc_string(whichpcs)+f'_bootstrapped_{ntrans}_transition_rates.csv'))
     print('Finished bootstrapping')
 
-    ### finally, match the distribution of bs data to real data
-    replicate_df = match_dataset_distribution(rawtrans, bstrans,)
-    replicate_df.to_csv(dbbssavedir.joinpath(whichpc_string(whichpcs)+f'_real_data-matched_bootstrapped_indices.csv'))
-    
-    return bstrans, bsint, bsframe_sep_full, replicate_df
+    ############# open average bootstrapped currents (saves its own csv) ###################
+    get_avg_current_error(whichpcs, dbbssavedir, config, 'iter')
+
+    return bstrans, bsframe_sep_full
     
 
 ############# open average bootstrapped currents ###################
@@ -997,7 +1026,6 @@ def get_aer_cf(
         ):
     
     ### get some settings from config
-    time_interval = config.im_params.time_interval
     savedir = config.common.savedir
     pc_combos = config.common.pc_combos #unique PC pairs
     origins = config.db_params.origins #flux origins for this dataset and alignment
@@ -1009,31 +1037,36 @@ def get_aer_cf(
     #scaling of the bins in real units of whatever the CGPS axis parameters are
     xyscaling = [centers[f'PC{wpc}'].diff().mean() for wpc in whichpcs]
 
-    #make list of imap arguments
-    with multiprocessing.Pool(processes=60) as pool:
-        #collect args for instantaneous aer
-        mapargs = []
-        for _, df in transdf.groupby(['Treatment',group_factor]):
-            df, runs = utils.get_consecutive_transitions(df)
-            for r in runs:
-                mapargs.append((df.iloc[r].reset_index(drop = True),xyscaling,origin))
+    #compute instantaneous aer/angular_velocity/pc_speed for every transition
+    #at once -- each row's value only depends on its own from_/to_/time_elapsed
+    #columns, so no per-run splitting or multiprocessing is needed here
+    allaers = get_area_enclosing_rate(transdf, xyscaling, origin)
+    ## keep only new columns and those needed for ID (including the identity
+    ## columns, so this output can also be used as a lookup table via
+    ## construct_bstrans_from_lookup)
+    new_cols = [x for x in allaers.columns if x not in transdf.columns]
+    id_cols = ['Treatment', 'cell', 'CellID', 'frame']
+    keep_cols = list(dict.fromkeys(id_cols + [group_factor] + [x for x in allaers.columns if 'time' in x]))
+    allaers = allaers[keep_cols + new_cols]
 
-
-        results = list(tqdm.tqdm(pool.imap(get_area_enclosing_rate, mapargs), total=len(mapargs)))
-        allaers = pd.concat(results, ignore_index=True)
-        ## keep only new columns and those needed for ID
-        new_cols = [x for x in allaers.columns if x not in transdf.columns]
-        keep_cols = ['Treatment', group_factor] + [x for x in allaers.columns if 'time' in x]
-        allaers = allaers[keep_cols + new_cols]
-
-        ### collect args for average aer, etc.
-        lrmapargs = [(df.sort_values('cumulative_time').reset_index(drop = True),
-                    group_factor) for _, df in allaers.groupby(['Treatment',group_factor])]
-
-        lrresults = list(tqdm.tqdm(pool.imap(get_linear_rates_wrap, lrmapargs), total=len(lrmapargs)))
-        lrrdf = pd.DataFrame(lrresults)
+    lrrdf = get_linear_rates(allaers, group_factor)
 
     return allaers, lrrdf
+
+
+def get_linear_rates(allaers, group_factor):
+    """
+    Fit average aer/angular_velocity/pc_speed etc. per (Treatment,
+    group_factor) group.
+    """
+    ### collect args for average aer, etc. 
+    lrmapargs = [(df.sort_values('cumulative_time').reset_index(drop = True),
+                group_factor) for _, df in allaers.groupby(['Treatment',group_factor])]
+
+    with multiprocessing.Pool(processes=60) as pool:
+        lrresults = list(tqdm.tqdm(pool.imap(get_linear_rates_wrap, lrmapargs), total=len(lrmapargs)))
+    return pd.DataFrame(lrresults)
+
 
 def get_run_stats(
         df, #dataframe containing aer info
@@ -1158,8 +1191,12 @@ def get_lls_gapped_bootstrap(
     print(f'Average track run length mean for real data is {np.mean(allrunlengthmeans)} and mean gap frequency is {np.mean(allgapfrequencies)})')
 
     #### get bs data with gaps
-    bsaers = pd.read_csv(dbbsdir.joinpath(whichpc_string(whichpcs)+f'_bootstrapped_{ntrans}_Area_Enclosing_Rates.csv'), index_col=0)
+    #bstrans is identity-only (Treatment, cell, CellID, frame, iter); look it up
+    #against justaers (the raw aer table used for the real-data run stats above)
+    #to get the full aer/time columns, instead of reading a separately-saved
+    #bootstrapped aer_cf csv
     bstrans = pd.read_csv(dbbsdir.joinpath(whichpc_string(whichpcs)+f'_bootstrapped_{ntrans}_transitions.csv'), index_col = 0)
+    bsaers = construct_bstrans_from_lookup(bstrans, justaers)
 
     bs_with_gaps = bootstrap_runs(
         bsaers, #dataframe with bootstrap iterations (doesn't actually need aer)

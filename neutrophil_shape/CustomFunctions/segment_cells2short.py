@@ -16,7 +16,7 @@ from ..aicssegmentation.core.vessel import filament_2d_wrapper
 from ..aicssegmentation.core.pre_processing_utils import intensity_normalization, image_smoothing_gaussian_3d
 from ..aicssegmentation.core.MO_threshold import MO
 from . import shtools_mod
-from .shparam_mod import extract_mesh_principal_axes    
+from .shparam_mod import extract_object_principal_axes    
 from .utils import twodholefill, get_intensity_features
 
 import skimage.measure
@@ -367,7 +367,11 @@ def seg_confocal_40x_memonly_fromslices(
         shtools_mod.save_polydata(mesh, mesh_file)
 
         ## get principal axes from image
-        cell_evecs = extract_mesh_principal_axes(mesh)
+        cell_evecs = extract_object_principal_axes(
+            seg_rimg,
+            xyres,
+            zstep,
+        )
         #unpack vectors into a dictionary
         p_ax = ['Major','Median','Minor']
         dim = ['X','Y','Z']
@@ -445,23 +449,27 @@ def get_confocal_image_info(
         #ask if centroid inside the object
         goodsh = False if seg_rimg[tuple([int(u) for u in cent])]==0 else True
 
-        #### MAKE AND SAVE MESH 
-        #make mesh
-        mesh,_,_ = shtools_mod.get_mesh_from_image(seg_rimg)
-        #scale mesh from pixels to microns
-        mesh = shtools_mod.rotate_and_scale_mesh(
-            mesh,
-            scale = np.array([xyres, xyres, zstep]),
-            )
-        #save mesh
-        meshdir = procimdir.parent / 'meshes'
-        mesh_file = meshdir.joinpath(cell_name + '_cell_mesh.vtp')
-        if mesh_file.exists():
-            mesh_file.unlink()
-        shtools_mod.save_polydata(mesh, mesh_file)
+        # #### MAKE AND SAVE MESH 
+        # #make mesh
+        # mesh,_,_ = shtools_mod.get_mesh_from_image(seg_rimg)
+        # #scale mesh from pixels to microns
+        # mesh = shtools_mod.rotate_and_scale_mesh(
+        #     mesh,
+        #     scale = np.array([xyres, xyres, zstep]),
+        #     )
+        # #save mesh
+        # meshdir = procimdir.parent / 'meshes'
+        # mesh_file = meshdir.joinpath(cell_name + '_cell_mesh.vtp')
+        # if mesh_file.exists():
+        #     mesh_file.unlink()
+        # shtools_mod.save_polydata(mesh, mesh_file)
 
         ## get principal axes from image
-        cell_evecs = extract_mesh_principal_axes(mesh)
+        cell_evecs = extract_object_principal_axes(
+            seg_rimg,
+            xyres,
+            zstep,
+        )
         #unpack vectors into a dictionary
         p_ax = ['Major','Median','Minor']
         dim = ['X','Y','Z']
