@@ -12,8 +12,10 @@ import pandas as pd
 from vtk.util import numpy_support
 from skimage import transform as sktrans
 from scipy import interpolate as spinterp
+from scipy.sparse import coo_matrix
 from scipy.spatial import KDTree
 from scipy.spatial.transform import Rotation as R
+from collections import deque
 from pathlib import Path
 
 from . import shtools_mod #, cytoparam_mod
@@ -926,3 +928,260 @@ def get_shape_info(
 #wrapper for get_shape_info_nonuc for imap
 def shape_info_imap(args):
     return get_shape_info(*args)
+
+
+
+############################ PROTRUSION DETECTION VIA SPHARM RESIDUAL WATERSHED #############
+def get_protrusion_info(
+        df: pd.DataFrame,  # row with 'cell' and Euler angles for alignment
+        meshdir: Path,  # path to the mesh directory
+        l_order: int,  # full SH expansion order
+        lrec: int = 4,  # low-order "body" envelope reconstruction order
+        smooth_iters: int = 5,  # mild smoothing of the residual for stable peak-seeding
+        prominence_sigmas: float = 2.0,  # keep peaks with prominence above this many robust-sigma
+        grow_sigmas: float = 1.0,  # let a confirmed peak's region grow out to this height floor
+        min_area_verts: int = 15,  # drop surviving regions smaller than this many vertices
+        ):
+    """
+    Detect discrete surface protrusions (pseudopods/ruffles) on a cell by
+    comparing its surface mesh to a smoothed low-order spherical harmonics
+    reconstruction of its own body (the per-vertex difference between actual
+    radius and that envelope's radius is the "residual"). Which bumps count
+    as genuinely distinct protrusions -- rather than membrane texture riding
+    on the flank of a bigger one -- is decided by topographic prominence via
+    a persistence/watershed computation over the mesh surface graph, not by
+    a single height cutoff: a single global threshold on this same residual
+    field shatters one real protrusion into dozens of disconnected pieces.
+
+    Parameters
+    ----------
+    df : pd.Series
+        Row with 'cell' and the Euler_Angles_X/Y/Z columns used to rotate
+        the mesh into the alignment frame (same convention as
+        get_shape_info). Direction outputs are expressed in this frame.
+    meshdir : Path
+        Directory containing '{cell}_cell_mesh.vtp' files.
+    l_order : int
+        Full spherical harmonics expansion order.
+
+    Returns
+    -------
+    list of dict
+        One dict per detected protrusion (empty list if none pass the area
+        filter), each with the identifying 'cell', a 1-based
+        'protrusion_rank' (1 = tallest peak residual), its peak
+        height/area/volume, and its direction from the cell centroid.
+
+    Other parameters
+    ----------------
+    lrec : int, optional
+        Degree of the low-order "body" reconstruction used as the smoothed
+        envelope that the actual surface is compared against. Default 4.
+    smooth_iters : int, optional
+        Number of mesh-neighbor-averaging passes applied to the residual
+        before peak-seeding/ordering, to keep single-vertex noise from
+        being picked up as its own peak. All reported metrics use the raw
+        (unsmoothed) residual regardless. Default 5.
+    prominence_sigmas : float, optional
+        A basin must have prominence greater than this many robust-sigma
+        (median absolute deviation scaled to approximate a standard
+        deviation) above the residual's noise floor to be treated as a
+        genuinely distinct protrusion. Default 2.0.
+    grow_sigmas : float, optional
+        Once a peak is confirmed significant, its region is grown outward
+        (flood-fill) until the surface drops back to this many robust-sigma
+        above the noise floor. Default 1.0.
+    min_area_verts : int, optional
+        Drop any surviving region smaller than this many vertices. Default 15.
+    """
+
+    cell_name = df.cell
+
+    ### read and align the mesh exactly as get_shape_info does
+    mesh_path = meshdir.joinpath(cell_name + '_cell_mesh.vtp')
+    mesh = shtools_mod.read_polydata(mesh_path)
+    euler_angles = df[['Euler_Angles_X', 'Euler_Angles_Y', 'Euler_Angles_Z']].values
+    mesh = shtools_mod.rotate_and_scale_mesh(mesh, rotations=euler_angles)
+
+    coords = numpy_support.vtk_to_numpy(mesh.GetPoints().GetData())
+    coords = coords - coords.mean(axis=0, keepdims=True)
+    mesh = shtools_mod.update_mesh_points(mesh, coords[:, 0], coords[:, 1], coords[:, 2])
+
+    #vtkContourFilter (used to build these meshes) does not weld the
+    #coincident points shared by neighboring triangles, so without this the
+    #mesh's vertex graph is not actually connected -- the watershed below
+    #needs true topological connectivity to work.
+    mesh = shtools_mod.clean_polydata(mesh)
+
+    ### SPHARM low-order residual: actual radius minus the smoothed envelope
+    (coeffs_dict, _), _ = get_shcoeffs_mesh(mesh, l_order)
+    coeffs = np.array(list(coeffs_dict.values())).reshape(2, l_order + 1, l_order + 1)
+    _, grid_low = shtools_mod.get_reconstruction_from_coeffs(coeffs, lrec=lrec)
+
+    #grid_low is sampled on pyshtools's DH grid (sampling=2): row 0 = north
+    #pole, increasing colatitude to (but not including) pi; column 0 =
+    #longitude 0, increasing to (but not including) 2*pi. Wrap the longitude
+    #axis so the interpolator below covers the full 0..2*pi range without a seam.
+    n_lat, n_lon = grid_low.shape
+    grid_colat = np.linspace(0, np.pi, n_lat, endpoint=False)
+    grid_lon = np.linspace(0, 2 * np.pi, n_lon, endpoint=False)
+    grid_low_w = np.concatenate([grid_low, grid_low[:, :1]], axis=1)
+    grid_lon_w = np.concatenate([grid_lon, [2 * np.pi]])
+    interp_low = spinterp.RegularGridInterpolator(
+        (grid_colat, grid_lon_w), grid_low_w, bounds_error=False, fill_value=None
+    )
+
+    coords = numpy_support.vtk_to_numpy(mesh.GetPoints().GetData())
+    x, y, z = coords[:, 0], coords[:, 1], coords[:, 2]
+    rad = np.sqrt(x ** 2 + y ** 2 + z ** 2)
+    colat = np.arccos(np.divide(z, rad, out=np.zeros_like(rad), where=(rad != 0)))
+    lon = np.pi + np.arctan2(y, x)
+    r_low = interp_low(np.stack([colat, lon], axis=1))
+    residual = rad - r_low
+    n = len(residual)
+
+    ### mesh graph (vertex adjacency + per-vertex area for later metrics)
+    polys = numpy_support.vtk_to_numpy(mesh.GetPolys().GetData())
+    tris = polys.reshape(-1, 4)[:, 1:4]
+
+    neighbors = [[] for _ in range(n)]
+    for a, b, c in tris:
+        neighbors[a] += [b, c]
+        neighbors[b] += [a, c]
+        neighbors[c] += [a, b]
+
+    tri_coords = coords[tris]
+    tri_area = 0.5 * np.linalg.norm(
+        np.cross(tri_coords[:, 1] - tri_coords[:, 0], tri_coords[:, 2] - tri_coords[:, 0]), axis=1
+    )
+    vertex_area = np.zeros(n)
+    np.add.at(vertex_area, tris[:, 0], tri_area / 3)
+    np.add.at(vertex_area, tris[:, 1], tri_area / 3)
+    np.add.at(vertex_area, tris[:, 2], tri_area / 3)
+
+    edges = np.concatenate([tris[:, [0, 1]], tris[:, [1, 2]], tris[:, [0, 2]]], axis=0)
+    adjacency = coo_matrix((np.ones(len(edges)), (edges[:, 0], edges[:, 1])), shape=(n, n))
+    adjacency = adjacency.maximum(adjacency.T).tocsr()
+    degree = np.asarray(adjacency.sum(axis=1)).flatten()
+    degree[degree == 0] = 1
+
+    #mild smoothing used only to seed/order peaks robustly against
+    #single-vertex noise -- all reported metrics use the raw residual
+    smoothed = residual.copy()
+    for _ in range(smooth_iters):
+        smoothed = adjacency.dot(smoothed) / degree
+
+    ### persistence ("topographic prominence") over the mesh graph
+    # Process vertices from highest to lowest smoothed residual. Each time a
+    # vertex is reached with no already-processed neighbor, it starts a new
+    # basin (a local peak). When a vertex is reached that borders two or
+    # more existing basins, the lower one(s) are considered to have "died"
+    # at that saddle height -- prominence = that basin's peak height minus
+    # the saddle height -- and get merged into the higher basin. Exactly one
+    # basin (the global maximum's) never dies.
+    order = np.argsort(-smoothed, kind='stable')
+    parent = np.arange(n)
+
+    def find(v):
+        root = v
+        while parent[root] != root:
+            root = parent[root]
+        while parent[v] != root:
+            parent[v], v = root, parent[v]
+        return root
+
+    processed = np.zeros(n, dtype=bool)
+    root_peak_value = {}
+    root_peak_vertex = {}
+    prominence_records = []
+
+    for v in order:
+        processed[v] = True
+        touched = {find(nb) for nb in neighbors[v] if processed[nb]}
+        if not touched:
+            parent[v] = v
+            root_peak_value[v] = smoothed[v]
+            root_peak_vertex[v] = v
+        elif len(touched) == 1:
+            parent[v] = next(iter(touched))
+        else:
+            ranked = sorted(touched, key=lambda r: -root_peak_value[r])
+            survivor = ranked[0]
+            for loser in ranked[1:]:
+                prominence_records.append({
+                    'peak_vertex': root_peak_vertex[loser],
+                    'prominence': root_peak_value[loser] - smoothed[v],
+                })
+                parent[loser] = survivor
+                del root_peak_value[loser]
+                del root_peak_vertex[loser]
+            parent[v] = survivor
+
+    #the one basin still alive at the end (the global maximum) never
+    #"died", so it has no finite prominence -- treat it as automatically significant
+    global_peak_vertex = next(iter(root_peak_vertex.values()))
+    prominence_df = pd.DataFrame(prominence_records)
+
+    median = np.median(residual)
+    robust_std = 1.4826 * np.median(np.abs(residual - median))
+    prominence_thresh = prominence_sigmas * robust_std
+    grow_thresh = median + grow_sigmas * robust_std
+
+    if len(prominence_df) > 0:
+        significant = prominence_df[prominence_df.prominence > prominence_thresh]
+        seed_vertices = [global_peak_vertex] + significant.sort_values(
+            'prominence', ascending=False).peak_vertex.tolist()
+    else:
+        seed_vertices = [global_peak_vertex]
+
+    ### seeded flood-fill (multi-source BFS): grow each significant peak
+    ### outward until the region drops back to the grow threshold. This must
+    ### be a BFS, not a single ordered sweep from high to low value -- a
+    ### small ruffle on the shoulder of a real protrusion is itself a local
+    ### bump relative to its immediate neighbors (just not significant
+    ### enough to be its own seed); in a single top-down sweep it would be
+    ### visited before its lower neighbors, find none of them labeled yet,
+    ### and be skipped permanently, leaving an unlabeled island in the
+    ### middle of an otherwise-correct region.
+    label = np.zeros(n, dtype=np.int64)
+    queue = deque()
+    for i, seed in enumerate(seed_vertices, start=1):
+        label[seed] = i
+        queue.append(seed)
+    while queue:
+        v = queue.popleft()
+        for nb in neighbors[v]:
+            if label[nb] == 0 and smoothed[nb] > grow_thresh:
+                label[nb] = label[v]
+                queue.append(nb)
+
+    ### per-protrusion metrics, dropping any that end up too small
+    rows = []
+    for i in range(1, len(seed_vertices) + 1):
+        verts = np.where(label == i)[0]
+        if len(verts) < min_area_verts:
+            continue
+        direction = coords[verts].mean(axis=0)
+        direction /= np.linalg.norm(direction)
+        rows.append({
+            'cell': cell_name,
+            'seed_vertex': seed_vertices[i - 1],
+            'n_vertices': len(verts),
+            'peak_residual_um': residual[verts].max(),
+            'area_um2': vertex_area[verts].sum(),
+            'volume_um3': (residual[verts] * vertex_area[verts]).clip(min=0).sum(),
+            'direction_x': direction[0],
+            'direction_y': direction[1],
+            'direction_z': direction[2],
+        })
+
+    rows.sort(key=lambda r: -r['peak_residual_um'])
+    for rank, r in enumerate(rows, start=1):
+        r['protrusion_rank'] = rank
+
+    return rows
+
+
+#wrapper for get_protrusion_info for imap
+def protrusion_info_imap(args):
+    return get_protrusion_info(*args)

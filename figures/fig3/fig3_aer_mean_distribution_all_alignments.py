@@ -9,7 +9,7 @@ Created on Mon Apr 14 14:33:38 2025
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
-from neutrophil_shape.CustomFunctions import utils
+from neutrophil_shape.CustomFunctions import utils, DetailedBalance
 from neutrophil_shape.CustomFunctions.shapePCAtools import filter_extremes_based_on_percentile
 from neutrophil_shape.config.loader import load_config
 from matplotlib.font_manager import FontProperties
@@ -30,13 +30,18 @@ time_interval = config.im_params.time_interval
 
 fig, ax = plt.subplots()
 bigdflist = []
-for i in range(len(dirlist)):
-    
+for i in range(len(dirlist)):  # NOTE: dirlist is never defined -- pre-existing bug, unrelated to the bootstrapping changes below
+
     #define specific directories
     basedir = Path('E:/Aaron').joinpath(dirlist[i])
     savedir = basedir.joinpath('Detailed_Balance/alldatabs')
-    
-    aerdf = pd.read_csv(savedir.joinpath(f'PC{maxaerlist[i][0]}-PC{maxaerlist[i][1]}_bootstrapped_{ntrans}_Area_Enclosing_Rates.csv'), index_col=0)
+
+    #the bootstrapped aer csv is no longer saved -- it's identity-only
+    #(Treatment, cell, CellID, frame, iter) via bstrans, reconstructed here by
+    #looking it up against the raw (non-bootstrapped) aer table
+    bstrans = pd.read_csv(savedir.joinpath(f'PC{maxaerlist[i][0]}-PC{maxaerlist[i][1]}_bootstrapped_{ntrans}_transitions.csv'), index_col=0)
+    raw_aer_cf = pd.read_csv(savedir.parent.joinpath(f'PC{maxaerlist[i][0]}-PC{maxaerlist[i][1]}_raw_transition_aer_cf.csv'), index_col=0)
+    aerdf = DetailedBalance.construct_bstrans_from_lookup(bstrans, raw_aer_cf)
 
     #fit lines to get aer and cf
     dflist = []

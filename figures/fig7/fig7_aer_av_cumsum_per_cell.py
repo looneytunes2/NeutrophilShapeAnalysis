@@ -13,6 +13,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from pathlib import Path
 from neutrophil_shape.config.loader import load_config
+from neutrophil_shape.CustomFunctions.utils import whichpc_string
 
 #which CPGS to look at
 whichpcs = (1,2)
@@ -83,6 +84,6 @@ ax.spines['right'].set_visible(False)
 plt.tight_layout()
 
 
-plt.savefig(__file__.split('.')[0] + '_aer.png', dpi = 500, bbox_inches='tight')
+plt.savefig(__file__.split('.')[0] + f'_{whichpc_string(whichpcs)}_aer.png', dpi = 500, bbox_inches='tight')
 
 

@@ -103,7 +103,7 @@ def render_frame(plotter, mesh, axes_actor = None):
 
 
 
-whichpcs = (4,5)
+whichpcs = (2,8)
 
 ### open config and get directories
 config = load_config(microscope_type='lls')
@@ -127,7 +127,7 @@ for cellname in FullFrame.CellID.unique():
     aers = pd.read_csv(dbdir / f'{utils.whichpc_string(whichpcs)}_raw_transition_aer_cf.csv', index_col = 0)
     aers = aers.rename(columns={'real_time':'time'})
     ### merge aers
-    TotalFrame = pd.merge(celldf, aers, on=['CellID','time'], how = 'left')
+    TotalFrame = pd.merge(celldf, aers, on=[x for x in aers.columns if x in celldf.columns], how = 'left')
     TotalFrame = TotalFrame.sort_values('time').reset_index(drop=True)
     n_frames = TotalFrame.shape[0]
     times = TotalFrame.time.values

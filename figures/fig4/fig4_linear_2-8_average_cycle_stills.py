@@ -1,9 +1,4 @@
-# -*- coding: utf-8 -*-
-"""
-Created on Mon Jul 24 12:15:45 2023
 
-@author: Aaron
-"""
 
 import numpy as np
 import pandas as pd
@@ -18,8 +13,8 @@ from neutrophil_shape.config.loader import load_config
 #get directories and open separated datasets
 treatments = ['Random']
 align = 'trajectory'
-whichpcs = (1,2)
-binnum = 18
+whichpcs = (2,8)
+binnum = 6
 binrange = 360/binnum
 direction = 'clockwise'
 zerostart = 'left'
@@ -63,6 +58,12 @@ def render_frame(plotter, mesh, color, camera_position, axes_actor=None):
         plotter.add_actor(axes_actor)
     plotter.camera_position = camera_position
     plotter.set_background(BACKGROUND)
+    #screenshot() only forces a render on the plotter's very first call ever;
+    #on later calls it just grabs whatever's currently in the buffer, which can
+    #still reflect a not-yet-applied camera_position from this same call when
+    #clear()/add_mesh()/camera_position are cycled rapidly on one reused
+    #plotter -- forcing a render here avoids capturing that stale frame.
+    plotter.render()
     return plotter.screenshot(return_img=True)
 
 
@@ -114,7 +115,7 @@ for b in bins_sorted:
     mesh, _ = shtools_mod.get_even_reconstruction_from_coeffs(np.reshape(shcoeffs, (2, lmax+1, lmax+1)))
     meshes.append(pv.wrap(mesh))
 
-#a fixed axes triad, offset outside the mesh's own footprint so it doesn't overlap it
+#a fixed axes triad, offset from the mesh so it doesn't overlap it
 max_extent = max(max(m.bounds[1]-m.bounds[0], m.bounds[3]-m.bounds[2]) for m in meshes)
 axes_actor = make_axes_actor(
     (-max_extent*0.75, -max_extent*0.75, 0),
@@ -126,38 +127,26 @@ axes_actor = make_axes_actor(
 # ---- Off-screen PyVista plotter (reused across meshes/views) ---- #
 try:
     pv.start_xvfb()  # needed on headless Linux without a display;
-                      # harmless to skip on systems that don't need it
+                      
 except Exception:
     pass
 
 plotter = pv.Plotter(off_screen=True, window_size=WINDOW_SIZE)
 
-#fix one camera position per view (using the largest mesh to set the zoom,
-#then backing the camera off a bit further so the axes triad -- which sits
-#outside that mesh's footprint -- is also in frame), then reuse it for every
-#mesh so shape/size are directly comparable across the whole row instead of
-#each mesh being auto-fit independently.
-#note: vtkAxesActor.GetBounds() doesn't reflect SetUserMatrix translations,
-#so it can't be used to grow the reset_camera() fit -- the manual dolly-back
-#below is what actually makes room for it.
-largest_mesh = max(meshes, key=lambda m: m.length)
+# define camera position based on view
 camera_positions = {}
 for view in VIEWS:
     plotter.clear()
-    plotter.add_mesh(largest_mesh)
+    plotter.add_mesh(max(meshes, key=lambda m: m.length))
     plotter.camera_position = view
     plotter.reset_camera()
-    pos, focal, up = plotter.camera_position
-    pos = tuple(np.array(focal) + (np.array(pos) - np.array(focal)) / 0.7)
-    camera_positions[view] = (pos, focal, up)
+    camera_positions[view] = plotter.camera_position
 
 print("Rendering mesh frames...")
 images = {view: [] for view in VIEWS}
-for i, (mesh, color) in enumerate(zip(meshes, discrete_colors)):
-    #only show the axes actor on the first (far left) column
-    frame_axes_actor = axes_actor if i == 0 else None
+for mesh, color in zip(meshes, discrete_colors):
     for view in VIEWS:
-        img = render_frame(plotter, mesh, color, camera_positions[view], frame_axes_actor)
+        img = render_frame(plotter, mesh, color, camera_positions[view], axes_actor)
         images[view].append(img)
 
 plotter.close()

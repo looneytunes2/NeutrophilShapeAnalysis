@@ -18,8 +18,8 @@ from neutrophil_shape.config.loader import load_config
 
 
 #get directories and open separated datasets
-align = 'trajectory_shape'
-whichpcs = (1,7)
+align = 'trajectory'
+whichpcs = (2,8)
 binnum = 18
 binrange = 360/binnum
 direction = 'clockwise'
@@ -27,16 +27,16 @@ zerostart = 'left'
 
 
 # Output
-FPS = 7
+FPS = 4
 # Rendering
 MESH_COLOR = "corn_silk"
 BACKGROUND = "lightsteelblue"
-WINDOW_SIZE = [800, 800]
+WINDOW_SIZE = [1000, 500]
 CAMERA_POSITION = None   # None -> auto-fit each frame; set explicitly (e.g.
                          # "iso", "xy", or a pyvista camera position tuple)
                          # to lock the camera across frames.
 CAMERA_POSITION = np.array([
-    (0, 0, 95),  # position
+    (0, 0, 125),  # position
     (0, 0, 0),  # focal point
     (0.0, 1.0, 0.0),  # view up
 ])

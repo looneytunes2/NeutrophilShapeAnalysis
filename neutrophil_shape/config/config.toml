@@ -6,6 +6,14 @@ l_order = 10 # SH order
 npcs = 8 # number of principal components to keep
 pilr_method = 'none' #what kind of PILR signal to calculate 'none','threshold','raw'
 nisos = [1,63] # interpolated "shells" if calculated a PILR
+[common.all_symmetrical_pcs]
+shape = [2,3,4,5,6]
+trajectory_shape = [2,3,5,6]
+trajectory = []
+[common.all_pc_flips]
+shape = [2,4,6,7]
+trajectory_shape = [1,2,7]
+trajectory = [1,3,7]
 
 [im_params.confocal]
 xyres = 0.3394 #um / pixel
@@ -53,6 +61,23 @@ trajectory = [[7,8],[8,6],[8,7],[8,8],[8,8],[8,8],[9,8],
                             [7,9],[7,8],[9,8],
                                 [8,7],[8,8],
                                     [8,8]]
+[db_params.confocal.all_symmetrical_origins]
+shape = [[8,10],[9,10],[7,10],[8,10],[8,9],[8,8],[8,8],
+            [10,10],[9,10],[10,11],[10,10],[10,8],[10,8],
+                [9,9],[9,9],[11,11],[10,9],[10,8],
+                    [9,9],[9,9],[9,8],[9,9],
+                        [11,10],[10,8],[10,9],
+                            [9,9],[9,9],
+                                [8,8]]
+trajectory_shape = [[9,10],[8,10],[9,8],[7,9],[8,10],[9,8],[9,8],
+                        [9,9],[10,8],[11,10],[11,10],[10,8],[11,9],
+                            [9,7],[11,10],[10,10],[10,8],[11,9],
+                                [7,10],[8,10],[8,8],[8,8],
+                                    [9,9],[10,8],[10,8],
+                                        [10,8],[10,9],
+                                            [8,6]]
+trajectory = []
+
 [db_params.confocal.cycle_thresh]
 [db_params.confocal.cycle_thresh.PC1-PC2]
 low = 0.006
@@ -62,38 +87,64 @@ smooth = 10
 low = 0.004
 high = 0.013
 smooth = 5
+[db_params.confocal.cycle_thresh.PC2-PC8]
+low = 0.004
+high = 0.013
+smooth = 3
 [db_params.confocal.cycle_thresh.PC1-PC7]
 low = 0.0025
 high = 0.01
 smooth = 5
 
 [db_params.lls]
-nbins = 25 #number of bins to use for the CGPSs
+nbins = 29 #number of bins to use for the CGPSs
 ntrans = 1 #number of consecutive transitions to sample when bootstrapping
 bsiter = 3000 #number of bootstrap iterations
 ttot = 3600 #total time of to bootstrap in seconds
 [db_params.lls.all_origins]
-shape = [[8,7],[8,8],[8,8],[8,9],[7,7],[8,8],[8,8],
-            [8,8],[8,8],[8,8],[7,8],[8,8],[8,8],
-                [8,8],[8,9],[6,8],[8,8],[9,7],
-                    [9,6],[8,8],[8,8],[8,8],
-                        [8,8],[8,8],[8,6],
-                            [8,8],[8,8],
-                                [8,8]]
-trajectory_shape = [[8,8],[8,8],[9,8],[8,9],[9,7],[15,14],[9,8],
-                        [8,8],[8,7],[8,7],[8,8],[9,8],[8,8],
-                            [8,8],[8,6],[8,8],[9,8],[8,8],
-                                [8,8],[7,6],[9,8],[8,8],
-                                    [8,8],[8,8],[8,6],
-                                        [7,8],[8,7],
-                                            [9,8]]
-trajectory = [[13,13],[8,6],[8,9],[8,8],[8,8],[8,8],[9,7],
-                [8,6],[8,9],[8,8],[8,7],[8,7],[13,15],
-                    [8,8],[7,8],[8,8],[8,8],[9,8],
-                        [13,13],[7,8],[8,8],[8,8],
-                            [8,8],[8,8],[8,8],
-                                [8,7],[8,8],
-                                    [8,8]]
+shape = [[],[],[],[],[],[],[],
+            [],[],[],[],[],[],
+                [],[],[],[],[],
+                    [],[],[],[],
+                        [],[],[],
+                            [],[],
+                                []]
+trajectory_shape = [[],[],[],[],[],[15,14],[],
+                        [],[],[],[],[],[],
+                            [],[],[],[],[],
+                                [],[],[],[],
+                                    [],[],[],
+                                        [],[],
+                                            []]
+trajectory = [[15,15],[],[],[],[],[],[],
+                [],[],[],[],[],[15,17],
+                    [],[],[],[],[],
+                        [14,15],[],[],[],
+                            [],[],[],
+                                [],[],
+                                    []]
+[db_params.lls.all_symmetrical_origins]
+shape = [[],[],[],[],[],[],[],
+            [],[],[],[],[],[],
+                [],[],[],[],[],
+                    [],[],[],[],
+                        [],[],[],
+                            [],[],
+                                []]
+trajectory_shape = [[],[],[],[],[],[15,14],[],
+                        [],[],[],[],[],[],
+                            [],[],[],[],[],
+                                [],[],[],[],
+                                    [],[],[],
+                                        [],[],
+                                            []]
+trajectory = [[15,15],[],[],[],[],[],[],
+                [],[],[],[],[],[15,17],
+                    [],[],[],[],[],
+                        [14,15],[],[],[],
+                            [],[],[],
+                                [],[],
+                                    []]
 [db_params.lls.cycle_thresh]
 [db_params.lls.cycle_thresh.PC1-PC2]
 low = 0.01
@@ -101,6 +152,10 @@ high = 0.05
 smooth = 30
 [db_params.lls.cycle_thresh.PC4-PC5]
 low = 0.005
+high = 0.018
+smooth = 20
+[db_params.lls.cycle_thresh.PC2-PC8]
+low = 0.0035
 high = 0.018
 smooth = 20
 [db_params.lls.cycle_thresh.PC1-PC7]

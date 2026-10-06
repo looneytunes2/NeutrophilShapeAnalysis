@@ -620,7 +620,7 @@ def align_vec_to_xaxis_euler(
 
 ### takes an interable and reformats to a PC string
 def whichpc_string(whichpcs):
-    return '-'.join(f"PC{w}" for w in whichpcs)
+    return '-'.join(f"PC{w}" if w>0 else f"PC{abs(w)}_abs" for w in whichpcs)
 
 
 #### takes integer number of seconds and returns MM:SS for movies
@@ -640,10 +640,11 @@ def to_numpy_basis(mat_xyz):
 
 
 ### rotate LLS image to shape alignment frame
-def align_raw_image(
+def align_cropped_image(
         cellser: pd.Series,
         config: Config,
         down_factor: int = 1,
+        im_type: str = 'raw',
         ):
     #get directory
     configdict = dataclasses.asdict(config)
@@ -651,9 +652,9 @@ def align_raw_image(
     imdir = localdir / 'processed_images'
     #open image
     if cellser.Experiment == 'lls':
-        im = tifffile.imread(imdir.joinpath(cellser.cell + '_raw.ome.tiff'))
+        im = tifffile.imread(imdir.joinpath(cellser.cell + f'_{im_type}.ome.tiff'))
     else:
-        im = tifffile.imread(imdir.joinpath(cellser.cell + '_raw.tiff'))
+        im = tifffile.imread(imdir.joinpath(cellser.cell + f'_{im_type}.tiff'))
         #scale these images to so that z is proportional to xy
         xyres = config.im_params.xyres
         zstep = config.im_params.zstep
@@ -703,8 +704,8 @@ def align_raw_image(
 
 
 #wrapper for get_shape_info_nonuc for imap
-def align_raw_image_imap(args):
-    return align_raw_image(*args)
+def align_cropped_image_imap(args):
+    return align_cropped_image(*args)
 
 
 ## quick image normalization

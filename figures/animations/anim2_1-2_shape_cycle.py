@@ -18,8 +18,8 @@ from neutrophil_shape.config.loader import load_config
 
 
 #get directories and open separated datasets
-align = 'trajectory_shape'
-whichpcs = (1,7)
+align = 'trajectory'
+whichpcs = (1,2)
 binnum = 18
 binrange = 360/binnum
 direction = 'clockwise'
@@ -27,7 +27,7 @@ zerostart = 'left'
 
 
 # Output
-FPS = 7
+FPS = 4
 # Rendering
 MESH_COLOR = "corn_silk"
 BACKGROUND = "lightsteelblue"

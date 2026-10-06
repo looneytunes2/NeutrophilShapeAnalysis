@@ -527,6 +527,65 @@ def extract_shape_metrics(
 
 
 
+def extract_protrusion_metrics(
+    imdir, # where to find the segmented images
+    config: Config,
+    lrec: int = 4,  # low-order "body" envelope reconstruction order
+    smooth_iters: int = 5,  # mild smoothing of the residual for stable peak-seeding
+    prominence_sigmas: float = 2.0,  # keep peaks with prominence above this many robust-sigma
+    grow_sigmas: float = 1.0,  # let a confirmed peak's region grow out to this height floor
+    min_area_verts: int = 15,  # drop surviving regions smaller than this many vertices
+    ):
+    """
+    Detect discrete surface protrusions (pseudopods/ruffles) for every cell
+    with alignment angles computed by get_alignment_angles, using the SPHARM
+    low-order-residual + persistence-watershed approach (see
+    shparam_mod.get_protrusion_info for the full algorithm). Cells contribute
+    zero, one, or several rows depending on how many distinct protrusions
+    were found, saved to Protrusion_Metrics_{imdir.name}.csv.
+    """
+    #save some variables from the config
+    savedir = config.common.savedir  # where to save the metrics
+    l_order = config.common.l_order  # L order for SH coefficients
+
+    datadir = savedir.joinpath('shape_data')
+    meshdir = imdir.joinpath('meshes')
+
+    ### open the alignment angles (all that's needed here: 'cell' + Euler angles)
+    angledf = pd.read_csv(datadir.joinpath(
+        f'Alignment_Angles_{imdir.name}.csv'), index_col=0)
+
+    mapargs = []
+    for i, row in angledf.iterrows():
+        #move on if there's no rotation
+        if np.isnan(row.Euler_Angles_X):
+            continue
+
+        # append unique args to list
+        mapargs.append((
+            row,
+            meshdir,
+            l_order,
+            lrec,
+            smooth_iters,
+            prominence_sigmas,
+            grow_sigmas,
+            min_area_verts,
+        ))
+
+    # parallel processing for all segmented images
+    with multiprocessing.Pool(processes=60) as pool:
+        results = list(tqdm(pool.imap(
+            shparam_mod.protrusion_info_imap, mapargs), total=len(mapargs)))
+
+    # each cell contributes zero, one, or several protrusion rows -- flatten
+    all_rows = [row for cellresult in results for row in cellresult]
+    bigdf = pd.DataFrame(all_rows)
+    bigdf.to_csv(datadir.joinpath(
+        f'Protrusion_Metrics_{imdir.name}.csv'))
+
+
+
 ################ SEGMENT AND TRACK CELLS FROM MANUALLY CROPPED LLS MOVIES #############
 def segment_and_crop_LLS_manual(
         cellstr,  # the name of the unique cell being cropped and segmented across multiple videos\

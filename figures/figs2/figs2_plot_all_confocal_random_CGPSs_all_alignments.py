@@ -53,8 +53,8 @@ for d, al in enumerate(alignlist):
                 transdf_sep.loc[:,'Treatment'] = 'alldata'
                 #get total time observed in the system
                 ttot = transdf_sep.time_elapsed.sum()
-                ratesargs = (transdf_sep, nbins, ttot)
-                trans_rate_df_sep = DetailedBalance.transition_count_wrapper(ratesargs) 
+                ratesargs = (transdf_sep, nbins)
+                trans_rate_df_sep = DetailedBalance.transition_count_wrapper(ratesargs, False)
     
         
                 

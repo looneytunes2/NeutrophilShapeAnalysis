@@ -41,7 +41,8 @@ def raw_transitions(
     
     
     #### get coordinates
-    alltrans = df[[f'PC{w}bins' for w in whichpcs]].copy().reset_index(drop = True)
+    wpc_list = [f'PC{w}bins' if w>0 else f'PC{abs(w)}bins_abs' for w in whichpcs]
+    alltrans = df[wpc_list].copy().reset_index(drop = True)
     alltrans.columns = froms
     #### get transitions
     alltrans[tos] = alltrans.shift(-1)
@@ -54,7 +55,10 @@ def raw_transitions(
     #add the cumulative time based on the imaging interval 
     alltrans['cumulative_time'] = np.arange(time_interval, len(df)*time_interval, time_interval)
     #add cell identification
-    alltrans['cell'] = df.cell.iloc[0]
+    #'cell' is unique per frame in the source data (unlike CellID/Treatment,
+    #which are constant for the whole run), so it needs a per-transition value
+    #aligned with each transition's ending frame, same as 'frame'/'real_time' above
+    alltrans['cell'] = df.cell.to_numpy()[1:]
     alltrans['CellID'] = df.CellID.iloc[0]
     alltrans['Treatment'] = df.Treatment.iloc[0]
     
@@ -223,7 +227,13 @@ def interpolate_trajectory(
     #from the same video
     alltrans['real_time'] = alltrans.cumulative_time + rawtrans.real_time.iloc[0] - rawtrans.time_elapsed.iloc[0]
     #add cell name and Treatment
-    alltrans['cell'] = rawtrans.cell.iloc[0]
+    #'cell' is unique per source frame (unlike CellID/Treatment, which are
+    #constant for the whole window); a single raw transition can expand into
+    #multiple output rows above (e.g. diagonal crossings), but they all share
+    #the same originating 'frame', so map each output row's frame back to the
+    #raw transition that produced it to get the correct per-row cell value
+    frame_to_cell = dict(zip(rawtrans.frame, rawtrans.cell))
+    alltrans['cell'] = alltrans['frame'].map(frame_to_cell)
     alltrans['CellID'] = rawtrans.CellID.iloc[0]
     alltrans['Treatment'] = rawtrans.Treatment.iloc[0]
 
@@ -854,6 +864,7 @@ def get_bootstrapped_cgps_trajectories(
         group_factor: str = 'Treatment', #column with factor to separate the data on
         ):
 
+    wpc_str = utils.whichpc_string(whichpcs)
     ### get some settings from config
     if not dbbssavedir.exists():
         dbbssavedir.mkdir()
@@ -936,9 +947,9 @@ def get_bootstrapped_cgps_trajectories(
 
     ####### pull everything together and save
     bstrans = pd.concat(bstrans, ignore_index=True)
-    bstrans.to_csv(dbbssavedir.joinpath(whichpc_string(whichpcs)+f'_bootstrapped_{ntrans}_transitions.csv'))
+    bstrans.to_csv(dbbssavedir.joinpath(f'{wpc_str}_bootstrapped_{ntrans}_transitions.csv'))
     bsframe_sep_full = pd.concat(bsframe_sep_full, ignore_index=True)
-    bsframe_sep_full.to_csv(dbbssavedir.joinpath(whichpc_string(whichpcs)+f'_bootstrapped_{ntrans}_transition_rates.csv'))
+    bsframe_sep_full.to_csv(dbbssavedir.joinpath(f'{wpc_str}_bootstrapped_{ntrans}_transition_rates.csv'))
     print('Finished bootstrapping')
 
     ############# open average bootstrapped currents (saves its own csv) ###################
@@ -954,12 +965,13 @@ def get_avg_current_error(
         config: Config,
         group_factor: str, #column with factor to separate the data on
         ):
+    wpc_str = utils.whichpc_string(whichpcs)
     ### get some settings from config
     nbins = config.db_params.nbins #how many bins in the x and y cgps axes
     ntrans = config.db_params.ntrans #how many transitions to sample at each step
     ### open the data and fill sparse gaps with zeros to get real means
     bsframe_sep_full = load_and_fill_transition_counts(
-        dbbssavedir.joinpath(f'{whichpc_string(whichpcs)}_bootstrapped_{ntrans}_transition_rates.csv'),
+        dbbssavedir.joinpath(f'{wpc_str}_bootstrapped_{ntrans}_transition_rates.csv'),
         nbins,
         group_factor,
     )
@@ -987,8 +999,8 @@ def get_avg_current_error(
                 js_centered = js - js.mean(axis=0)
                 avgjs = np.cov(js_centered.T)
                 evals, evecs = np.linalg.eigh(avgjs)
-            rows.append({'x':x+1,
-                        'y':y+1,
+            rows.append({'x':x,
+                        'y':y,
                         'eval1':evals[1],
                         'eval2':evals[0],
                         'evec1x':evecs[0,1],
@@ -1012,7 +1024,7 @@ def get_avg_current_error(
         bsfield.append(df_m)
 
     bsfield_sep = pd.concat(bsfield, ignore_index=True)
-    bsfield_sep.to_csv(dbbssavedir.joinpath(whichpc_string(whichpcs)+f'_bootstrapped_{ntrans}_transitions_average_currents.csv'))
+    bsfield_sep.to_csv(dbbssavedir.joinpath(f'{wpc_str}_bootstrapped_{ntrans}_transitions_average_currents.csv'))
     
     return bsfield_sep
 
@@ -1027,15 +1039,20 @@ def get_aer_cf(
     
     ### get some settings from config
     savedir = config.common.savedir
-    pc_combos = config.common.pc_combos #unique PC pairs
-    origins = config.db_params.origins #flux origins for this dataset and alignment
+    
+    if any([w<0 for w in whichpcs]):
+        pc_combos = config.common.pc_combos_sym #unique PC pairs
+        origins = config.db_params.origins_sym #flux origins for this dataset and alignment
+    else:
+        pc_combos = config.common.pc_combos #unique PC pairs
+        origins = config.db_params.origins #flux origins for this dataset and alignment
     origin = origins[pc_combos.index(whichpcs)]
 
     ## open the CGPS bins to get scaling
     datadir = savedir / 'shape_data'
     centers = pd.read_csv(datadir.joinpath('PC_bin_centers.csv'), index_col=0)
     #scaling of the bins in real units of whatever the CGPS axis parameters are
-    xyscaling = [centers[f'PC{wpc}'].diff().mean() for wpc in whichpcs]
+    xyscaling = [centers[f'PC{abs(wpc)}'].diff().mean() for wpc in whichpcs]
 
     #compute instantaneous aer/angular_velocity/pc_speed for every transition
     #at once -- each row's value only depends on its own from_/to_/time_elapsed
@@ -1171,16 +1188,16 @@ def get_lls_gapped_bootstrap(
     whichpcs: tuple, #which two PCs to use (x,y)
     config: Config,
     ):
-
+    wpc_str = utils.whichpc_string(whichpcs)
     #get constants from config
     ntrans = config.db_params.ntrans #how many transitions to sample at each step
 
     ## get directories from config
     savedir = config.common.savedir
     dbdir = savedir / 'detailed_balance'
-    dbbsdir = dbdir / 'separatedatabs'
+    dbbssavedir = dbdir / 'separatedatabs'
 
-    justaers = pd.read_csv(dbdir.joinpath(whichpc_string(whichpcs)+'_raw_transition_aer_cf.csv'), index_col = 0)
+    justaers = pd.read_csv(dbdir.joinpath(f'{wpc_str}_raw_transition_aer_cf.csv'), index_col = 0)
 
     ########## measure gap frequency and duration
     allrunlengths, allrunlengthmeans, allgaplengths, allgaplengthmeans, allgapfrequencies = get_run_stats(
@@ -1195,7 +1212,7 @@ def get_lls_gapped_bootstrap(
     #against justaers (the raw aer table used for the real-data run stats above)
     #to get the full aer/time columns, instead of reading a separately-saved
     #bootstrapped aer_cf csv
-    bstrans = pd.read_csv(dbbsdir.joinpath(whichpc_string(whichpcs)+f'_bootstrapped_{ntrans}_transitions.csv'), index_col = 0)
+    bstrans = pd.read_csv(dbbssavedir.joinpath(f'{wpc_str}_bootstrapped_{ntrans}_transitions.csv'), index_col = 0)
     bsaers = construct_bstrans_from_lookup(bstrans, justaers)
 
     bs_with_gaps = bootstrap_runs(
@@ -1203,6 +1220,8 @@ def get_lls_gapped_bootstrap(
         allrunlengths, #the sample of movies lengths in seconds
         allgaplengths, #the sample of non-movie gap lengths in seconds
         )
+    ### save the gapped bootstrap ids
+    bs_with_gaps.to_csv(dbbssavedir.joinpath(f'{wpc_str}_bootstrapped_{ntrans}_gap_ids.csv'))
 
     ### measure the gap probability in the newly gapped bootstrap data
     #change real_time to just time
@@ -1217,18 +1236,9 @@ def get_lls_gapped_bootstrap(
 
     print(f'Average track run length mean for bootstrapped data is {np.mean(bsallrunlengthmeans)} and mean gap frequency is {np.mean(bsallgapfrequencies)})')
 
-    ### save the gapped bootstrap data
-    bs_with_gaps.to_csv(dbbsdir.joinpath(whichpc_string(whichpcs)+f'_bootstrapped_{ntrans}_Area_Enclosing_Rates_gaps.csv'))
 
 
-    ### merged gaps with actual bootstrapped aers so we can do linear regression with the gapped data
-    aers_with_gaps = bs_with_gaps.merge(bsaers, on = ['iter','real_time'], how = 'left')
-
-    ### get AE rate and fit 
-    lrmapargs = [(df.sort_values('cumulative_time').reset_index(drop = True),'Treatment') for i, df in aers_with_gaps.groupby(['Treatment','iter'])]
-    with multiprocessing.Pool(processes=60) as pool:
-        lrresults = list(tqdm.tqdm(pool.imap(rate_fit_bs_wrap, lrmapargs), total=config.db_params.bsiter))
-
-    ## save the AE rate and fit
-    fitframe = pd.DataFrame(lrresults)
-    fitframe.to_csv(dbbsdir.joinpath(whichpc_string(whichpcs)+f'_bootstrapped_{ntrans}_Area_Enclosed_Linear_Reg_gaps.csv'))
+    ### merged gaps with actual bootstrapped aers so we can get average aer with the gapped data
+    aers_with_gaps = bs_with_gaps.merge(bsaers, on = ['iter','real_time'], how = 'left') 
+    lrrdf = get_linear_rates(aers_with_gaps, 'iter')
+    lrrdf.to_csv(dbbssavedir.joinpath(f'{wpc_str}_bootstrapped_{ntrans}_linear_rates_gaps.csv'))

@@ -13,35 +13,42 @@ import seaborn as sns
 from matplotlib.patches import Ellipse, Rectangle
 from pathlib import Path
 from neutrophil_shape.config.loader import load_config
+from neutrophil_shape.CustomFunctions.DetailedBalance import transition_count_wrapper
+from neutrophil_shape.CustomFunctions.utils import whichpc_string
 
 ####### load common directories and data
 # inverse scale for flux arrows
 scale = 0.0012
 
-# # inverse scale for arrows
-# scale = 0.0015
 
-
-#load the clonfig
-config = load_config(microscope_type='lls')
-### first set the alignment
-config._alignment = 'trajectory_shape'
-
-#load some constants
-nbins = config.db_params.nbins
+#which pcs to plot the cgps of
 pc_list = [(1,2),(4,5),(2,8)] #PC combinations to plot
 
 
+
+#quickly load the config for the confocal to get confocal nbins
+config = load_config(microscope_type='confocal')
+config._alignment = 'trajectory'
+nbins = config.db_params.nbins
+condatadir = config.common.savedir / 'shape_data'
+centers = pd.read_csv(condatadir.joinpath('PC_bin_centers.csv'), index_col=0)
+
+
+#load the config
+config = load_config(microscope_type='lls')
+config._alignment = 'trajectory'
 ## get the directories and some CGPS info
 savedir = config.common.savedir
 datadir = savedir.joinpath('shape_data')
 dbdir = savedir.joinpath('detailed_balance')
 dbbsdir = dbdir.joinpath('separatedatabs')
-centers = pd.read_csv(datadir.joinpath('PC_bin_centers.csv'), index_col=0)
-nbins = centers.shape[0]
-pclist = centers.columns.to_list()
 pc_combos = config.common.pc_combos
 origins = config.db_params.origins
+llsnbins  = config.db_params.nbins
+
+### adjust nbins for plotting
+nbin_diff = llsnbins - nbins
+bin_trim = nbin_diff/2
 
 for whichpcs in pc_list:
     origin = origins[pc_combos.index(whichpcs)]
@@ -49,18 +56,18 @@ for whichpcs in pc_list:
     ######## open all of the data
     ########### interpolate all transitions so that only individual transitions are made ###########
     transdf_sep = pd.read_csv(dbdir.joinpath(f'PC{whichpcs[0]}-PC{whichpcs[1]}_interpolated_transitions.csv'), index_col=0)
-    ############## get the counts of cells leaving 
-    trans_rate_df_sep = pd.read_csv(dbdir.joinpath(f'PC{whichpcs[0]}-PC{whichpcs[1]}_binned_transition_rates.csv'), index_col=0)
     # ############# open average bootstrapped currents ###################
     bsfield_sep = pd.read_csv(dbbsdir.joinpath(f'PC{whichpcs[0]}-PC{whichpcs[1]}_bootstrapped_{config.db_params.ntrans}_transitions_average_currents.csv'), index_col=0)
 
-
-    ########## PC1/PC7 transition with error ellipses oriented to PCs WITHOUT PC MESH SLICES ################
-
-
-    # combine fake error data with real transition data
+    #### calculate the overall average transition rates
+    #get total time observed in the system
+    ttot = transdf_sep.time_elapsed.sum()
+    ratesargs = (transdf_sep, llsnbins)
+    trans_rate_df_sep = transition_count_wrapper(ratesargs, False)
+    print(trans_rate_df_sep.shape)
+    # combine bootstrapped error data with real transition data
     elldf = trans_rate_df_sep.merge(bsfield_sep, on = ['x','y'])
-
+    print(elldf.shape)
 
     fig, ax = plt.subplots(figsize=(14,14))
     cbar_ax = fig.add_axes([0.96, .188, .025, .661])
@@ -72,7 +79,7 @@ for whichpcs in pc_list:
 
     for x in range(nbins):
         for y in range(nbins):
-            current =  transdf_sep[(transdf_sep['from_x'] == x+1) & (transdf_sep['from_y'] == y+1)]
+            current =  transdf_sep[(transdf_sep['from_x'] == x+bin_trim) & (transdf_sep['from_y'] == y+bin_trim)]
             if current.empty:
                 bighm[y,x] = 0
             else:
@@ -95,33 +102,37 @@ for whichpcs in pc_list:
         
     for x in range(1,nbins+1):
         for y in range(1,nbins+1):
-            current = elldf[(elldf['x'] == x) & (elldf['y'] == y)]
+            current = elldf[(elldf['x'] == x+bin_trim-1) & (elldf['y'] == y+bin_trim-1)]
             if current.empty:
                 xcurrent = 0
                 ycurrent = 0
+                ex = 0
+                ey = 0
+                eh = 0
+                ew = 0
+                eang = 0
             else:
                 xcurrent = ((current.x_plus_rate - current.x_minus_rate)/2).iloc[0]
                 ycurrent = ((current.y_plus_rate - current.y_minus_rate)/2).iloc[0]
+                #determine ellipse width, height and angle
+                #always set eval1 to width and adjust angle accordingly
+                ex = xcurrent*(1/scale)
+                ey = ycurrent*(1/scale)
+                eh = np.sqrt(abs(current.eval2.iloc[0]))*(2/scale)
+                ew = np.sqrt(abs(current.eval1.iloc[0]))*(2/scale)
+                evec = current[['evec1x','evec1y']].values[0]
+                evec = evec if evec[1]>0 else -evec
+                eang = np.degrees(np.arctan2(evec[1],evec[0]))
+
             ax.quiver(x-0.5,
-                        y-0.5, 
-                        xcurrent,
-                        ycurrent,
-                        angles = 'xy',
-                        scale_units = 'xy',
-                        scale = scale,
-                        color = 'white',
-                        zorder = 3)
-
-
-            #determine ellipse width, height and angle
-            #always set eval1 to width and adjust angle accordingly
-            ex = xcurrent*(1/scale)
-            ey = ycurrent*(1/scale)
-            eh = np.sqrt(abs(current.eval2.iloc[0]))*(2/scale)
-            ew = np.sqrt(abs(current.eval1.iloc[0]))*(2/scale)
-            evec = current[['evec1x','evec1y']].values[0]
-            evec = evec if evec[1]>0 else -evec
-            eang = np.degrees(np.arctan2(evec[1],evec[0]))
+                    y-0.5, 
+                    xcurrent,
+                    ycurrent,
+                    angles = 'xy',
+                    scale_units = 'xy',
+                    scale = scale,
+                    color = 'white',
+                    zorder = 3)
     
             ell = Ellipse(xy=(x-0.5+ex,y-0.5+ey),
                             width=ew,
@@ -134,7 +145,7 @@ for whichpcs in pc_list:
 
 
     #### ADD THE FLUX ORIGIN DOT
-    ax.scatter(origin[0]-0.5, origin[1]-0.5, s = 160, color = '#11bd20', zorder=2)
+    ax.scatter(origin[0]-0.5-bin_trim, origin[1]-0.5-bin_trim, s = 160, color = '#11bd20', zorder=2)
 
 
 
@@ -177,4 +188,4 @@ for whichpcs in pc_list:
     plt.tight_layout()
 
 
-    plt.savefig(__file__.split('.')[0] + str([str(x) for x in whichpcs]) + '.png', bbox_inches='tight', dpi =500)
+    plt.savefig(__file__.split('.')[0] + whichpc_string(whichpcs) + '.png', bbox_inches='tight', dpi =500)
