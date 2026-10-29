@@ -13,9 +13,10 @@ from vtk.util import numpy_support
 from skimage import transform as sktrans
 from scipy import interpolate as spinterp
 from scipy.sparse import coo_matrix
-from scipy.spatial import KDTree
+from scipy.spatial import KDTree, ConvexHull, QhullError
 from scipy.spatial.transform import Rotation as R
 from collections import deque
+from dataclasses import dataclass
 from pathlib import Path
 
 from . import shtools_mod #, cytoparam_mod
@@ -687,95 +688,186 @@ ax_names = ['Major','Median','Minor']
 dims = ["X", "Y", "Z"]
 trajectory_columns = ['Trajectory_Vec_X','Trajectory_Vec_Y','Trajectory_Vec_Z']
 
-def get_shape_info(
-        df: pd.DataFrame,
-        meshdir: Path,
-        l_order: int,
-        ):
 
+#settings for protrusion detection and classification, see measure_protrusions_from_mesh
+@dataclass(frozen=True)
+class ProtrusionParams:
     """
-        Parameters
-        ----------
-        df : pd.DataFrame
-            Dataframe with the euler angles to align the mesh to the alignment frame,
-            and other relevant vectors.
-        meshdir : Path
-            Path to the mesh directory
-        l_order : int
-            l order for SH transformation
-        
-        Returns
-        -------
-        coeffs_dict : dict
-            Dictionary with the spherical harmonics coefficients and the mean square
-            error between input and its parametrization
-        grid_rec : ndarray
-            Parametric grid representing sh parametrization
-        image_ : ndarray
-            Input image after pre-processing (lcc calculation, smooth and binarization).
-        mesh : vtkPolyData
-            Polydata representation of image_.
-        grid_down : ndarray
-            Parametric grid representing input object.
-        transform : tuple of floats
-            (xc, yc, zc, angle) if alignment_2d is True or
-            (xc, yc, zc) if alignment_2d is False. (xc, yc, zc) are the coordinates
-            of the shape centroid after alignment; angle is the angle used to align
-            the image
+    Settings for protrusion detection and classification (see
+    measure_protrusions_from_mesh).
 
-        Other parameters
-        ----------------
-        sigma : float, optional
-            The degree of smooth to be applied to the input image, default is 0 (no
-            smooth)
-        compute_lcc : bool, optional
-            Whether to compute the largest connected component before appliying the
-            spherical harmonic parametrization, default is True. Set compute_lcc to
-            False in case you are sure the input image contains a single connected
-            component. It is crucial that parametrization is calculated on a single
-            connected component object.
-        alignment_2d : bool
-            Wheather the image should be aligned in 2d. Default is True.
-        make_unique : bool
-            Set true to make sure the alignment rotation is unique. 
-            """
+    Detection
+    ---------
+    lrec : degree of the low-order "body" reconstruction used as the smoothed
+        envelope that the actual surface is compared against.
+    smooth_iters : number of mesh-neighbor-averaging passes applied to the
+        residual before peak-seeding/ordering, to keep single-vertex noise from
+        being picked up as its own peak. All reported metrics use the raw
+        (unsmoothed) residual regardless.
+    prominence_sigmas : a basin must have prominence greater than this many
+        robust-sigma (median absolute deviation scaled to approximate a
+        standard deviation) above the residual's noise floor to be treated as
+        a genuinely distinct protrusion.
+    grow_sigmas : once a peak is confirmed significant, its region is grown
+        outward (flood-fill) until the surface drops back to this many
+        robust-sigma above the noise floor.
+    min_area_verts : drop any surviving region smaller than this many vertices.
 
-    cell_name = df.cell
+    Classification
+    --------------
+    aspect_ratio_median_thresh : protrusions with major/median axis length
+        (aspect_ratio_median) at or above this, and a minor axis length below
+        minor_axis_length_thresh, are "high aspect ratio": filopodia or
+        lamellipodia depending on the orientation of the major axis. Others go
+        on to the minor-axis and convex hull checks below.
+    minor_axis_length_thresh : maximum minor axis length (um) for a protrusion
+        to count as "high aspect ratio" above, i.e. thin enough to be a
+        filopodium or an elongated lamellipodium.
+    aspect_ratio_minor_thresh : protrusions that miss
+        aspect_ratio_median_thresh but have a major/minor axis length
+        (aspect_ratio_minor) at or above this are lamellipodia, i.e. flat
+        sheets that are not elongated within their own plane.
+    radial_alignment_thresh : high-aspect-ratio protrusions whose major axis
+        has at least this dot product with the direction away from the cell
+        centroid are "oriented away from the origin" (filopodia); below it they
+        are lamellipodia. Default cos(45 degrees).
+    residual_volume_ratio_thresh : protrusions that pass none of the aspect
+        ratio checks and whose peak_residual_um / volume_um3 (1/um^2) is at or
+        above this are tall and thin for their volume: 'pseudopod_filopodia'.
+    hull_area_ratio_thresh : protrusions that pass none of the checks above
+        and whose 'hull_area_ratio' is at or above this are pseudopods; below
+        it (a large mismatch between the protrusion and its convex hull) they
+        are lamellipodia.
+    """
+    lrec: int = 3
+    smooth_iters: int = 5
+    prominence_sigmas: float = 1.4
+    grow_sigmas: float = 0.55
+    min_area_verts: int = 50
+    aspect_ratio_median_thresh: float = 1.6
+    minor_axis_length_thresh: float = 3.0
+    aspect_ratio_minor_thresh: float = 2.5
+    radial_alignment_thresh: float = float(np.cos(np.pi / 4))
+    residual_volume_ratio_thresh: float = 0.1
+    hull_area_ratio_thresh: float = 0.6
 
-    ### read the mesh
-    mesh_path = meshdir.joinpath(cell_name+'_cell_mesh.vtp')
+
+def get_aligned_mesh(
+        df: pd.DataFrame,  # row with 'cell' and the Euler angles for alignment
+        meshdir: Path,  # directory containing '{cell}_cell_mesh.vtp' files
+        ):
+    """Read a cell's mesh, rotate it into its alignment frame and center it
+    on the origin (its vertex centroid)."""
+    mesh_path = meshdir.joinpath(df.cell + '_cell_mesh.vtp')
     mesh = shtools_mod.read_polydata(mesh_path)
 
-    #read euler angles for alignment
     euler_angles = df[['Euler_Angles_X','Euler_Angles_Y','Euler_Angles_Z']].values
-
-    #rotate mesh
     mesh = shtools_mod.rotate_and_scale_mesh(
             mesh,
             rotations = euler_angles,
             )
 
     ### enforce mesh center at origin after rotations
-    # Get coordinates of mesh points
     coords = numpy_support.vtk_to_numpy(mesh.GetPoints().GetData())
-    #get the centroid
-    second_center = coords.mean(axis=0, keepdims=True)
-    #subtract centroid from coordinates
-    coords -= second_center
-    #separate the coordinates
-    x = coords[:, 0]
-    y = coords[:, 1]
-    z = coords[:, 2]
+    coords = coords - coords.mean(axis=0, keepdims=True)
     # Translate and update mesh normals
-    cell_mesh = shtools_mod.update_mesh_points(mesh, x, y, z)
+    return shtools_mod.update_mesh_points(mesh, coords[:, 0], coords[:, 1], coords[:, 2])
+
+
+def get_aligned_vectors(
+        df: pd.DataFrame,  # row with the Euler angles, principal axes and trajectory vectors
+        ):
+    """Rotate the cell's principal axes (rows: major, median, minor), trajectory
+    vector and next trajectory vector into the alignment frame, i.e. the frame
+    that get_aligned_mesh puts the mesh in. The axes are not yet given a
+    consistent directionality (see orient_cell_axes)."""
+    euler_angles = df[['Euler_Angles_X','Euler_Angles_Y','Euler_Angles_Z']].values
+    euler_rotation = R.from_euler('xyz', euler_angles, degrees = True)
+
+    cell_evecs = np.array([[df[f"Cell_{axis}_Axis_Vec_{dim}"] for dim in dims] for axis in ax_names])
+    cell_evecs_aligned = euler_rotation.apply(cell_evecs)
+    trajectory_aligned = euler_rotation.apply(df[trajectory_columns].values)
+    next_trajectory_aligned = euler_rotation.apply(df[['Next_'+x for x in trajectory_columns]].values)
+
+    return cell_evecs_aligned, trajectory_aligned, next_trajectory_aligned
+
+
+def orient_cell_axes(
+        cell_evecs_aligned: np.ndarray,  # (3,3) aligned principal axes, rows = major, median, minor
+        ):
+    """Give the aligned principal axes the consistent directionality used for
+    the Cell_Aligned_*_Axis_Vec columns: major points +x, median points -y,
+    minor points +z. Returns a flipped copy."""
+    cell_evecs_aligned = cell_evecs_aligned.copy()
+    if cell_evecs_aligned[0,0]<0:
+        cell_evecs_aligned[0,:] *= -1
+    if cell_evecs_aligned[1,1]>0:
+        cell_evecs_aligned[1,:] *= -1
+    if cell_evecs_aligned[2,2]<0:
+        cell_evecs_aligned[2,:] *= -1
+    return cell_evecs_aligned
+
+
+#order of the SH coefficients that get_shape_info calculates and saves, whatever the l_order in the
+#config is. Everything that recalls the coefficients (PCA, reconstructions, ...) uses the config's
+#l_order, see shapePCAtools.load_shcoeffs
+SHAPE_INFO_L_ORDER = 20
+
+
+def get_shape_info(
+        df: pd.DataFrame,
+        meshdir: Path,
+        measure_protrusions: bool = True,
+        protrusion_params: ProtrusionParams = None,
+        ):
+
+    """
+        Parameters
+        ----------
+        df : pd.Series
+            Row with the cell name, the euler angles to align the mesh to the
+            alignment frame, and the trajectory and principal axis vectors
+            (see get_aligned_vectors).
+        meshdir : Path
+            Path to the mesh directory
+        measure_protrusions : bool, optional
+            Whether to also detect and measure surface protrusions on the aligned
+            mesh, reusing the mesh and SH coefficients computed here. Set False to
+            skip (protrusion metrics depend on the alignment only through their
+            directional measures, so it can be worth measuring them for just one
+            alignment). Default True.
+        protrusion_params : ProtrusionParams, optional
+            Protrusion detection and classification settings, default
+            ProtrusionParams().
+
+        Returns
+        -------
+        Shape_Stats : dict
+            Shape measurements of the cell. The reconstruction errors are those of
+            the SHAPE_INFO_L_ORDER fit.
+        shcoeffs : dict
+            The cell's name ('cell') and its SH coefficients up to order
+            SHAPE_INFO_L_ORDER, kept apart from Shape_Stats so they can be saved
+            separately and combined with the shape metrics on 'cell' when needed.
+        protrusion_rows : list of dict
+            One dict per detected protrusion (see measure_protrusions_from_mesh);
+            empty if measure_protrusions is False or none were found.
+            """
+
+    cell_name = df.cell
+
+    ### read the mesh, rotate it into the alignment frame and center it
+    cell_mesh = get_aligned_mesh(df, meshdir)
+    #copy, since get_shcoeffs_mesh below swaps out the mesh's point array
+    coords = numpy_support.vtk_to_numpy(cell_mesh.GetPoints().GetData()).copy()
 
     # get shcoeffs from mesh
     (coeffs_mem, _), (_) = get_shcoeffs_mesh(
-                                mesh,
-                                l_order,)
-        
+                                cell_mesh,
+                                SHAPE_INFO_L_ORDER,)
+
     #get reconstruction errors both ways
-    cell_recon, _ = shtools_mod.get_reconstruction_from_coeffs(np.array(list(coeffs_mem.values())).reshape(2,l_order+1,l_order+1))
+    cell_recon, _ = shtools_mod.get_reconstruction_from_coeffs(np.array(list(coeffs_mem.values())).reshape(2,SHAPE_INFO_L_ORDER+1,SHAPE_INFO_L_ORDER+1))
     #get average nearest distance from original mesh to reconstruction
     tree = KDTree(numpy_support.vtk_to_numpy(cell_mesh.GetPoints().GetData()))
     d, idx = tree.query(numpy_support.vtk_to_numpy(cell_recon.GetPoints().GetData()))
@@ -817,17 +909,8 @@ def get_shape_info(
     Cell_Aligned_Y_Stdev = np.std(cell_coords[:,1])
     Cell_Aligned_Z_Stdev = np.std(cell_coords[:,2])
 
-    ### unpack evecs as measured previously from cell info
-    cell_evecs = np.array([[df[f"Cell_{axis}_Axis_Vec_{dim}"] for dim in dims] for axis in ax_names])
-    #rotate a bunch of different frames into the alignment frame
-    euler_rotation = R.from_euler('xyz', euler_angles, degrees = True)
-    cell_evecs_aligned = euler_rotation.apply(cell_evecs)
-    #rotate the trajectory vector
-    traj = df[trajectory_columns].values
-    trajectory_aligned = euler_rotation.apply(traj)
-    #rotate the next trajectory vector
-    next_traj = df[['Next_'+x for x in trajectory_columns]].values
-    next_trajectory_aligned = euler_rotation.apply(next_traj)
+    ### rotate the principal axes and trajectory vectors into the alignment frame
+    cell_evecs_aligned, trajectory_aligned, next_trajectory_aligned = get_aligned_vectors(df)
 
     #rotate the ORIGINAL cell coordinates to align the major axis with the x,
     #the median axis to the y and the minor axis to the z
@@ -856,16 +939,8 @@ def get_shape_info(
 
     ### enforce consistent directionality of the principal axes prior to
     ### calculating aligned vector component values
-    # major axis points +x
-    if cell_evecs_aligned[0,0]<0:
-        cell_evecs_aligned[0,:] *= -1
-    # median axis points -y
-    if cell_evecs_aligned[1,1]>0:
-        cell_evecs_aligned[1,:] *= -1
-    # minor axis points +z
-    if cell_evecs_aligned[2,2]<0:
-        cell_evecs_aligned[2,:] *= -1
-            
+    cell_evecs_aligned = orient_cell_axes(cell_evecs_aligned)
+
     for a, arr in enumerate(cell_evecs_aligned):
         #get angle between the vector and the planes
         anglevec = [[1,0,0],[0,-1,0],[0,0,1]]
@@ -918,10 +993,20 @@ def get_shape_info(
 
     #add the principal axes angles
     Shape_Stats.update(ax_angle_dict)
-    #add the shcoeffs to the dict I just built
-    Shape_Stats.update(coeffs_mem)
-    
-    return Shape_Stats
+    #the shcoeffs are kept apart from the shape stats, with the cell name to combine them again
+    shcoeffs = {'cell': cell_name, **coeffs_mem}
+
+    ### protrusions, reusing the aligned mesh and SH coefficients from above
+    protrusion_rows = []
+    if measure_protrusions:
+        protrusion_rows = measure_protrusions_from_mesh(
+            cell_mesh,
+            pd.concat([df, pd.Series(coeffs_mem)]),
+            SHAPE_INFO_L_ORDER,
+            protrusion_params,
+            )
+
+    return Shape_Stats, shcoeffs, protrusion_rows
 
 
 
@@ -932,15 +1017,49 @@ def shape_info_imap(args):
 
 
 ############################ PROTRUSION DETECTION VIA SPHARM RESIDUAL WATERSHED #############
-def get_protrusion_info(
-        df: pd.DataFrame,  # row with 'cell' and Euler angles for alignment
-        meshdir: Path,  # path to the mesh directory
-        l_order: int,  # full SH expansion order
-        lrec: int = 4,  # low-order "body" envelope reconstruction order
-        smooth_iters: int = 5,  # mild smoothing of the residual for stable peak-seeding
-        prominence_sigmas: float = 2.0,  # keep peaks with prominence above this many robust-sigma
-        grow_sigmas: float = 1.0,  # let a confirmed peak's region grow out to this height floor
-        min_area_verts: int = 15,  # drop surviving regions smaller than this many vertices
+def _unit_vector(v):
+    """Normalize v, returning NaNs if it has no usable direction."""
+    v = np.asarray(v, dtype=float)
+    norm = np.linalg.norm(v)
+    if not np.isfinite(norm) or norm == 0:
+        return np.full(v.shape, np.nan)
+    return v / norm
+
+
+def _classify_protrusion(
+        row: dict,  # one protrusion's measurements, as built in measure_protrusions_from_mesh
+        params: ProtrusionParams,
+        ):
+    """
+    Classify one protrusion from its measurements (aspect_ratio_median,
+    aspect_ratio_minor, minor_axis_length_um, major_axis_{x,y,z},
+    direction_{x,y,z}, peak_residual_um, volume_um3, hull_area_ratio).
+
+    1. A high major/median aspect ratio with a short minor axis is a filopodia
+       if the major axis points away from the cell centroid (dot product with
+       the protrusion's direction) and a lamellipodia if it lies tangential to
+       the cell.
+    2. Otherwise a high major/minor aspect ratio is a lamellipodia.
+    3. Otherwise convex hull decides: pseudopod if the protrusion fills out its
+       hull, lamellipodia if there is a large mismatch.
+    """
+    if (row['aspect_ratio_median'] >= params.aspect_ratio_median_thresh
+            and row['minor_axis_length_um'] < params.minor_axis_length_thresh):
+        major_axis = np.array([row['major_axis_x'], row['major_axis_y'], row['major_axis_z']], dtype=float)
+        direction = np.array([row['direction_x'], row['direction_y'], row['direction_z']], dtype=float)
+        radial_alignment = major_axis @ direction
+        return 'filopodia' if radial_alignment >= params.radial_alignment_thresh else 'lamellipodia'
+    if row['aspect_ratio_minor'] >= params.aspect_ratio_minor_thresh:
+        return 'lamellipodia'
+    return 'pseudopod' if row['hull_area_ratio'] >= params.hull_area_ratio_thresh else 'lamellipodia'
+
+
+def measure_protrusions_from_mesh(
+        mesh,  # vtkPolyData, already rotated into the alignment frame and centered on the origin
+        df: pd.Series,  # row with the cell's name, alignment vectors and SH coefficients (see below)
+        l_order: int, # degree of the original shcoeffs
+        params: ProtrusionParams = None,  # detection and classification settings, default ProtrusionParams()
+        return_labels: bool = False,  # also return the cleaned mesh and per-vertex region labels, for visualization
         ):
     """
     Detect discrete surface protrusions (pseudopods/ruffles) on a cell by
@@ -953,70 +1072,92 @@ def get_protrusion_info(
     a single height cutoff: a single global threshold on this same residual
     field shatters one real protrusion into dozens of disconnected pieces.
 
+    Each protrusion is then measured in the alignment frame, whose origin is
+    the cell centroid. 'direction' is the unit vector from that origin to the
+    protrusion's mean vertex coordinate. The protrusion's own principal axes
+    come from a PCA of its vertex coordinates, and each is signed to have a
+    non-negative dot product with 'direction'. Axis lengths are the extent of
+    the vertices along each axis (as for the cell axes in get_shape_info).
+
     Parameters
     ----------
+    mesh : vtkPolyData
+        Cell mesh in the alignment frame, centered on the origin. Need not be
+        welded (it is cleaned internally; the input is not modified).
     df : pd.Series
-        Row with 'cell' and the Euler_Angles_X/Y/Z columns used to rotate
-        the mesh into the alignment frame (same convention as
-        get_shape_info). Direction outputs are expressed in this frame.
-    meshdir : Path
-        Directory containing '{cell}_cell_mesh.vtp' files.
+        Row with
+        - 'cell', the identifier stored in the 'cell' column of each result;
+        - the Euler_Angles_X/Y/Z columns and the original-frame
+          Cell_{Major,Median,Minor}_Axis_Vec_{X,Y,Z}, Trajectory_Vec_{X,Y,Z}
+          and Next_Trajectory_Vec_{X,Y,Z} columns, which are rotated into the
+          alignment frame here (see get_aligned_vectors). Taking the vectors
+          from the same frame as the mesh keeps the alignments below correct
+          for any alignment method. The cell axes' sign does not matter, they
+          are given the directionality of the Cell_Aligned_*_Axis_Vec columns
+          (see orient_cell_axes);
+        - the x_raw/y_raw/z_raw columns, the cell's centroid in real space;
+        - the shcoeffs_L{l}M{m}{C,S} columns, the SH coefficients of mesh as
+          returned by get_shcoeffs_mesh (add them to the row with
+          pd.concat([df, pd.Series(coeffs_dict)])).
     l_order : int
-        Full spherical harmonics expansion order.
+        Full spherical harmonics expansion order of the shcoeffs in df.
+    params : ProtrusionParams, optional
+        Detection and classification settings.
+    return_labels : bool, optional
+        If True, return (rows, mesh, label) instead of rows, where mesh is the
+        cleaned mesh the protrusions were found on and label is a per-vertex
+        array of region ids (0 = body). A row's region id is
+        label[row['seed_vertex']]. Regions dropped by min_area_verts keep
+        their id but have no row. Default False.
 
     Returns
     -------
     list of dict
-        One dict per detected protrusion (empty list if none pass the area
-        filter), each with the identifying 'cell', a 1-based
-        'protrusion_rank' (1 = tallest peak residual), its peak
-        height/area/volume, and its direction from the cell centroid.
+        One dict per detected protrusion (empty if none pass the area
+        filter), tallest first, with:
+        - 'cell', 'CellID', 'frame', 'time' (the last three if they are in df),
+          'protrusion_rank' (1 = tallest peak residual), 'seed_vertex',
+          'n_vertices', 'peak_residual_um', 'area_um2', 'volume_um3'
+        - 'direction_x/y/z': unit vector from the cell centroid to the protrusion
+          in the alignment frame
+        - 'real_direction_x/y/z': the same unit vector in real space, i.e. the
+          original frame of the saved mesh and of the Trajectory_Vec and
+          Cell_*_Axis_Vec columns (the alignment rotation undone)
+        - 'position_x/y/z': the protrusion's mean vertex position relative to
+          the cell centroid, in real space orientation (um), i.e.
+          'real_direction' with its length kept
+        - 'real_position_x/y/z': the protrusion's position in real space (um),
+          i.e. 'position' plus the cell's centroid (the x_raw/y_raw/z_raw
+          columns of df). 'position' is measured from the mean of the mesh
+          vertices, which can differ from that centroid by up to about a micron
+        - '{major,median,minor}_axis_length_um', 'aspect_ratio_median'
+          (major/median), 'aspect_ratio_minor' (major/minor)
+        - '{major,median,minor}_axis_{x,y,z}': protrusion principal axis vectors
+          in the alignment frame, 'real_{major,median,minor}_axis_{x,y,z}': the
+          same vectors in real space
+        - 'trajectory_alignment', 'next_trajectory_alignment': dot product of
+          'direction' with the unit trajectory vectors (signed: 1 = protrusion
+          toward the trajectory, -1 = away from it)
+        - 'cell_{major,median,minor}_axis_alignment': absolute dot product of
+          'direction' with each cell principal axis (0..1, since the axes have
+          no inherent directionality)
+        - 'hull_volume_um3', 'hull_area_um2', 'hull_area_ratio' (area_um2 / hull
+          area): the convex hull of the protrusion's vertices
+        - 'protrusion_class': 'filopodia', 'lamellipodia', 'pseudopod' or
+          'pseudopod_filopodia' (see _classify_protrusion)
 
-    Other parameters
-    ----------------
-    lrec : int, optional
-        Degree of the low-order "body" reconstruction used as the smoothed
-        envelope that the actual surface is compared against. Default 4.
-    smooth_iters : int, optional
-        Number of mesh-neighbor-averaging passes applied to the residual
-        before peak-seeding/ordering, to keep single-vertex noise from
-        being picked up as its own peak. All reported metrics use the raw
-        (unsmoothed) residual regardless. Default 5.
-    prominence_sigmas : float, optional
-        A basin must have prominence greater than this many robust-sigma
-        (median absolute deviation scaled to approximate a standard
-        deviation) above the residual's noise floor to be treated as a
-        genuinely distinct protrusion. Default 2.0.
-    grow_sigmas : float, optional
-        Once a peak is confirmed significant, its region is grown outward
-        (flood-fill) until the surface drops back to this many robust-sigma
-        above the noise floor. Default 1.0.
-    min_area_verts : int, optional
-        Drop any surviving region smaller than this many vertices. Default 15.
     """
 
-    cell_name = df.cell
-
-    ### read and align the mesh exactly as get_shape_info does
-    mesh_path = meshdir.joinpath(cell_name + '_cell_mesh.vtp')
-    mesh = shtools_mod.read_polydata(mesh_path)
-    euler_angles = df[['Euler_Angles_X', 'Euler_Angles_Y', 'Euler_Angles_Z']].values
-    mesh = shtools_mod.rotate_and_scale_mesh(mesh, rotations=euler_angles)
-
-    coords = numpy_support.vtk_to_numpy(mesh.GetPoints().GetData())
-    coords = coords - coords.mean(axis=0, keepdims=True)
-    mesh = shtools_mod.update_mesh_points(mesh, coords[:, 0], coords[:, 1], coords[:, 2])
-
-    #vtkContourFilter (used to build these meshes) does not weld the
-    #coincident points shared by neighboring triangles, so without this the
-    #mesh's vertex graph is not actually connected -- the watershed below
-    #needs true topological connectivity to work.
+    #make sure mesh is clean before watershed
     mesh = shtools_mod.clean_polydata(mesh)
 
+    if params is None:
+        params = ProtrusionParams()
+
     ### SPHARM low-order residual: actual radius minus the smoothed envelope
-    (coeffs_dict, _), _ = get_shcoeffs_mesh(mesh, l_order)
-    coeffs = np.array(list(coeffs_dict.values())).reshape(2, l_order + 1, l_order + 1)
-    _, grid_low = shtools_mod.get_reconstruction_from_coeffs(coeffs, lrec=lrec)
+    coeffs = df.filter(like = 'shcoeff').to_numpy(dtype=float)
+    coeffs = coeffs.reshape(2, l_order+1, l_order+1)
+    _, grid_low = shtools_mod.get_reconstruction_from_coeffs(coeffs, lrec=params.lrec)
 
     #grid_low is sampled on pyshtools's DH grid (sampling=2): row 0 = north
     #pole, increasing colatitude to (but not including) pi; column 0 =
@@ -1068,7 +1209,7 @@ def get_protrusion_info(
     #mild smoothing used only to seed/order peaks robustly against
     #single-vertex noise -- all reported metrics use the raw residual
     smoothed = residual.copy()
-    for _ in range(smooth_iters):
+    for _ in range(params.smooth_iters):
         smoothed = adjacency.dot(smoothed) / degree
 
     ### persistence ("topographic prominence") over the mesh graph
@@ -1124,8 +1265,8 @@ def get_protrusion_info(
 
     median = np.median(residual)
     robust_std = 1.4826 * np.median(np.abs(residual - median))
-    prominence_thresh = prominence_sigmas * robust_std
-    grow_thresh = median + grow_sigmas * robust_std
+    prominence_thresh = params.prominence_sigmas * robust_std
+    grow_thresh = median + params.grow_sigmas * robust_std
 
     if len(prominence_df) > 0:
         significant = prominence_df[prominence_df.prominence > prominence_thresh]
@@ -1155,31 +1296,140 @@ def get_protrusion_info(
                 label[nb] = label[v]
                 queue.append(nb)
 
+    ### vectors to compare each protrusion's direction against, all in the
+    ### same (alignment) frame as the mesh
+    cell_evecs_aligned, trajectory_aligned, next_trajectory_aligned = get_aligned_vectors(df)
+    cell_axes = orient_cell_axes(cell_evecs_aligned)
+    cell_centroid = df[['x_raw', 'y_raw', 'z_raw']].values.astype(float)
+    #rotation taking the alignment frame back to the original (real space) frame of the saved mesh
+    to_real_space = R.from_euler(
+        'xyz', df[['Euler_Angles_X','Euler_Angles_Y','Euler_Angles_Z']].values, degrees = True).inv()
+    trajectory_unit = _unit_vector(trajectory_aligned)
+    next_trajectory_unit = _unit_vector(next_trajectory_aligned)
+
     ### per-protrusion metrics, dropping any that end up too small
     rows = []
     for i in range(1, len(seed_vertices) + 1):
         verts = np.where(label == i)[0]
-        if len(verts) < min_area_verts:
+        if len(verts) < params.min_area_verts:
             continue
-        direction = coords[verts].mean(axis=0)
-        direction /= np.linalg.norm(direction)
-        rows.append({
-            'cell': cell_name,
+        pcoords = coords[verts]
+        direction = _unit_vector(pcoords.mean(axis=0))
+        volume = (residual[verts] * vertex_area[verts]).clip(min=0).sum()
+
+        # principal axes of the protrusion's own vertex coordinates, major to
+        # minor (xyz components), each pointing away from the cell centroid
+        evals, evecs = np.linalg.eigh(np.cov(pcoords.T))
+        axes = evecs[:, np.argsort(evals)[::-1]].T
+        axes = axes * np.where(axes @ direction < 0, -1.0, 1.0)[:, None]
+        # axis lengths as the extent of the vertices along each axis
+        projected = (pcoords - pcoords.mean(axis=0)) @ axes.T
+        lengths = projected.max(axis=0) - projected.min(axis=0)
+        aspect_ratio_median = lengths[0] / lengths[1] if lengths[1] > 0 else np.nan
+        aspect_ratio_minor = lengths[0] / lengths[2] if lengths[2] > 0 else np.nan
+
+        # convex hull of the protrusion; degenerate (e.g. flat) patches have none
+        try:
+            hull = ConvexHull(pcoords)
+            hull_volume, hull_area = hull.volume, hull.area
+        except QhullError:
+            hull_volume = hull_area = np.nan
+        hull_area_ratio = vertex_area[verts].sum() / hull_area if hull_area > 0 else np.nan
+
+        row = {
+            'cell': df.cell,
+            **{col: df[col] for col in ('CellID', 'frame', 'time') if col in df.index},
             'seed_vertex': seed_vertices[i - 1],
             'n_vertices': len(verts),
             'peak_residual_um': residual[verts].max(),
             'area_um2': vertex_area[verts].sum(),
-            'volume_um3': (residual[verts] * vertex_area[verts]).clip(min=0).sum(),
+            'volume_um3': volume,
             'direction_x': direction[0],
             'direction_y': direction[1],
             'direction_z': direction[2],
+            'major_axis_length_um': lengths[0],
+            'median_axis_length_um': lengths[1],
+            'minor_axis_length_um': lengths[2],
+            'aspect_ratio_median': aspect_ratio_median,
+            'aspect_ratio_minor': aspect_ratio_minor,
+        }
+        real_axes = to_real_space.apply(axes)
+        for ax_name, ax, real_ax in zip(ax_names, axes, real_axes):
+            row.update({f'{ax_name.lower()}_axis_{d}': ax[k] for k, d in enumerate('xyz')})
+            row.update({f'real_{ax_name.lower()}_axis_{d}': real_ax[k] for k, d in enumerate('xyz')})
+        real_direction = to_real_space.apply(direction)
+        row.update({f'real_direction_{d}': real_direction[k] for k, d in enumerate('xyz')})
+        # unnormalized: mean vertex position of the protrusion relative to the cell centroid
+        position = to_real_space.apply(pcoords.mean(axis=0))
+        row.update({f'position_{d}': position[k] for k, d in enumerate('xyz')})
+        row.update({f'real_position_{d}': cell_centroid[k] + position[k] for k, d in enumerate('xyz')})
+        row.update({
+            'trajectory_alignment': direction @ trajectory_unit,
+            'next_trajectory_alignment': direction @ next_trajectory_unit,
         })
+        # cell axes have no inherent directionality, so only the magnitude of
+        # the alignment is meaningful
+        row.update({
+            f'cell_{ax_name.lower()}_axis_alignment': abs(direction @ cell_ax)
+            for ax_name, cell_ax in zip(ax_names, cell_axes)
+        })
+        row.update({
+            'hull_volume_um3': hull_volume,
+            'hull_area_um2': hull_area,
+            'hull_area_ratio': hull_area_ratio,
+        })
+        row['protrusion_class'] = _classify_protrusion(row, params)
+        rows.append(row)
 
     rows.sort(key=lambda r: -r['peak_residual_um'])
     for rank, r in enumerate(rows, start=1):
         r['protrusion_rank'] = rank
 
+    if return_labels:
+        return rows, mesh, label
     return rows
+
+
+def get_protrusion_info(
+        df: pd.Series,  # row with 'cell', Euler angles, principal axes, trajectory vectors and shcoeffs
+        meshdir: Path,  # path to the mesh directory
+        l_order: int, # degree of the original shcoeffs
+        params: ProtrusionParams = None,  # detection and classification settings, default ProtrusionParams()
+        ):
+    """
+    Measure the protrusions of a single cell on its own, i.e. without the rest
+    of get_shape_info: read its mesh, rotate it into the alignment frame, fit
+    SH coefficients and pass them to measure_protrusions_from_mesh (see there
+    for the algorithm, the settings and the returned columns).
+
+    Parameters
+    ----------
+    df : pd.Series
+        Row with 'cell', the Euler_Angles_X/Y/Z columns used to rotate the
+        mesh into the alignment frame, and the Cell_{Major,Median,Minor}_Axis_Vec_{X,Y,Z},
+        Trajectory_Vec_{X,Y,Z} and Next_Trajectory_Vec_{X,Y,Z} columns (same
+        convention as get_shape_info). Direction outputs are expressed in
+        this frame.
+    meshdir : Path
+        Directory containing '{cell}_cell_mesh.vtp' files.
+    params : ProtrusionParams, optional
+        Detection and classification settings.
+
+    Returns
+    -------
+    list of dict
+        One dict per detected protrusion, see measure_protrusions_from_mesh.
+    """
+
+    ### read and align the mesh exactly as get_shape_info does
+    cell_mesh = get_aligned_mesh(df, meshdir)
+
+    return measure_protrusions_from_mesh(
+        cell_mesh,
+        df,
+        l_order,
+        params,
+        )
 
 
 #wrapper for get_protrusion_info for imap

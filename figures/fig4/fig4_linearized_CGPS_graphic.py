@@ -11,11 +11,16 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib import cm
 import matplotlib.patches as patches
-from pathlib import Path
 from neutrophil_shape.config.loader import load_config
 
+#where the linear cycle starts (0 degrees); it runs clockwise from there
+start = 'right' #'top', 'right', 'bottom' or 'left'
+#direction of the start, in degrees counterclockwise from the +x axis
+start_angle = {'right': 0, 'top': 90, 'left': 180, 'bottom': 270}[start]
+
 #define some angular binning stuff
-binrange = 20
+nbins_angle = 18
+binrange = 360/nbins_angle # degrees / bin
 bin_centers = np.arange(0, 360, binrange)
 bin_edges = np.unique([(round(b-binrange/2,4), round(b+binrange/2,4)) for b in bin_centers])
 
@@ -41,7 +46,7 @@ transdir = basedir / 'detailed_balance'
 
 
 ############## get the counts of cells leaving 
-trans_rate_df_sep = pd.read_csv(transdir.joinpath(f'PC{whichpcs[0]}-PC{whichpcs[1]}_binned_transition_rates_separated.csv'), index_col=0)
+trans_rate_df_sep = pd.read_csv(transdir.joinpath(f'PC{whichpcs[0]}-PC{whichpcs[1]}_binned_transition_rates.csv'), index_col=0)
 #limit to treatments
 trans_rate_df_sep = trans_rate_df_sep[trans_rate_df_sep.Treatment.isin(treatments)]
 
@@ -56,13 +61,13 @@ for i in range(len(bin_edges)-1):
     cur = bin_edges[i]
     nex = bin_edges[i+1]
     #get the point around the circle and extend the radius
-    rad = -np.radians(cur+180)
+    rad = np.radians(start_angle-cur)
     radx = np.cos(rad)*(1.5*nbins)+actual_origin[0]
     rady = np.sin(rad)*(1.5*nbins)+actual_origin[1]
     #add this to the line array
     line_arr[i,:] = [[actual_origin[0],actual_origin[1]],[radx,rady]]
     #get the next point around the circle
-    nrad = -np.radians(nex+180)
+    nrad = np.radians(start_angle-nex)
     nradx = np.cos(nrad)*(1.5*nbins)+actual_origin[0]
     nrady = np.sin(nrad)*(1.5*nbins)+actual_origin[1]
     #add to the triangle point array 
@@ -73,82 +78,41 @@ leftticks = []
 bottomticks = []
 rightticks = []
 topticks = []
-tickcoords = np.zeros((len(bin_centers),2))
-#labels need to be adjusted because 0 should start on the left
-bclabels = bin_centers-180
-bclabels[bclabels<0] = bclabels[bclabels<0]+360
-for i, bc in enumerate(bin_centers):
-    rad = -np.radians(bc)
-    radx = np.cos(rad)+actual_origin[0]
-    rady = np.sin(rad)+actual_origin[1]
-    m = (actual_origin[1]-rady)/(actual_origin[0]-radx)
-    b = rady - m*radx
-    #in the case of 0 and 180
-    if m == 0:
-        if rad == 0:
-            tickcoords[i] = [nbins, actual_origin[1]]
-        else:
-            tickcoords[i] = [0, actual_origin[1]]
-    #intersections up and left
-    elif abs(rad)>=np.pi and abs(rad)<np.pi*1.5:
-        up = [(nbins-b)/m, nbins]
-        left = [0, b]
-        if up[0]>=0:
-            tickcoords[i] = up
-        else:
-            ul = np.stack((up,left))
-            #minimize y
-            miny = np.where(ul[:,1] == np.min(ul[:,1]))
-            tickcoords[i] = ul[miny]
-    #intersections up and right
-    elif abs(rad)>=np.pi*1.5:
-        up = [(nbins-b)/m, nbins]
-        right = [nbins, nbins*m+b]
-        if up[0]<=nbins:
-            tickcoords[i] = up
-        else:
-            ur = np.stack((up,right))
-            #minimize y
-            miny = np.where(ur[:,1] == np.min(ur[:,1]))
-            tickcoords[i] = ur[miny]
-    #intersections down and left
-    elif abs(rad)<np.pi and abs(rad)>=np.pi/2:
-        down = [-b/m,0]
-        left = [0,b]
-        if down[0]>=0:
-            tickcoords[i] = down
-        else:
-            ul = np.stack((down,left))
-            #maximize y
-            maxy = np.where(ul[:,1] == np.max(ul[:,1]))
-            tickcoords[i] = ul[maxy]
-    #intersections down and right
-    elif abs(rad)<np.pi/2:
-        down = [-b/m,0]
-        right = [nbins,m*nbins+b]
-        if down[0]<=nbins:
-            tickcoords[i] = down
-        else:
-            ur = np.stack((down,right))
-            #minimize y
-            maxy = np.where(ur[:,1] == np.max(ur[:,1]))
-            tickcoords[i] = ur[maxy]
-    
-    ####### add tick coordinate to the correct tick list
-    if tickcoords[i][0] == nbins:
-        rightticks.append([bclabels[i], tickcoords[i][1]])
-    elif tickcoords[i][1] == nbins:
-        topticks.append([bclabels[i], tickcoords[i][0]])
-    elif tickcoords[i][0] == 0:
-        leftticks.append([bclabels[i], tickcoords[i][1]])
-    elif tickcoords[i][1] == 0:
-        bottomticks.append([bclabels[i], tickcoords[i][0]])
+ox, oy = actual_origin
+for bc in bin_centers:
+    #direction of this bin center out of the origin
+    rad = np.radians(start_angle-bc)
+    dx = np.cos(rad)
+    dy = np.sin(rad)
+    #distance along that line to each side of the plot it is heading towards
+    #(in the order the sides win a tie)
+    hits = []
+    if dx > 1e-12:
+        hits.append(((nbins-ox)/dx, 'right'))
+    if dy > 1e-12:
+        hits.append(((nbins-oy)/dy, 'top'))
+    if dx < -1e-12:
+        hits.append(((0-ox)/dx, 'left'))
+    if dy < -1e-12:
+        hits.append(((0-oy)/dy, 'bottom'))
+    #the line leaves the plot through the nearest of them
+    dist, side = min(hits, key=lambda h: h[0])
 
-####sort all of the tick lists
-bottomticks = np.array(bottomticks).T
-topticks = np.array(topticks).T
-leftticks = np.array(leftticks).T
-rightticks = np.array(rightticks).T
+    ####### add the label and its coordinate to the correct tick list
+    if side == 'right':
+        rightticks.append([bc, oy+dist*dy])
+    elif side == 'top':
+        topticks.append([bc, ox+dist*dx])
+    elif side == 'left':
+        leftticks.append([bc, oy+dist*dy])
+    else:
+        bottomticks.append([bc, ox+dist*dx])
+
+####turn all of the tick lists into [label, coordinate] arrays (empty if no line leaves through that side)
+bottomticks = np.array(bottomticks).reshape(-1,2).T
+topticks = np.array(topticks).reshape(-1,2).T
+leftticks = np.array(leftticks).reshape(-1,2).T
+rightticks = np.array(rightticks).reshape(-1,2).T
 
 
 
@@ -164,9 +128,13 @@ scale = 0.0012
 for x in range(1,nbins+1):
     for y in range(1,nbins+1):
         current = trans_rate_df_sep[(trans_rate_df_sep['x'] == x) & (trans_rate_df_sep['y'] == y)]
-        xcurrent = (current.x_plus_rate - current.x_minus_rate)/2
-        ycurrent = (current.y_plus_rate - current.y_minus_rate)/2
-        anglecolor = (np.arctan2(xcurrent,ycurrent) *180/np.pi)+180
+        if current.empty:
+            xcurrent = 0
+            ycurrent = 0
+        else:
+            xcurrent = (current.x_plus_rate - current.x_minus_rate)/2
+            ycurrent = (current.y_plus_rate - current.y_minus_rate)/2
+
         
         ax.quiver(x-0.5,
                     y-0.5, 
@@ -190,8 +158,8 @@ for l in line_arr:
 
 ### get the colormap and the number of discrete colors along it
 ### add one more color than needed so that colors don't start and end in the same place
-cmap = cm.get_cmap('twilight', int(360/binrange+1))
-discrete_colors = cmap(np.linspace(0,1,int(360/binrange+1))[:-1])
+cmap = cm.twilight
+discrete_colors = cmap(np.linspace(0, 1, nbins_angle, endpoint=False))
 #### plot the triangles
 for i,t in enumerate(tri_points):
    #make patch

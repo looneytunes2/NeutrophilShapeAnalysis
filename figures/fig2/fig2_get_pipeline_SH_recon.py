@@ -5,6 +5,7 @@
 import pandas as pd
 from neutrophil_shape.CustomFunctions import shtools_mod
 from neutrophil_shape.config.loader import load_config
+from neutrophil_shape.CustomFunctions.shapePCAtools import load_shcoeffs
 from pathlib import Path
 
 #cell to reconstruct
@@ -18,6 +19,8 @@ lmax = config.common.l_order
 #get some directories
 basedir = config.common.savedir / 'shape_data'
 shdf = pd.read_csv(basedir / 'All_Data_with_CGPS_bins.csv', index_col=0)
+#the SH coefficients are saved separately from the shape metrics, combine them on 'cell' (up to the config's l_order)
+shdf = shdf.merge(load_shcoeffs(basedir, config.common.l_order), how = 'left', on = 'cell')
 
 #get cell in question from dataframe
 cell = shdf[shdf.cell==cellname]

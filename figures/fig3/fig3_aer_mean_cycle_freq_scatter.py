@@ -12,9 +12,10 @@ import seaborn as sns
 from matplotlib import cm
 from matplotlib.font_manager import FontProperties
 from neutrophil_shape.config.loader import load_config
+from neutrophil_shape.CustomFunctions.utils import whichpc_string
 
 config = load_config(microscope_type = 'confocal')
-
+pc_combos = config.common.pc_combos
 
 ####### load common directories and data
 dirlist = ['Combined_37C_Confocal_PCA_shape','Combined_37C_Confocal_PCA_s5','Combined_37C_Confocal_PCA_planar']
@@ -34,10 +35,11 @@ for d, ali in enumerate(['shape','trajectory_shape','trajectory']):
     binlist = centers.columns.to_list()
     dbdir = savedir / 'detailed_balance'
     dbbsdir = dbdir / 'alldatabs'
-    file_list = dbbsdir.glob(f'*bootstrapped_{ntrans}_Area_Enclosed_Linear_Reg.csv')
-    for f in file_list:
-        tempdf = pd.read_csv(f, index_col = 0)
-        firstpc, secondpc = f.name.split('_')[0].split('-')
+    file_list = dbbsdir.glob(f'*bootstrapped_{ntrans}_linear_rates.csv')
+    for whichpcs in pc_combos:
+        wpc_str = whichpc_string(whichpcs)
+        tempdf = pd.read_csv(dbbsdir / f'{wpc_str}_bootstrapped_{ntrans}_linear_rates.csv', index_col = 0)
+        firstpc, secondpc = wpc_str.split('-')
         tempdf['first_pc'] = firstpc
         tempdf['second_pc'] = secondpc
         tempdf['Alignment Method'] = alignlist[d]
@@ -45,10 +47,10 @@ for d, ali in enumerate(['shape','trajectory_shape','trajectory']):
 
 df = pd.concat(dflist, ignore_index = True)
 ##drop nans
-df = df[~df.aer_fit.isna()]
+df = df[~df.aer_avg.isna()]
 
 ## add cycle period not just angular velocity
-df['cycle_period'] = 360/(df.angular_velocity_coeff.abs()*60) ## (degrees/cycle)/((degrees/sec)*(sec/min)) = min/cycle
+df['cycle_period'] = 360/(df.angular_velocity_avg.abs()*60) ## (degrees/cycle)/((degrees/sec)*(sec/min)) = min/cycle
 
 
 #### function to shift IQR for abs median
@@ -72,7 +74,7 @@ def signed_median_stats(series):
     })
 
 stats = df.groupby(['Alignment Method','first_pc','second_pc']).apply(lambda g: pd.concat([
-    signed_median_stats(g['aer_coeff']).add_prefix('aer_'),
+    signed_median_stats(g['aer_avg']).add_prefix('aer_'),
     signed_median_stats(g['cycle_period']).add_prefix('cycle_period_'),
 ])).reset_index()
 

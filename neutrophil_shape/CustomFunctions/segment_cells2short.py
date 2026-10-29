@@ -47,7 +47,11 @@ def MM_slicetostack_reader(direct, #directory of the image slices
             full[i,:,:] = tifffile.imread(direct.joinpath(f'img_channel{c:03}_position{pos:03}_time{frame:09}_z{z:03}.tif'))
     return full
 
-
+def read_cropped_substack_confocal(args):
+    """Read one frame's minimal z substack from the raw slices and crop the xy bounding box from it."""
+    rawdir, frame, stackshape, zrange, ymin, ymax, xmin, xmax = args
+    substack = MM_slicetostack_reader(rawdir, frame, stackshape, zrange)
+    return substack[:, ymin:ymax, xmin:xmax]
 
 
 #### writes over a non-centered cell segmentation

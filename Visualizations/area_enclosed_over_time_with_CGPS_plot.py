@@ -43,7 +43,7 @@ cmap = cm.Greys_r
 tail_length = 15 # seconds
 
 ### open config and get directories
-config = load_config(microscope_type='confocal')
+config = load_config(microscope_type='lls')
 config._alignment = 'trajectory'
 savedir = config.common.savedir
 datadir = savedir / 'shape_data'
@@ -62,7 +62,7 @@ centers = pd.read_csv(datadir / 'PC_bin_centers.csv', index_col = 0)
 nbins = centers.shape[0]
 
 
-# cellname = '20231116_488EGFP-CAAX_3mA_37C_1_cell_29'
+# cellname = '20240611_488_EGFP-CAAX_640_actin-halotag_cell2_01'
 for cellname in aers.CellID.unique():
     ### get specific cell and relevant directories
     TotalFrame = Fullframe[Fullframe.CellID==cellname].sort_values('real_time').reset_index(drop=True)
@@ -74,23 +74,19 @@ for cellname in aers.CellID.unique():
     ###### BUILD DWELL TIME MAP
     transdf_sep = pd.read_csv(dbdir.joinpath(f'PC{whichpcs[0]}-PC{whichpcs[1]}_interpolated_transitions.csv'), index_col=0)
 
-    ########### calculate the DWELL TIME in the WHOLE CGPS #############
+    ########### calculate the PDF in the WHOLE CGPS #############
     ### onyl build the heatmap for the treatment of the cell in question
     treat_trans = transdf_sep[transdf_sep.Treatment == TotalFrame.Treatment.iloc[0]].copy()
-    hms = np.zeros((len(treat_trans.CellID.unique()), nbins, nbins))
-    countmap = np.zeros((len(treat_trans.CellID.unique()), nbins, nbins))
-    for i, (treat, tdf) in enumerate(treat_trans.groupby('CellID')):
-        for x in range(nbins):
-            for y in range(nbins):
-                current =  tdf[(tdf['from_x'] == x+1) & (tdf['from_y'] == y+1)]
-                if current.empty:
-                    hms[i,y,x] = 0
-                else:
-                    hms[i,y,x] = current.time_elapsed.mean()
-                    #add the number of counts in this bin
-                    countmap[i,y,x] = len(current)
+    ttot = treat_trans.time_elapsed.sum()
+    pdf = np.zeros((nbins, nbins))
+    for x in range(nbins):
+        for y in range(nbins):
+            current =  treat_trans[(treat_trans['from_x'] == x+1) & (treat_trans['from_y'] == y+1)]
+            if current.empty:
+                pdf[y,x] = 0
+            else:
+                pdf[y,x] = current.time_elapsed.sum()/ttot
 
-    avg_hm = np.mean(hms, axis = 0)
 
 
 
@@ -217,7 +213,7 @@ for cellname in aers.CellID.unique():
 
     meshx = np.arange(1, nbins+1, 1)
     meshy = np.arange(1, nbins+1, 1)
-    mesh = ax1.pcolormesh(meshx, meshy, avg_hm, cmap='viridis', shading='auto')
+    mesh = ax1.pcolormesh(meshx, meshy, pdf, cmap='rocket', shading='auto')
 
     #add "grid lines" first 
     for h in np.linspace(0.5, nbins+0.5, nbins+1):
@@ -227,8 +223,8 @@ for cellname in aers.CellID.unique():
     ax1.set_aspect("equal")
     ax1.set_xlabel(f'PC{whichpcs[0]}', fontsize = 20)
     ax1.set_ylabel(f'PC{whichpcs[1]}', fontsize = 20)
-    ax1.set_xticks(list(range(1,nbins+1)),[round(x,1) for x in centers[f'PC{whichpcs[0]}'].to_list()], fontsize = 9)
-    ax1.set_yticks(list(range(1,nbins+1)),[round(x,1) for x in centers[f'PC{whichpcs[1]}'].to_list()], fontsize = 9)
+    ax1.set_xticks(list(range(1,nbins+1)),[round(x,1) for x in centers[f'PC{whichpcs[0]}'].to_list()], fontsize = 7)
+    ax1.set_yticks(list(range(1,nbins+1)),[round(x,1) for x in centers[f'PC{whichpcs[1]}'].to_list()], fontsize = 7)
     ax1.set_xlim(0.5,nbins+0.5)
     ax1.set_ylim(0.5,nbins+0.5)
     # create a point in the axes
@@ -240,7 +236,7 @@ for cellname in aers.CellID.unique():
     # Add the colorbar to the new axis
     cbar = fig.colorbar(mesh, ax=ax1, location = 'top', orientation='horizontal', shrink = 0.89, pad=0.01)
     # cbar = fig.colorbar(axes[-1].collections[0], cax=cbar_ax, orientation='horizontal')
-    cbar.set_label('Mean Dwell Time (s)', fontsize=17)
+    cbar.set_label('Probability', fontsize=17)
     cbar.ax.xaxis.set_label_position('top')
     # cbar.ax.set_xticklabels(np.linspace(-1,1,len(cbar.ax.get_xticklabels())).astype(str),fontsize=22)
 

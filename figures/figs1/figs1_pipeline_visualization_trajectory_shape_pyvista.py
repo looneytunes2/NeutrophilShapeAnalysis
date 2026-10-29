@@ -6,9 +6,11 @@ import vtk
 import matplotlib.pyplot as plt
 from scipy.spatial.transform import Rotation as R
 from neutrophil_shape.config.loader import load_config
+from neutrophil_shape.CustomFunctions.shapePCAtools import load_shcoeffs
 from neutrophil_shape.CustomFunctions import PCvisualization
 from neutrophil_shape.CustomFunctions.shtools_mod import get_reconstruction_from_coeffs
 # ----------------------------- CONFIG ---------------------------------- #
+
 
 
 WINDOW_SIZE = [5000, 5000]
@@ -19,10 +21,24 @@ CAMERA_POSITION = [
      (0, 0, 0),  # focal point
      (0.0, 1.0, 0.0),  # view up
      ]
-    
+traj_arrow_color = [77/255, 130/255, 56/255]    
+next_traj_arrow_color = [159/255, 78/255, 199/255]
+
+
+#### define positions for the trajctory arrows
+all_traj_arrow_pos = [
+    np.array([-7.5,4,0]),
+    np.array([-3,-7,0]),
+    np.array([3.5,-12,0]),
+    ]
+
+### position for the lab orientation axes actor
+ax_origin = (-9,-10,0)
+
+
 def render_frame(
         plotter,
-        mesh_and_arrow,
+        mesh_and_arrows,
         axes_actor = None,
         camera_position = None,
         mesh_color = "corn_silk",
@@ -32,21 +48,23 @@ def render_frame(
     plotter.clear()
     plotter.enable_lightkit()
     plotter.add_mesh(
-        mesh_and_arrow[0],
+        mesh_and_arrows[0],
         color=mesh_color,
         show_edges=False,
         smooth_shading = True
         )
-    
-    plotter.add_mesh(
-        mesh_and_arrow[1],
-        color=[77/255, 130/255, 56/255],
-        specular=1.0,       # shininess
-        specular_power=100,  # sharpness of highlight
-        smooth_shading=True,
-        ambient=0.1,
-        diffuse=0.6,
-    )
+    ### plot the current trajectory vector
+    for ma, arrow in enumerate(mesh_and_arrows[1:]):
+        arrow_color = [traj_arrow_color, next_traj_arrow_color][ma]
+        plotter.add_mesh(
+            arrow,
+            color=arrow_color,
+            specular=1.0,       # shininess
+            specular_power=100,  # sharpness of highlight
+            smooth_shading=True,
+            ambient=0.3,
+            diffuse=0.6,
+        )
     
     if axes_actor is not None:
         plotter.add_actor(axes_actor)
@@ -172,7 +190,6 @@ def generate_traj_arrow(start, direction):
     )
 
 
-
 ### open config and get directories
 config = load_config(microscope_type='confocal')
 config._alignment = 'trajectory_shape'
@@ -184,6 +201,8 @@ savedir = config.common.savedir
 datadir = savedir.joinpath('shape_data')
 ### open the whole dataset
 df = pd.read_csv(datadir.joinpath('All_Data_with_CGPS_bins.csv'), index_col = 0)
+#the SH coefficients are saved separately from the shape metrics, combine them on 'cell' (up to the config's l_order)
+coeffdf = load_shcoeffs(datadir, config.common.l_order)
 ## define cell and get its data
 cellname = '20231116_488EGFP-CAAX_3mA_37C_1_cell_79_frame_144'
 cellinfo = df[df.cell == cellname].copy()
@@ -193,14 +212,14 @@ configdict = dataclasses.asdict(config)
 localdir = configdict['experiment'][exp]['localdir']
 
 
-
-
 ### read mesh
 meshpath = localdir.joinpath('meshes', cellname + '_cell_mesh.vtp')
 mesh = pv.read(meshpath)
 ### get trajectory
 traj_cols = ['Trajectory_Vec_X','Trajectory_Vec_Y','Trajectory_Vec_Z']
+next_traj_cols = ['Next_'+t for t in traj_cols]
 traj_vec = cellinfo[traj_cols].values[0]
+next_traj_vec = cellinfo[next_traj_cols].values[0]
 ### get the partial rotation angles
 rotation, _ = R.align_vectors([1,0,0], traj_vec)
 partial_euler_angles = rotation.as_euler('xyz', degrees = True)
@@ -208,20 +227,12 @@ partial_euler_angles = rotation.as_euler('xyz', degrees = True)
 euler_cols = ['Euler_Angles_X', 'Euler_Angles_Y', 'Euler_Angles_Z']
 full_euler_angles = cellinfo[euler_cols].values[0]
 
-
+### all euler angles for rotating through the process
 all_euler_angles = [
     np.zeros(3),
     partial_euler_angles,
     full_euler_angles,
     ]
-
-all_traj_arrow_pos = [
-    np.array([-6.5,4,0]),
-    np.array([-3.5,-6,0]),
-    np.array([-3.5,-8.5,0]),
-    ]
-
-ax_origin = (-9,-10,0)
 
 
 # ---- Off-screen PyVista plotter (reused across frames for speed) ---- #
@@ -233,6 +244,8 @@ except Exception:
 
 plotter = pv.Plotter(off_screen=True, window_size=WINDOW_SIZE)
 rendered_images = []
+
+
 
 for i in range(3):
     #first get the angles
@@ -255,6 +268,16 @@ for i in range(3):
         direction = rotated_traj_vec,
     )
 
+    # rotate next trajectory vector
+    rotated_next_traj_vec = rotation.apply(next_traj_vec)
+    #position end-to-end with current trajectory
+    current_next_traj_arrow_pos = np.array(current_traj_arrow_pos) + (5 * rotated_traj_vec)
+    # create next trajectory arrow
+    rotated_next_traj_arrow = generate_traj_arrow(
+        start = current_next_traj_arrow_pos,
+        direction = rotated_next_traj_vec,
+    )
+
     ### add real-world axes 
     axes_actor = make_custom_axes_actor()
     #rotate real-world axes
@@ -270,7 +293,7 @@ for i in range(3):
     #render mesh
     im = render_frame(
         plotter,
-        [rotated_mesh, rotated_traj_arrow],
+        [rotated_mesh, rotated_traj_arrow, rotated_next_traj_arrow],
         camera_position = CAMERA_POSITION,
         background_color = 'white',
         axes_actor = axes_actor,
@@ -279,8 +302,9 @@ for i in range(3):
     
 
 ## get the reconstruction of this mesh
-shcols = [x for x in cellinfo.columns if 'shco' in x]
-shcoeffs = cellinfo[shcols].values
+cellcoeffs = coeffdf[coeffdf.cell == cellname].copy()
+cellcoeffs.drop(columns = 'cell', inplace = True)
+shcoeffs = cellcoeffs.values[0]
 recon_mesh, grid = get_reconstruction_from_coeffs(shcoeffs.reshape(2,lmax+1,lmax+1))
 recon_mesh = pv.PolyData(recon_mesh)
 ### add real-world axes 
@@ -295,7 +319,7 @@ place_axes_actor(
 #render mesh
 im = render_frame(
     plotter,
-    [recon_mesh, rotated_traj_arrow],
+    [recon_mesh, rotated_traj_arrow, rotated_next_traj_arrow],
     camera_position = CAMERA_POSITION,
     background_color = 'white',
     axes_actor = axes_actor,

@@ -30,9 +30,13 @@ config = load_config(microscope_type='confocal')
 config._alignment = 'trajectory'   # 'shape' | 'trajectory_shape' | 'trajectory'
 ```
 
-The `_alignment` setter is a property with side effects: it sets `common.savedir` (`data/<alignment>_<microscope>/`, created on disk), the per-alignment PC flips and symmetrical PCs (and `pc_combos_sym`), and the CGPS `origins` for each PC pair. Forgetting to set it leaves these as `None`. `pc_combos` is all pairs of the top `npcs` PCs; `origins` is indexed in the same order as `pc_combos`. Thresholds for AER states are in `db_params.<microscope>.cycle_thresh` keyed by `"PCa-PCb"`. Confocal and LLS use different pixel sizes, bin counts, and thresholds, so always load the matching microscope config.
+The `_alignment` setter is a property with side effects: it sets `common.savedir` (`data/<alignment>_<microscope>/`, created on disk), the per-alignment PC flips (`all_pc_flips`) and symmetrical PCs (`all_symmetrical_pcs`), `pc_combos_sym`, and the CGPS `origins` / `origins_sym`. Forgetting to set it leaves these as `None`. `pc_combos` is all pairs of the top `npcs` PCs; `origins` is indexed in the same order as `pc_combos`.
+
+**Symmetrical (absolute-value) PCs:** a PC listed in `common.all_symmetrical_pcs[alignment]` is symmetric under sign flip, so a parallel set of CGPSs uses its absolute value. `pc_combos_sym` is `pc_combos` with those PCs negated (same order/length, so `origins_sym` from `all_symmetrical_origins` is indexed by `pc_combos_sym.index(whichpcs)`); `pc_combos_sym_only` is just the combos that differ from `pc_combos`. A negative PC number in `whichpcs` means "use |PC|": data columns are `PC{n}bins_abs` (vs `PC{n}bins`) and file names use `whichpc_string`, e.g. `PC4_abs-PC8_...`. Code that takes `whichpcs` must handle negatives (see `raw_transitions`, `get_aer_cf` in `DetailedBalance.py`, which switch to the `_sym` combos/origins when any PC is negative). Thresholds for AER states are in `db_params.<microscope>.cycle_thresh` keyed by `"PCa-PCb"`. Confocal and LLS use different pixel sizes, bin counts, and thresholds, so always load the matching microscope config.
 
 **Three alignments** are first-class and all outputs are duplicated per alignment under `data/{shape,trajectory_shape,trajectory}_{confocal,lls}/`. `data/` is git-ignored; typical contents are `shape_data/All_Data_with_CGPS_bins.csv` and `detailed_balance/`. Alignment-dependent code must not hardcode one alignment.
+
+**SH coefficients are kept apart from the shape metrics.** `get_shape_info` always fits them to order `shparam_mod.SHAPE_INFO_L_ORDER` (20), regardless of `config.common.l_order`, and `extract_shape_metrics` saves them separately in `shape_data/SH_Coefficients_<dataset>.csv` (one row per `cell`; `Shape_Metrics_*` and `All_Data_with_CGPS_bins.csv` hold no `shcoeffs_*` columns). Anything that recalls them (PCA, reconstructions, figures) loads them with `shapePCAtools.load_shcoeffs(datadir, config.common.l_order)`, which returns `cell` plus the coefficients up to the config's order in reshape-able order, and merges on `cell`.
 
 **`neutrophil_shape/CustomFunctions/`** (flat module collection, imported like `from neutrophil_shape.CustomFunctions import utils`):
 - `image_processing.py`, `segment_cells2short.py`, `segment_LLS.py`, `track_functions.py`, `TrackMate_Script.py` — segmentation, tracking, cropping, alignment angle extraction.
@@ -45,6 +49,6 @@ The `_alignment` setter is a property with side effects: it sets `common.savedir
 ## Conventions
 
 - Scripts are plain `.py` with top-level code (no `main`), usually built as: load config, set alignment, read CSVs from `config.common.savedir`, plot, save. Figure scripts are named `fig<N>_<description>.py`; PC pairs appear in names as `1-2`, `4-5`, `2-8`, `1-7`.
-- PC indices in the config and in code are 1-based; negative entries in `pc_combos_sym` mean a symmetrical PC.
+- PC indices in the config and in code are 1-based; a negative PC number means the absolute value of that (symmetrical) PC (see above).
 - Cell identity is `(Treatment, cell, CellID, frame)`; treatments include Random, galvanotaxis (Galv), CK666, and para-nitroblebbistatin (PNB).
 - Notebooks are tracked in git; avoid editing them via text tools in ways that clobber outputs/metadata.

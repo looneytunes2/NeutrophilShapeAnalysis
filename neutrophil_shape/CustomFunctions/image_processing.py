@@ -16,6 +16,7 @@ from scipy.spatial import KDTree, distance
 from scipy.spatial.transform import Rotation as R
 from .segment_cells2short import confocal_segmentation_wrapper
 from . import shparam_mod, metadata_funcs, segment_LLS
+from .shapePCAtools import load_shcoeffs, get_nonzero_shcoeff_columns
 from .track_functions import segment_caax_tracks_confocal_40x_fromsingle
 # from .PILRagg import read_pilr_regions
 from .utils import get_consecutive_timepoints, smooth_trajectory_wrapper, remove_vector_flips
@@ -472,22 +473,20 @@ def get_alignment_angles(
 
 
 
-def extract_shape_metrics(
-    imdir, # where to find the segmented images 
+def load_alignment_frame(
+    imdir, # where to find the segmented images
     config: Config,
     ):
-    #save some variables from the config
-    savedir = config.common.savedir  # where to save the meshes etc.
-    l_order = config.common.l_order  # L order for SH coefficients
-
-    # make dirs if it doesn't exist
-    datadir = savedir.joinpath('shape_data')
-    meshdir = imdir.joinpath('meshes')
+    """
+    Alignment angles for every cell (from get_alignment_angles) merged with the
+    original-frame principal axes and the smoothed trajectory vectors, i.e. all
+    the per-cell inputs that shparam_mod.get_shape_info and
+    shparam_mod.get_protrusion_info read from their df row.
+    """
+    datadir = config.common.savedir.joinpath('shape_data')
     posdir = imdir.joinpath('position_info')
     trajdir = imdir.joinpath('smooth_traj')
 
-
-    ### open all relevant data
     angledf = pd.read_csv(datadir.joinpath(
         f'Alignment_Angles_{imdir.name}.csv'), index_col=0)
     poslist = [pd.read_csv(c, index_col = 0) for c in posdir.glob('*.csv')]
@@ -501,6 +500,37 @@ def extract_shape_metrics(
     #merge
     angledf = angledf.merge(smoothdf[['cell']+smoothonly], how = 'left', on = 'cell')
 
+    return angledf
+
+
+def extract_shape_metrics(
+    imdir, # where to find the segmented images
+    config: Config,
+    measure_protrusions: bool = True, # also detect and measure protrusions while the aligned meshes are in hand
+    protrusion_params: shparam_mod.ProtrusionParams = None, # protrusion detection and classification settings, default ProtrusionParams()
+    ):
+    """
+    Shape metrics (and, if measure_protrusions, protrusion metrics) for every
+    cell with alignment angles computed by get_alignment_angles. Saved to
+    Shape_Metrics_{imdir.name}.csv and Protrusion_Metrics_{imdir.name}.csv in
+    this alignment's shape_data directory. The SH coefficients (to order
+    shparam_mod.SHAPE_INFO_L_ORDER, not the config's l_order) are not part of the
+    shape metrics but saved on their own in SH_Coefficients_{imdir.name}.csv, with
+    the same 'cell' column to combine them on (see shapePCAtools.load_shcoeffs).
+    Protrusion size/shape measures do not
+    depend on the alignment, only their directional ones do, so pass
+    measure_protrusions=False to skip the (slow) detection for alignments
+    where it is not needed.
+    """
+    #save some variables from the config
+    savedir = config.common.savedir  # where to save the meshes etc.
+
+    # make dirs if it doesn't exist
+    datadir = savedir.joinpath('shape_data')
+    meshdir = imdir.joinpath('meshes')
+
+    ### open all relevant data
+    angledf = load_alignment_frame(imdir, config)
 
     mapargs = []
     for i, row in angledf.iterrows():
@@ -512,7 +542,8 @@ def extract_shape_metrics(
         mapargs.append((
             row,
             meshdir,
-            l_order,
+            measure_protrusions,
+            protrusion_params,
             ))
 
     # parallel processing for all segmented images
@@ -520,29 +551,46 @@ def extract_shape_metrics(
         results = list(tqdm(pool.imap(
             shparam_mod.shape_info_imap, mapargs), total=len(mapargs)))
 
+    # each result is (shape stats dict, SH coefficients dict, list of protrusion dicts)
     # save the shape metrics dataframe
-    bigdf = pd.DataFrame(results)
+    bigdf = pd.DataFrame([shape for shape, _, _ in results])
     bigdf.to_csv(datadir.joinpath(
         f'Shape_Metrics_{imdir.name}.csv'))
+
+    # save the SH coefficients separately, 'cell' identifies each row
+    # (only the ones that can be non-zero, load_shcoeffs fills in the rest)
+    shdf = pd.DataFrame([shcoeffs for _, shcoeffs, _ in results])
+    shdf = shdf[['cell'] + get_nonzero_shcoeff_columns(shparam_mod.SHAPE_INFO_L_ORDER)]
+    shdf.to_csv(datadir.joinpath(
+        f'SH_Coefficients_{imdir.name}.csv'), index=False)
+
+    # each cell contributes zero, one, or several protrusion rows -- flatten
+    if measure_protrusions:
+        protdf = pd.DataFrame([row for _, _, protrusions in results for row in protrusions])
+        protdf.to_csv(datadir.joinpath(
+            f'Protrusion_Metrics_{imdir.name}.csv'))
 
 
 
 def extract_protrusion_metrics(
     imdir, # where to find the segmented images
     config: Config,
-    lrec: int = 4,  # low-order "body" envelope reconstruction order
-    smooth_iters: int = 5,  # mild smoothing of the residual for stable peak-seeding
-    prominence_sigmas: float = 2.0,  # keep peaks with prominence above this many robust-sigma
-    grow_sigmas: float = 1.0,  # let a confirmed peak's region grow out to this height floor
-    min_area_verts: int = 15,  # drop surviving regions smaller than this many vertices
+    protrusion_params: shparam_mod.ProtrusionParams = None, # protrusion detection and classification settings, default ProtrusionParams()
     ):
     """
     Detect discrete surface protrusions (pseudopods/ruffles) for every cell
     with alignment angles computed by get_alignment_angles, using the SPHARM
     low-order-residual + persistence-watershed approach (see
-    shparam_mod.get_protrusion_info for the full algorithm). Cells contribute
-    zero, one, or several rows depending on how many distinct protrusions
-    were found, saved to Protrusion_Metrics_{imdir.name}.csv.
+    shparam_mod.measure_protrusions_from_mesh for the full algorithm and the
+    measured columns). Cells contribute zero, one, or several rows depending
+    on how many distinct protrusions were found, saved to
+    Protrusion_Metrics_{imdir.name}.csv.
+
+    This is the standalone route; extract_shape_metrics measures the same
+    protrusions in the same pass as the shape metrics, reusing its meshes and
+    SH coefficients. This route reads those coefficients back from
+    SH_Coefficients_{imdir.name}.csv (so extract_shape_metrics has to have been
+    run), at the config's l_order.
     """
     #save some variables from the config
     savedir = config.common.savedir  # where to save the metrics
@@ -551,9 +599,12 @@ def extract_protrusion_metrics(
     datadir = savedir.joinpath('shape_data')
     meshdir = imdir.joinpath('meshes')
 
-    ### open the alignment angles (all that's needed here: 'cell' + Euler angles)
-    angledf = pd.read_csv(datadir.joinpath(
-        f'Alignment_Angles_{imdir.name}.csv'), index_col=0)
+    ### open the alignment angles plus the principal axes and trajectories
+    ### needed for the directional protrusion metrics
+    angledf = load_alignment_frame(imdir, config)
+    ### and the SH coefficients (at the config's order) of each cell, combined on 'cell'
+    shcoeffs = load_shcoeffs(datadir, l_order, pattern=f'SH_Coefficients_{imdir.name}.csv')
+    angledf = angledf.merge(shcoeffs, how = 'left', on = 'cell')
 
     mapargs = []
     for i, row in angledf.iterrows():
@@ -566,11 +617,7 @@ def extract_protrusion_metrics(
             row,
             meshdir,
             l_order,
-            lrec,
-            smooth_iters,
-            prominence_sigmas,
-            grow_sigmas,
-            min_area_verts,
+            protrusion_params,
         ))
 
     # parallel processing for all segmented images

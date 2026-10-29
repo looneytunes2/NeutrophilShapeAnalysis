@@ -7,6 +7,7 @@ Created on Thu Oct 20 10:36:41 2022
 
 import pandas as pd
 import numpy as np
+from pathlib import Path
 from . import shtools_mod
 
 
@@ -200,3 +201,87 @@ def get_mesh_from_series(row, alias, lmax):
     mesh, _ = shtools_mod.get_reconstruction_from_coeffs(coeffs)
     return mesh
 
+
+
+def get_shcoeff_columns(l_order: int):
+    """
+    Names of the SH coefficient columns up to order l_order, in the order that
+    reshapes to the (2, l_order+1, l_order+1) array of cosine and sine
+    coefficients the reconstruction functions take (the order that
+    shparam_mod.get_shcoeffs_mesh returns them in).
+    """
+    return [f'shcoeffs_L{l}M{m}{c}' for c in 'CS' for l in range(l_order + 1) for m in range(l_order + 1)]
+
+
+def get_nonzero_shcoeff_columns(l_order: int):
+    """
+    The subset of get_shcoeff_columns (same order) that can be non-zero: the
+    cosine terms with m <= l and the sine terms with 1 <= m <= l. The rest
+    (m > l, and the m = 0 sine terms) are always zero, so they are not saved;
+    load_shcoeffs puts them back as zeros.
+    """
+    return [f'shcoeffs_L{l}M{m}{c}' for c in 'CS' for l in range(l_order + 1) for m in range(l_order + 1)
+            if m <= l and not (c == 'S' and m == 0)]
+
+
+def pca_inverse_to_shcoeffs(
+        pca, # fitted PCA whose features are the SH coefficients
+        pcs, # PC values to invert, shape (npcs,) or (n, npcs)
+        l_order: int, # order of the coefficients to return, i.e. the config's common.l_order
+        ):
+    """
+    Inverse PCA transform of pcs back to SH coefficients in the full layout of
+    get_shcoeff_columns (reshapes to (2, l_order+1, l_order+1)).
+    The PCA is fit on only the coefficients that can be non-zero
+    (get_nonzero_shcoeff_columns), so its inverse transform returns just those;
+    they are put back into their places and the always-zero ones are zeros.
+    A PCA fit on every coefficient is also handled (returned as is).
+    """
+    columns = get_shcoeff_columns(l_order)
+    nonzero = get_nonzero_shcoeff_columns(l_order)
+    pcs = np.asarray(pcs)
+    single = pcs.ndim == 1  # sklearn needs 2D input
+    inverted = pca.inverse_transform(np.atleast_2d(pcs))
+    if single:
+        inverted = inverted[0]
+    if inverted.shape[-1] == len(columns):
+        return inverted
+    if inverted.shape[-1] != len(nonzero):
+        raise ValueError(f'PCA has {inverted.shape[-1]} features, expected {len(nonzero)} '
+                         f'(nonzero) or {len(columns)} (all) for l_order {l_order}')
+    position = {c: i for i, c in enumerate(columns)}
+    full = np.zeros(inverted.shape[:-1] + (len(columns),), dtype=inverted.dtype)
+    full[..., [position[c] for c in nonzero]] = inverted
+    return full
+
+
+def load_shcoeffs(
+        datadir, # directory with the SH coefficient files saved by image_processing.extract_shape_metrics
+        l_order: int, # order of the coefficients to return, i.e. the config's common.l_order
+        pattern: str = 'SH_Coefficients_*.csv', # which of the files in datadir to read
+        ):
+    """
+    SH coefficients of every cell in the files of datadir matching pattern, as a
+    dataframe with the 'cell' column that identifies each row followed by the
+    coefficients up to order l_order (see get_shcoeff_columns). The files hold
+    more orders than any analysis uses (shparam_mod.SHAPE_INFO_L_ORDER), so this
+    is how the coefficients are recalled at the config's order. Combine them with
+    other per-cell data by merging on 'cell'.
+    The files only hold the coefficients that can be non-zero (see
+    get_nonzero_shcoeff_columns); the always-zero ones are filled in as zeros here,
+    so the result has the full layout whether the file was saved compactly or not.
+    """
+    columns = get_shcoeff_columns(l_order)
+    nonzero = get_nonzero_shcoeff_columns(l_order)
+    position = {c: i for i, c in enumerate(columns)}
+    files = sorted(Path(datadir).glob(pattern))
+    if not files:
+        raise FileNotFoundError(f'No files matching {pattern} in {datadir}')
+    frames = []
+    for f in files:
+        #older files have every column, so only read the ones that can be non-zero
+        saved = pd.read_csv(f, usecols=['cell'] + nonzero)
+        full = np.zeros((len(saved), len(columns)), dtype=np.float64)
+        full[:, [position[c] for c in nonzero]] = saved[nonzero].values
+        frames.append(pd.concat([saved[['cell']], pd.DataFrame(full, columns=columns)], axis=1))
+    return pd.concat(frames, ignore_index=True)

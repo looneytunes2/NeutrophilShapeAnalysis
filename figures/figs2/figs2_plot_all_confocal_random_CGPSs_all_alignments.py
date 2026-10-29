@@ -4,7 +4,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle, Ellipse, FancyArrow
 import seaborn as sns
-from pathlib import Path
 from neutrophil_shape.CustomFunctions import DetailedBalance
 from neutrophil_shape.config.loader import load_config
 

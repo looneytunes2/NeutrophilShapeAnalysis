@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 from matplotlib import cm
 from neutrophil_shape.CustomFunctions import linear_cycle_utils, shtools_mod
 from neutrophil_shape.config.loader import load_config
+from neutrophil_shape.CustomFunctions.shapePCAtools import load_shcoeffs
 
 
 #get directories and open separated datasets
@@ -79,6 +80,8 @@ bin_col = f'PC{whichpcs[0]}_PC{whichpcs[1]}_Continuous_Angular_Bins'
 
 
 FullFrame = pd.read_csv(datadir.joinpath('All_Data_with_CGPS_bins.csv'), index_col=0)
+#the SH coefficients are saved separately from the shape metrics, combine them on 'cell' (up to the config's l_order)
+FullFrame = FullFrame.merge(load_shcoeffs(datadir, config.common.l_order), how = 'left', on = 'cell')
 TotalFrame = FullFrame[FullFrame.Treatment.isin(treatments)].reset_index(drop=True)
 centers = pd.read_csv(datadir.joinpath('PC_bin_centers.csv'), index_col=0)
 

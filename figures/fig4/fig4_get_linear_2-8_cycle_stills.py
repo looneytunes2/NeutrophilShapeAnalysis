@@ -11,6 +11,7 @@ import numpy as np
 import pandas as pd
 from neutrophil_shape.CustomFunctions import linear_cycle_utils
 from neutrophil_shape.config.loader import load_config
+from neutrophil_shape.CustomFunctions.shapePCAtools import load_shcoeffs
 from pathlib import Path
 
 
@@ -33,6 +34,8 @@ datadir = basedir.joinpath('shape_data')
 
     
 FullFrame = pd.read_csv(datadir.joinpath('All_Data_with_CGPS_bins.csv'), index_col=0)
+#the SH coefficients are saved separately from the shape metrics, combine them on 'cell' (up to the config's l_order)
+FullFrame = FullFrame.merge(load_shcoeffs(datadir, config.common.l_order), how = 'left', on = 'cell')
 #open the centers of the binned PCs
 centers = pd.read_csv(datadir.joinpath('PC_bin_centers.csv'), index_col=0)
 TotalFrame = FullFrame[FullFrame.Treatment.isin(treatments)].copy()
@@ -63,7 +66,7 @@ for t, treat in angframe.groupby('Treatment'):
                             t,
                             whichpcs,
                             binrange,
-                            lmax = 10,
+                            lmax = config.common.l_order,
                             smooth = False
                             )
 

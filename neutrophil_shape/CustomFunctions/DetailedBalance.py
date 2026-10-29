@@ -243,6 +243,31 @@ def interpolate_trajectory_wrapper(args):
     return interpolate_trajectory(*args)
 
 
+def get_dwell_times(
+        transdf, # interpolated transitions from get_interpolated_cgps_trajectories
+        ):
+    """
+    Dwell time of each interpolated transition: half its own time_elapsed plus
+    half the time_elapsed of the transition before it. Transitions with no
+    recorded previous transition get NaN.
+
+    A transition continues the previous one when its time_elapsed is exactly
+    the change in cumulative_time since that transition; at the start of a run
+    time_elapsed is instead measured from the start of the run, which is how
+    runs are told apart (as in utils.get_consecutive_transitions).
+
+    Returns a Series named 'dwell_time' with the same index as transdf.
+    """
+    dwell = pd.Series(np.nan, index=transdf.index, name='dwell_time')
+    for _, cell in transdf.groupby(['Treatment', 'CellID']):
+        cell = cell.sort_values('real_time', kind='stable')
+        time_elapsed = cell.time_elapsed
+        continues_previous = np.isclose(cell.cumulative_time.diff(), time_elapsed)
+        dwell.loc[cell.index] = np.where(
+            continues_previous, 0.5 * time_elapsed + 0.5 * time_elapsed.shift(), np.nan)
+    return dwell
+
+
 def get_transition_counts(
         bsdf, #dataframe with all transitions
         nbins, #bins in the CGPS

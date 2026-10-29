@@ -9,13 +9,13 @@ import pandas as pd
 import numpy as np
 from pathlib import Path
 import matplotlib.pyplot as plt
-import matplotlib.transforms
 import seaborn as sns
-from cmocean import cm
 from matplotlib.patches import Ellipse, Rectangle
 from neutrophil_shape.config.loader import load_config
-from neutrophil_shape.CustomFunctions import linear_cycle_utils, utils
 
+
+# inverse scale for arrows
+scale = 0.0012
 
 #get directories and open separated datasets
 treatments = ['Random']
@@ -24,21 +24,17 @@ config._alignment = 'trajectory'
 whichpcs = (1,2)
 pc_combos = config.common.pc_combos
 origin = config.db_params.origins[pc_combos.index(whichpcs)]
-binrange = 20
-direction = 'clockwise'
-zerostart = 'left'
 ntrans = config.db_params.ntrans
+nbins = config.db_params.nbins
 time_interval = config.im_params.time_interval #sec/frame
 
 
 #get directories and open separated datasets
-basedir = config.common.savedir
-datadir = basedir.joinpath('shape_data')
-savedir = basedir.joinpath('detailed_balance')
+savedir = config.common.savedir
+datadir = savedir.joinpath('shape_data')
+dbdir = savedir.joinpath('detailed_balance')
+dbbsdir = dbdir / 'separatedatabs'
 
-
-FullFrame = pd.read_csv(datadir.joinpath('All_Data_with_CGPS_bins.csv'), index_col=0)
-nbins = np.max(FullFrame[[x for x in FullFrame.columns.to_list() if 'bin' in x]].to_numpy())
 #open the centers of the binned PCs
 centers = pd.read_csv(datadir.joinpath('PC_bin_centers.csv'), index_col=0)
 
@@ -46,103 +42,109 @@ centers = pd.read_csv(datadir.joinpath('PC_bin_centers.csv'), index_col=0)
 
 ######## open all of the data
 ########### interpolate all transitions so that only individual transitions are made ###########
-transdf_sep = pd.read_csv(savedir.joinpath(f'PC{whichpcs[0]}-PC{whichpcs[1]}_interpolated_transitions_separated.csv'), index_col=0)
+transdf = pd.read_csv(dbdir.joinpath(f'PC{whichpcs[0]}-PC{whichpcs[1]}_interpolated_transitions.csv'), index_col=0)
 #limit to treatments
-transdf_sep = transdf_sep[transdf_sep.Treatment.isin(treatments)].copy()
+transdf = transdf[transdf.Treatment.isin(treatments)].copy()
 ############## get the counts of cells leaving 
-trans_rate_df_sep = pd.read_csv(savedir.joinpath(f'PC{whichpcs[0]}-PC{whichpcs[1]}_binned_transition_rates_separated.csv'), index_col=0)
+trans_rate_df = pd.read_csv(dbdir.joinpath(f'PC{whichpcs[0]}-PC{whichpcs[1]}_binned_transition_rates.csv'), index_col=0)
 #limit to treatments
-trans_rate_df_sep = trans_rate_df_sep[trans_rate_df_sep.Treatment.isin(treatments)].copy()
+trans_rate_df = trans_rate_df[trans_rate_df.Treatment.isin(treatments)].copy()
 ############# open average bootstrapped currents ###################
-bsfield_sep = pd.read_csv(savedir.joinpath(f'PC{whichpcs[0]}-PC{whichpcs[1]}_bootstrapped_{ntrans}_transitions_average_currents.csv'), index_col=0)
+bsfield_sep = pd.read_csv(dbbsdir.joinpath(f'PC{whichpcs[0]}-PC{whichpcs[1]}_bootstrapped_{ntrans}_transitions_average_currents.csv'), index_col=0)
 #limit to treatments
 bsfield_sep = bsfield_sep[bsfield_sep.Treatment.isin(treatments)].copy()
 
 
-# inverse scale for arrows
-scale = 0.0012
-
-# combine fake error data with real transition data
-elldf = bsfield_sep.merge(trans_rate_df_sep,left_on = ['x','y'], right_on = ['x','y'])
-
-
-
-
-########## PC1/PC7 transition with error ellipses oriented to PCs WITHOUT PC MESH SLICES ################
+########## PLOT OF PDF WITH AVERAGE FLUX AND ERROR  ################
 
 fig, ax = plt.subplots(figsize=(10,10))
 cbar_ax = fig.add_axes([0.94, .188, .025, .661])
 
-ttot = transdf_sep.time_elapsed.sum()
+
+########### PDFs AND PROBABILITY FLUX OF THE SEPARATED MIGRATION MODES #############
+
+################ heatmap of probability density #############
 #make numpy array with heatmap data
 bighm = np.zeros((nbins,nbins))
 #get total time observed in the system
-
+ttot = transdf.time_elapsed.sum()
 for x in range(nbins):
     for y in range(nbins):
-        current =  transdf_sep[(transdf_sep['from_x'] == x+1) & (transdf_sep['from_y'] == y+1)]
+        current = transdf[(transdf['from_x'] == x+1) & (transdf['from_y'] == y+1)]
         if current.empty:
             bighm[y,x] = 0
         else:
             bighm[y,x] = current.time_elapsed.sum()/ttot
+            
+            
 #plot heatmap with seaborn
 sns.heatmap(
     bighm,
-    vmin=0, vmax=bighm.max(), #center=0,
+    vmin=0, vmax=np.percentile(bighm, 99), #center=0,
     cmap='rocket',
     square=True,
     xticklabels = True,
     yticklabels = True,
     ax = ax,
-#     cbar=i==0,
     cbar_ax = cbar_ax,
-#         cbar_kws=cbar_kws
+    zorder = 1
 )
 
 
-    
+######################### vector map of probability flux ################
+#combine relevant data
+elldf = trans_rate_df.merge(bsfield_sep, on = ['x','y'])
 for x in range(1,nbins+1):
     for y in range(1,nbins+1):
         current = elldf[(elldf['x'] == x) & (elldf['y'] == y)]
-        xcurrent = (current.x_plus_rate - current.x_minus_rate)/2
-        ycurrent = (current.y_plus_rate - current.y_minus_rate)/2
-
-        #add flux current arrow        
+        if current.empty:
+            xcurrent = 0
+            ycurrent = 0
+            eh = 0
+            ew = 0
+            evec = [0,0]
+        else:
+            xcurrent = ((current.x_plus_rate - current.x_minus_rate)/2).iloc[0]
+            ycurrent = ((current.y_plus_rate - current.y_minus_rate)/2).iloc[0]
+            eh = np.sqrt(abs(current.eval2.iloc[0]))*(2/scale)
+            ew = np.sqrt(abs(current.eval1.iloc[0]))*(2/scale)
+            evec = current[['evec1x','evec1y']].values[0]
+            evec = evec if evec[1]>0 else -evec
         ax.quiver(x-0.5,
-                   y-0.5, 
-                   xcurrent,
-                   ycurrent,
+                    y-0.5, 
+                    xcurrent,
+                    ycurrent,
                   angles = 'xy',
                   scale_units = 'xy',
                   scale = scale,
                   color = 'white',
-                    zorder = 3 * 5)
+                  zorder = 3)
 
 
         #determine ellipse width, height and angle
         #always set eval1 to width and adjust angle accordingly
-        eh = np.sqrt(abs(current.eval2))*(2/scale)
-        ew = np.sqrt(abs(current.eval1))*(2/scale)
-        evec = current[['evec1x','evec1y']].values[0]
+        ex = xcurrent*(1/scale)
+        ey = ycurrent*(1/scale)
         eang = np.degrees(np.arctan2(evec[1],evec[0]))
-        
-        #define the error oval
-        ell = Ellipse(xy=(x-0.5+(xcurrent.values*(1/scale)),y-0.5+(ycurrent.values*(1/scale))),
+
+        ell = Ellipse(xy=(x-0.5+ex,y-0.5+ey),
                       width=ew,
                       height=eh,
                       angle=eang,
                       color = 'lightblue',
-                      alpha = 0.10,
+                      alpha = 0.12,
                       zorder = 2)
         ax.add_artist(ell)
-        
 
-    
-   
-# #plot the origin dot
-# ax.scatter(7-0.5, 7-0.5, s = 200, color = '#4481e3', zorder=2)
 
-    
+
+
+#restore low-high yaxis orientation
+ax.invert_yaxis()
+
+##### draw a little green dot for the origin
+ax.scatter(origin[0]-0.5, origin[1]-0.5, s = 90, color = '#11bd20', zorder=2)
+
 
 #         print(x, x+(xcurrent.values*scale),y,  y+(ycurrent.values*scale))
 ax.set_xlabel(f'PC{whichpcs[0]}', fontsize = 40)

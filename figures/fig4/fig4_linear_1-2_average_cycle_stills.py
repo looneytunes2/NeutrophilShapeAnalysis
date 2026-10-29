@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 from matplotlib import cm
 from neutrophil_shape.CustomFunctions import linear_cycle_utils, shtools_mod
 from neutrophil_shape.config.loader import load_config
+from neutrophil_shape.CustomFunctions.shapePCAtools import load_shcoeffs
 
 
 #get directories and open separated datasets
@@ -17,7 +18,7 @@ whichpcs = (1,2)
 binnum = 6
 binrange = 360/binnum
 direction = 'clockwise'
-zerostart = 'left'
+zerostart = 'right'
 
 # Rendering
 BACKGROUND = "white"
@@ -27,7 +28,7 @@ AXES_LENGTH = 2.5
 #meshes are rendered individually (not spread into one scene), so 'xy' and
 #'xz' both remain informative -- each gives a different rotation of every
 #single mesh, same as the original single-mesh-at-a-time version of this script
-VIEWS = ['xy', 'xz']
+VIEWS = ['xy']#, 'xz']
 
 # ------------------------------------------------------------------------ #
 
@@ -79,6 +80,8 @@ bin_col = f'PC{whichpcs[0]}_PC{whichpcs[1]}_Continuous_Angular_Bins'
 
 
 FullFrame = pd.read_csv(datadir.joinpath('All_Data_with_CGPS_bins.csv'), index_col=0)
+#the SH coefficients are saved separately from the shape metrics, combine them on 'cell' (up to the config's l_order)
+FullFrame = FullFrame.merge(load_shcoeffs(datadir, config.common.l_order), how = 'left', on = 'cell')
 TotalFrame = FullFrame[FullFrame.Treatment.isin(treatments)].reset_index(drop=True)
 centers = pd.read_csv(datadir.joinpath('PC_bin_centers.csv'), index_col=0)
 
@@ -140,6 +143,7 @@ for view in VIEWS:
     plotter.add_mesh(max(meshes, key=lambda m: m.length))
     plotter.camera_position = view
     plotter.reset_camera()
+    plotter.camera.zoom(1.15)
     camera_positions[view] = plotter.camera_position
 
 print("Rendering mesh frames...")
@@ -161,7 +165,7 @@ fig, axes = plt.subplots(
 
 for v, view in enumerate(VIEWS):
     for m in range(len(meshes)):
-        ax = axes[v, m]
+        ax = axes[v, m] if len(VIEWS)>1 else axes[m]
         ax.imshow(images[view][m], aspect='auto')
         ax.axis('off')
 

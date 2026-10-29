@@ -27,9 +27,10 @@ whichpcs = (1,2)
 allorigins = config.db_params.origins
 pc_combos = config.common.pc_combos
 origin = allorigins[pc_combos.index(whichpcs)]
-binrange = 360/18 # degrees / bin
+nbins_angle = 18
+binrange = 360/nbins_angle # degrees / bin
 direction = 'clockwise' #direction of flux
-zerostart = 'left' #what 2D direction to call zero
+zerostart = 'right' #what 2D direction to call zero
 
 
 #get directories and open separated datasets
@@ -62,8 +63,8 @@ angframe =  linear_cycle_utils.bin_angular_coord(
 histdf = angframe[f'PC{whichpcs[0]}_PC{whichpcs[1]}_Continuous_Angular_Bins'].value_counts().sort_index().reset_index()
 
 #get colors based on linear CGPS radial graphic
-cmap = cm.get_cmap('twilight', int(360/binrange+1))
-discrete_colors = cmap(np.linspace(0,1,int(360/binrange+1))[:-1])
+cmap = cm.twilight
+discrete_colors = cmap(np.linspace(0, 1, nbins_angle, endpoint=False))
 
 fig, ax = plt.subplots(1, 1, figsize=(5,5))
 

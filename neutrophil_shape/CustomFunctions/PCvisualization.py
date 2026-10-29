@@ -14,6 +14,7 @@ from functools import reduce
 import matplotlib.pyplot as plt
 import pandas as pd
 from . import shtools_mod
+from .shapePCAtools import pca_inverse_to_shcoeffs
 import pyvista as pv
 
 def get_shape_space(
@@ -69,7 +70,7 @@ def get_shape_space(
 
 
             ### PCs to shcoeffs
-            recon_shcoeffs = pca.inverse_transform(recon_PCs)
+            recon_shcoeffs = pca_inverse_to_shcoeffs(pca, recon_PCs, lmax)
             
             ## shcoeffs to mesh
             mesh, _ = shtools_mod.get_even_reconstruction_from_coeffs(
@@ -160,7 +161,7 @@ def mesh_from_bins(binpos,
         temppcs[whichpcs[w]-1] = PC1bins[int(binpos[w]-1)]
         
     #inverse pca transform
-    coeffs = pca.inverse_transform(temppcs)
+    coeffs = pca_inverse_to_shcoeffs(pca, temppcs, lmax)
     #get mesh from coeffs
     mesh, _ = shtools_mod.get_reconstruction_from_coeffs(coeffs.reshape(2,lmax+1,lmax+1))
 
@@ -180,7 +181,7 @@ def mesh_from_PCs(avgpcs, #average value for all PCs generated with the pca
     for w in range(len(whichpcs)):
         temppcs[whichpcs[w]-1] = PCs[w]
     #inverse pca transform
-    coeffs = pca.inverse_transform(temppcs)
+    coeffs = pca_inverse_to_shcoeffs(pca, temppcs, lmax)
     #get mesh from coeffs
     mesh, _ = shtools_mod.get_reconstruction_from_coeffs(coeffs.reshape(2,lmax+1,lmax+1))
     return mesh

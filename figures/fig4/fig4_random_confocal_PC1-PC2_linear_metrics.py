@@ -27,7 +27,7 @@ pc_combos = config.common.pc_combos
 origin = config.db_params.origins[pc_combos.index(whichpcs)]
 binrange = 20
 direction = 'clockwise'
-zerostart = 'left'
+zerostart = 'right'
 
 
 #get directories and open separated datasets
@@ -79,7 +79,7 @@ angframe = pd.concat((angframe, zerobin))
 #             'cell','image','structure','frame','time','CellID','Cell_intensity']
 # metlist = [x for x in collist if not any([y in x for y in snippets])]
 
-metlist = ['Cell_MajorAxis_Vec_X','Cell_MajorAxis_Vec_Y','directional_autocorrelation','speed']
+metlist = ['Cell_Aligned_Major_Axis_Vec_X','Cell_Aligned_Major_Axis_Vec_Y','directional_autocorrelation','speed']
 
 labelz = ['Major Axis\nX Component','Major Axis\nY Component','Persistence','Instantaneous\nSpeed (µm/sec)']
 
@@ -95,7 +95,7 @@ pperp = 250
 totalpoints = len(avgmets)*pperp
 
 #define the colors to make the meshes
-cmap = cm.get_cmap('twilight')
+cmap = cm.twilight
 discrete_colors = cmap(np.linspace(0,1,totalpoints))
 
 
