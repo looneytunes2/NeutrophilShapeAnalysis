@@ -6,15 +6,17 @@ Created on Thu Jul 18 14:58:51 2024
 """
 
 import re
+import itertools
 import multiprocessing
+import scipy.ndimage as ndi
 import pandas as pd
 import numpy as np
 import numpy.ma as ma
 import tifffile
 import skimage.measure
 from pathlib import Path
-from skimage.morphology import remove_small_objects
-from skimage.segmentation import find_boundaries
+from skimage.morphology import remove_small_objects, h_maxima, ball
+from skimage.segmentation import find_boundaries, watershed
 from ..aicssegmentation.core.MO_threshold import MO, MO_ma
 from ..aicssegmentation.core import vessel
 from ..aicssegmentation.core.pre_processing_utils import intensity_normalization, image_smoothing_gaussian_3d
@@ -73,6 +75,113 @@ def detect_skewed_image_bounds(
 
 
 
+def _shift(a, vec):
+    out = np.zeros_like(a)
+    src = tuple(slice(max(0, -v), a.shape[i] - max(0, v)) for i, v in enumerate(vec))
+    dst = tuple(slice(max(0, v), a.shape[i] - max(0, -v)) for i, v in enumerate(vec))
+    out[dst] = a[src]
+    return out
+
+
+def _line_reach(
+        m,
+        vec,
+        n_double=6,
+        ):
+    """True where mask lies somewhere within 2**n_double - 1 voxels along vec (shift-doubling)"""
+    r = _shift(m, vec)
+    step = 1
+    for _ in range(n_double - 1):
+        step *= 2
+        r = r | _shift(r, tuple(step * v for v in vec))
+    return r
+
+
+def _bracket_counts(m):
+    """for every voxel, the number of the 13 line directions in which mask lies on both sides"""
+    c = np.zeros(m.shape, np.uint8)
+    for dv in [x for x in itertools.product((-1, 0, 1), repeat=3) if x > (0, 0, 0)]:
+        c += (_line_reach(m, dv) & _line_reach(m, tuple(-v for v in dv))).astype(np.uint8)
+    return c
+
+
+def _empty_space_basins(
+        sm,
+        P,
+        T,
+        ring=6,
+        h=2.0,
+        min_vox=2000,
+        ):
+    """Watershed basins of the empty space inside/around the membrane signal above T that is connected to P.
+    Returns the connected above-threshold signal Fc and, for each basin that does not touch the image border
+    and has >= min_vox voxels, its size, the fraction of a surrounding shell lying in P, a crop and a mask."""
+    lab, _ = ndi.label(sm > T)
+    keep = np.unique(lab[P & (lab > 0)])
+    Fc = np.isin(lab, keep[keep > 0])
+    E = ~Fc
+    dist = ndi.distance_transform_edt(E).astype(np.float32)
+    markers, _ = ndi.label(h_maxima(dist, h))
+    ws = watershed(-dist, markers, mask=E)
+    border = np.zeros(ws.shape, bool)
+    for ax in range(3):
+        border[(slice(None),) * ax + (0,)] = True
+        border[(slice(None),) * ax + (-1,)] = True
+    outside = set(np.unique(ws[border & (ws > 0)]).tolist())
+    sizes = np.bincount(ws.ravel())
+    objs = ndi.find_objects(ws)
+    out = []
+    for l in range(1, len(sizes)):
+        if sizes[l] < min_vox or l in outside:
+            continue
+        sl = tuple(slice(max(0, s.start - ring - 1), s.stop + ring + 1) for s in objs[l - 1])
+        b = ws[sl] == l
+        shell = ndi.binary_dilation(b, ball(ring)) & ~b
+        out.append(dict(sl=sl, mask=b, contact=float((P[sl] & shell).sum() / max(shell.sum(), 1))))
+    return Fc, out
+
+
+def fill_caax_mask(
+        im,
+        P,
+        rel_thresh=0.4,
+        min_contact=0.25,
+        grow=3,
+        k_dirs=11
+        ):
+    """
+    Fill the membrane mask P (MO + filament threshold masks, boolean, unfilled).
+      1. Nuclear cavity: the raw image is smoothed (sigma 1) and thresholded at rel_thresh * median(smoothed raw on P);
+         the signal connected to P (Fc) is kept and its complement is split into watershed basins (EDT, h-maxima).
+         Basins that do not touch the image border, are >= 2000 voxels and have >= min_contact of a 6 voxel shell in P
+         are cavities; they are grown by `grow` voxels, but only into Fc, and added to P.  3D fill.
+      2. One directional pass: background voxels bracketed by mask on both sides in >= k_dirs of 13 line directions
+         (within 63 voxels) are added, closing surface gaps and pockets without filling open concavities.  3D fill.
+      3. A 2D fill of every xy slice (z direction only).
+    """
+    if not P.any():
+        return P
+    sm = ndi.gaussian_filter(im.astype(np.float32), 1)
+    Fc, basins = _empty_space_basins(sm, P, rel_thresh * float(np.median(sm[P])))
+    cav = np.zeros(P.shape, bool)
+    for b in basins:
+        if b['contact'] >= min_contact:
+            cav[b['sl']] |= b['mask']
+    ## grow cavity segmentation slightly, limited by the membrane mask
+    if cav.any():
+        cav = cav | (ndi.binary_dilation(cav, ball(grow)) & Fc)
+    m = P | cav
+    ## 3D hole fill
+    m = m | ndi.binary_fill_holes(m)
+    ## directional fill
+    m = m | ((~m) & (_bracket_counts(m) >= k_dirs))
+    m = m | ndi.binary_fill_holes(m)
+    ## 2D fill in z direction only
+    for z in range(m.shape[0]):
+        m[z] = ndi.binary_fill_holes(m[z])
+    return m
+
+
 def segment_caax_decon(im):
     ################################
     ## PARAMETERS for this step ##
@@ -124,11 +233,8 @@ def segment_caax_decon(im):
         #get the area to 
         max_size = int(tempdf.area.max()-2) 
         both = remove_small_objects(im_labeled, max_size=max_size, connectivity=1)
-    #fill holes in segmentation twice
-    hole_max = 5000
-    hole_min = 1
-    both = twodholefill(both, hole_min, hole_max)
-    both = twodholefill(both, hole_min, hole_max)
+    #fill the membrane mask (nuclear cavity, residual surface gaps, closed slices)
+    both = fill_caax_mask(im, both > 0)
     #convert to 8bit binary
     both = both.astype(np.uint8)
     both[both > 0] = 255
@@ -492,7 +598,7 @@ def LLSseg(
 
     if orig_size:
         #make empty image of the original shape
-        orig_im = np.zeros(orig_shape)
+        orig_im = np.zeros(orig_shape, dtype=np.uint8)
         #put segmented image into original empty image
         orig_im[:,
                 zmincrop:zmaxcrop,
@@ -500,11 +606,11 @@ def LLSseg(
                 xmincrop:xmaxcrop] = out.copy()
         # remove file if it already exists
         seg_file = procimdir.joinpath(cell_name + '_segmentedfull.ome.tiff')
-        tifffile.imwrite(seg_file, orig_im, metadata={'axes': 'CZYX'})
+        tifffile.imwrite(seg_file, orig_im, metadata={'axes': 'CZYX'}, compression='zlib')
         
     # remove file if it already exists
     seg_file = procimdir.joinpath(cell_name + '_segmented.ome.tiff')
-    tifffile.imwrite(seg_file, out, metadata={'axes': 'CZYX'})
+    tifffile.imwrite(seg_file, out, metadata={'axes': 'CZYX'}, compression='zlib')
     
     #SAVE THE RAW IMAGE
     raw_file = procimdir.joinpath(cell_name + '_raw.ome.tiff')

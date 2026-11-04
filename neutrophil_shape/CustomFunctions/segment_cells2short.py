@@ -347,7 +347,7 @@ def seg_confocal_40x_memonly_fromslices(
         seg_file = procimdir.joinpath(cell_name + '_segmented.tiff')
         if seg_file.exists():
             seg_file.unlink()
-        tifffile.imwrite(seg_file, seg_rimg)
+        tifffile.imwrite(seg_file, seg_rimg, compression='zlib')
         
         #SAVE THE RAW IMAGE
         raw_file = procimdir.joinpath(cell_name + '_raw.tiff')
