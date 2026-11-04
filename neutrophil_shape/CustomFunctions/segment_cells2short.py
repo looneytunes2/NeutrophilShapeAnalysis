@@ -356,12 +356,13 @@ def seg_confocal_40x_memonly_fromslices(
         tifffile.imwrite(raw_file, raw_img)
 
         #### MAKE AND SAVE MESH 
-        #make mesh
-        mesh,_,_ = shtools_mod.get_mesh_from_image(seg_rimg)
-        #scale mesh from pixels to microns
-        mesh = shtools_mod.rotate_and_scale_mesh(
-            mesh,
-            scale = np.array([xyres, xyres, zstep]),
+        #make mesh in microns (spacing is z, y, x), at its real-space position in the full image
+        #(the crop offset, x, y, z in microns, is added) instead of centered on the origin
+        mesh = shtools_mod.get_mesh_from_image(
+            seg_rimg,
+            spacing = [zstep, xyres, xyres],
+            translate_to_origin = False,
+            offset = np.array([croparr[0]*xyres, croparr[2]*xyres, croparr[4]*zstep]),
             )
         #save mesh
         meshdir = procimdir.parent / 'meshes'
@@ -455,7 +456,7 @@ def get_confocal_image_info(
 
         # #### MAKE AND SAVE MESH 
         # #make mesh
-        # mesh,_,_ = shtools_mod.get_mesh_from_image(seg_rimg)
+        # mesh = shtools_mod.get_mesh_from_image(seg_rimg)
         # #scale mesh from pixels to microns
         # mesh = shtools_mod.rotate_and_scale_mesh(
         #     mesh,

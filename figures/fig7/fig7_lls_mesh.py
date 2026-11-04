@@ -34,6 +34,9 @@ reader = vtk.vtkXMLPolyDataReader()
 reader.SetFileName(meshfl)
 reader.Update()
 mesh = reader.GetOutput()
+#the saved meshes are in their real-space positions: center the mesh on the origin
+from vtk.util import numpy_support
+_pts = numpy_support.vtk_to_numpy(mesh.GetPoints().GetData()); _pts -= _pts.mean(axis=0); mesh.GetPoints().Modified()
 
 
 source = TrivialProducer()

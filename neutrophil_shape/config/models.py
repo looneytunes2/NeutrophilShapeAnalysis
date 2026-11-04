@@ -25,7 +25,6 @@ class ImageDir:
 @dataclass
 class Common:
     smooth_factor: int
-    sigma: float
     l_order: int
     npcs: int
     pilr_method: str

@@ -1,7 +1,6 @@
 
 [common]
 smooth_factor = 5 #trajectory smoothness
-sigma = 0 #gaussian smooth for mesh 
 l_order = 10 # SH order
 npcs = 8 # number of principal components to keep
 pilr_method = 'none' #what kind of PILR signal to calculate 'none','threshold','raw'
@@ -14,6 +13,7 @@ trajectory = []
 shape = [2,4,6,7]
 trajectory_shape = [1,2,7]
 trajectory = [1,3,7]
+
 
 [im_params.confocal]
 xyres = 0.3394 #um / pixel
@@ -206,6 +206,7 @@ conda = [
     "pyshtools",
     "scikit-posthocs",
     "statsmodels",
+    "pot", #python optimal transport, used by CustomFunctions/optimal_transport
 ]
 pip = [
     # "pyshtools==4.14",

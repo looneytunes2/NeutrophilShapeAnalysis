@@ -252,8 +252,7 @@ def get_shcoeffs_image(
     xyres: float,
     zstep: float,
     Euler_Angles: np.array,
-    sigma: float,
-    normal_rotation: float,
+    smooth_iters: int,
     compute_lcc: bool = True,
     ):
 
@@ -305,9 +304,9 @@ def get_shcoeffs_image(
 
         Other parameters
         ----------------
-        sigma : float, optional
-            The degree of smooth to be applied to the input image, default is 0 (no
-            smooth)
+        smooth_iters : int
+            Iterations of surface smoothing of the mesh made from the image, 0 for
+            none (see shtools_mod.get_mesh_from_image)
         compute_lcc : bool, optional
             Whether to compute the largest connected component before appliying the
             spherical harmonic parametrization, default is True. Set compute_lcc to
@@ -365,25 +364,27 @@ def get_shcoeffs_image(
     image_ = image.copy()
     image_[image_ > 0] = 1
 
-    # Converting the input image into a mesh using regular marching cubes
-    mesh, image_, first_center = shtools_mod.get_mesh_from_image(image=image_, sigma=sigma)
-    
-    #rotate and scale mesh
-    mesh = shtools_mod.rotate_and_scale_mesh(
+    # the largest connected component is what the mesh is made from, and what the centroid is checked against
+    if compute_lcc:
+        image_ = shtools_mod.largest_connected_component(image_)
+
+    # Converting the input image into a mesh using marching cubes, in microns (spacing is z, y, x), left where it is in the image
+    mesh = shtools_mod.get_mesh_from_image(
+        image=image_,
+        lcc=False,
+        spacing=[zstep, xyres, xyres],
+        smooth_iters=smooth_iters,
+        translate_to_origin=False,
+        )
+    #centroid of the mesh in image coordinates (x, y, z, in voxels, to index image_ and for the returned transform)
+    first_center = numpy_support.vtk_to_numpy(mesh.GetPoints().GetData()).astype(np.float64).mean(axis=0) / np.array([xyres, xyres, zstep])
+
+    #rotate the mesh about its centroid
+    mesh = shtools_mod.rotate_mesh(
             mesh,
             rotations = Euler_Angles,
-            scale = np.array([xyres, xyres, zstep]), 
+            center = 'centroid',
             )
-    
- 
-    #################### normal rotation by provided angle ###############
-    if normal_rotation!=0:        
-        #rotate mesh by chosen angle
-        mesh = shtools_mod.rotate_and_scale_mesh(
-                mesh,
-                rotations = np.array([normal_rotation,0,0]),
-                )
-        
     
     
     if not image_[tuple([int(u) for u in first_center[::-1]])]:
@@ -444,7 +445,9 @@ def recondistancesmesh(
     mesh.SetFileName(meshdir + img_name)
     mesh.Update()
     mesh = mesh.GetOutput()
-    
+    #the SH expansion is about the origin and the saved meshes are in their real-space positions
+    mesh, _ = shtools_mod.translate_mesh_to_origin(mesh)
+
     OtRdistances = {}
     RtOdistances = {}
     grid_se = {}
@@ -575,18 +578,19 @@ def get_pilr_stuct_string(
             
 #             else:
 #                 #get structure mesh
-#                 str_mesh, _, cent = shtools_mod.get_mesh_from_image(
+#                 #(in units of xyres: spacing is z, y, x, and the offset, x, y, z, subtracts the centroid)
+#                 str_mesh = shtools_mod.get_mesh_from_image(
 #                     image = s,
+#                     spacing = [zstep/xyres, 1, 1],
 #                     translate_to_origin=False,
 #                     lcc = False,
-#                     center = np.array(centroid_mem)[0]
+#                     offset = -np.array(centroid_mem)[0] * np.array([1, 1, zstep/xyres])
 #                     )
-#                 #euler rotation and scaling
-#                 str_mesh = shtools_mod.rotate_and_scale_mesh(str_mesh,
-#                                                     rotations = euler_angles,
-#                                                     scale = np.array([xyres, xyres, zstep])/xyres)
+#                 #euler rotation
+#                 str_mesh = shtools_mod.rotate_mesh(str_mesh,
+#                                                     rotations = euler_angles)
 #                 #widest angle rotation
-#                 str_mesh = shtools_mod.rotate_and_scale_mesh(str_mesh,
+#                 str_mesh = shtools_mod.rotate_mesh(str_mesh,
 #                                                     rotations = np.array([widestangle,0,0]))
 #                 #adjust the structure center to the final position of the cell after rotation
 #                 coords = numpy_support.vtk_to_numpy(str_mesh.GetPoints().GetData())
@@ -605,10 +609,9 @@ def get_pilr_stuct_string(
 #                 #scale structure mesh
 #                 #set transform and apply
 #                 meshf = savedir.joinpath('meshes')
-#                 str_mesh = shtools_mod.rotate_and_scale_mesh(
-#                         str_mesh,
-#                         scale = np.array([xyres, xyres, xyres]),
-#                         )
+#                 coords = numpy_support.vtk_to_numpy(str_mesh.GetPoints().GetData())
+#                 coords *= xyres
+#                 str_mesh = shtools_mod.update_mesh_points(str_mesh, coords[:, 0], coords[:, 1], coords[:, 2])
 
 #                 #save str mesh
 #                 writer = vtk.vtkXMLPolyDataWriter()
@@ -757,21 +760,22 @@ def get_aligned_mesh(
         meshdir: Path,  # directory containing '{cell}_cell_mesh.vtp' files
         ):
     """Read a cell's mesh, rotate it into its alignment frame and center it
-    on the origin (its vertex centroid)."""
+    on the origin (its vertex centroid). The saved meshes are in their real-space
+    positions (microns), so the mesh is rotated about its own centroid, which
+    makes the aligned mesh independent of where the cell was in the image."""
     mesh_path = meshdir.joinpath(df.cell + '_cell_mesh.vtp')
     mesh = shtools_mod.read_polydata(mesh_path)
 
     euler_angles = df[['Euler_Angles_X','Euler_Angles_Y','Euler_Angles_Z']].values
-    mesh = shtools_mod.rotate_and_scale_mesh(
+    mesh = shtools_mod.rotate_mesh(
             mesh,
             rotations = euler_angles,
+            center = 'centroid',
             )
 
-    ### enforce mesh center at origin after rotations
-    coords = numpy_support.vtk_to_numpy(mesh.GetPoints().GetData())
-    coords = coords - coords.mean(axis=0, keepdims=True)
-    # Translate and update mesh normals
-    return shtools_mod.update_mesh_points(mesh, coords[:, 0], coords[:, 1], coords[:, 2])
+    ### put the mesh center at the origin (also normalizes the position of a mesh that was saved already at the origin)
+    mesh, _ = shtools_mod.translate_mesh_to_origin(mesh)
+    return mesh
 
 
 def get_aligned_vectors(

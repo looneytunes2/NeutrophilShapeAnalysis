@@ -65,6 +65,8 @@ for i, row in cellinfo.iterrows():
     #meshes are already in their real-space orientation, so just move
     #them to the correct position along the trajectory
     mesh = pv.read(meshfl)
+    #the saved meshes are in their real-space positions: center the mesh on the origin before the trajectory shift
+    mesh.points = mesh.points - mesh.points.mean(axis=0)
     mesh = mesh.translate(cum_pos[i], inplace=False)
 
     #change the visualization

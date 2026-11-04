@@ -511,12 +511,13 @@ def LLSseg(
     tifffile.imwrite(raw_file, im, metadata={'axes': 'CZYX'})
         
     #### SAVE MESH 
-    #make mesh
-    mesh,_,_ = shtools_mod.get_mesh_from_image(out[0,:,:,:])
-    #scale mesh from pixels to microns
-    mesh = shtools_mod.rotate_and_scale_mesh(
-        mesh,
-        scale = np.array([xyres, xyres, zstep]),
+    #make mesh in microns (spacing is z, y, x), at its real-space position in the full image
+    #(the crop offset, x, y, z in microns, is added) instead of centered on the origin
+    mesh = shtools_mod.get_mesh_from_image(
+        out[0,:,:,:],
+        spacing = [zstep, xyres, xyres],
+        translate_to_origin = False,
+        offset = np.array([xmincrop*xyres, ymincrop*xyres, zmincrop*zstep]),
         )
     #save mesh
     meshdir = procimdir.parent / 'meshes'

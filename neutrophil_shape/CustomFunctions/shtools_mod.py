@@ -10,6 +10,7 @@ from vtk.util import numpy_support
 from skimage import transform as sktrans
 from skimage import filters as skfilters
 from skimage import morphology as skmorpho
+from skimage import measure as skmeasure
 from sklearn import decomposition as skdecomp
 from scipy import interpolate as sciinterp
 from scipy import stats as scistats
@@ -33,24 +34,31 @@ def clean_polydata(mesh: vtk.vtkPolyData,):
     
 
 
-def rotate_and_scale_mesh(
+def rotate_mesh(
         mesh,
         rotations: np.array = np.array([0,0,0]), #rotations in [x,y,z]
-        scale: np.array = np.array([1,1,1]), #scaling factors for dimensions in [x,y,z]
+        center = None, #point to rotate about: None (the origin), 'centroid' (the mean of the vertices) or an [x,y,z] point
         ):
-    #rotate and scale mesh
+    #rotate mesh. The rotations are about the origin unless a center is given, so that a mesh in its
+    #real-space position turns in place instead of swinging around the origin.
+    #center is in the units of the mesh. Scaling to physical units is done when the mesh is made, with the
+    #spacing argument of get_mesh_from_image.
     #worked from https://kitware.github.io/vtk-examples/site/Python/PolyData/AlignTwoPolyDatas/
     transformation = vtk.vtkTransform()
     #rotate if you need to rotate
     if any(rotations!=0):
+        if isinstance(center, str):
+            if center != 'centroid':
+                raise ValueError(f"center must be None, 'centroid' or a point, not '{center}'")
+            center = numpy_support.vtk_to_numpy(mesh.GetPoints().GetData()).astype(np.float64).mean(axis=0)
+        center = np.zeros(3) if center is None else np.asarray(center, dtype=np.float64)
+        #vtkTransform is pre-multiplied: the operations act on the points in the reverse order of the calls
+        transformation.Translate(*center)
         #input rotations
         transformation.RotateWXYZ(rotations[2], 0, 0, 1)
         transformation.RotateWXYZ(rotations[1], 0, 1, 0)
         transformation.RotateWXYZ(rotations[0], 1, 0, 0)
-    #scale if you need to scale
-    if any(scale!=1):
-        #input scaling
-        transformation.Scale(scale[0], scale[1], scale[2])
+        transformation.Translate(*(-center))
     #apply transformations
     transformFilter = vtk.vtkTransformPolyDataFilter()
     transformFilter.SetTransform(transformation)
@@ -91,6 +99,7 @@ def update_mesh_points(
 
     normals = vtk.vtkPolyDataNormals()
     normals.SetInputData(mesh)
+    normals.SplittingOff()  #splitting duplicates the points along sharp edges, which opens the mesh
     normals.Update()
 
     mesh_updated = normals.GetOutput()
@@ -98,90 +107,140 @@ def update_mesh_points(
     return mesh_updated
 
 
+def translate_mesh_to_origin(mesh: vtk.vtkPolyData):
+    """Moves a mesh (e.g. one saved in its real-space position) so that the mean of its
+    vertices is at (0,0,0). Returns the translated mesh and the vertex mean that was subtracted
+    (the mesh's real-space position, in the units of the mesh)."""
+    coords = numpy_support.vtk_to_numpy(mesh.GetPoints().GetData())
+    # centering in double precision keeps the vertices of a mesh that sits far from the origin exact
+    shift = coords.astype(np.float64).mean(axis=0)
+    coords = (coords.astype(np.float64) - shift).astype(coords.dtype)
+    return update_mesh_points(mesh, coords[:, 0], coords[:, 1], coords[:, 2]), shift
+
+
+def mask_to_polydata(
+        mask,
+        spacing = [1,1,1],
+        smooth_iters=0
+        ):
+    """Marching cubes on a padded mask -> closed, smoothed vtkPolyData
+    with (x, y, z) point coordinates.
+
+    Parameters
+    ----------
+    mask : np.array
+        Input array where the mesh will be computed on zyx
+    Returns
+    -------
+    3d mesh in VTK format
+
+    Other parameters
+    ----------------
+    spacing : list, optional
+        zyx spatial resolution of the mask
+    smooth_iters : int, optional
+        Number of iterations to smooth the surface with a windowed sinc filter.
+    """
+    padded = np.pad(mask, 1).astype(np.float32)
+    verts, faces, _, _ = skmeasure.marching_cubes(
+        padded, level=0.5, spacing=spacing, step_size=1)
+    verts -= np.array(spacing)      # undo padding offset
+    verts = verts[:, ::-1].copy()   # (z, y, x) -> (x, y, z)
+
+    pts = vtk.vtkPoints()
+    pts.SetData(numpy_support.numpy_to_vtk(verts, deep=True))
+    cells = vtk.vtkCellArray()
+    f = np.hstack([np.full((len(faces), 1), 3, dtype=np.int64),
+                   faces.astype(np.int64)]).ravel()
+    cells.SetCells(len(faces), numpy_support.numpy_to_vtkIdTypeArray(f, deep=True))
+
+    pd = vtk.vtkPolyData()
+    pd.SetPoints(pts)
+    pd.SetPolys(cells)
+
+    if smooth_iters > 0:
+        sm = vtk.vtkWindowedSincPolyDataFilter()
+        sm.SetInputData(pd)
+        sm.SetNumberOfIterations(smooth_iters)
+        sm.SetPassBand(0.1)
+        sm.BoundarySmoothingOff()
+        sm.NonManifoldSmoothingOn()
+        sm.NormalizeCoordinatesOn()
+        sm.Update()
+        pd = sm.GetOutput()
+
+    nrm = vtk.vtkPolyDataNormals()
+    nrm.SetInputData(pd)
+    nrm.SplittingOff()  #splitting duplicates the points along sharp (voxel stair-step) edges, which opens the mesh
+    nrm.ConsistencyOn()
+    nrm.AutoOrientNormalsOn()
+    nrm.Update()
+    return nrm.GetOutput()
+
+
+def largest_connected_component(mask: np.array):
+    """Binary (0/1, uint8) image of the largest connected component of the foreground of mask (any dimension).
+    An empty mask is returned as all zeros."""
+    labeled = skmorpho.label(mask.astype(np.uint8))
+    counts = np.bincount(labeled.flatten())
+    if len(counts) < 2:
+        return np.zeros(mask.shape, dtype=np.uint8)
+    return (labeled == 1 + np.argmax(counts[1:])).astype(np.uint8)
+
+
 def get_mesh_from_image(
     image: np.array,
-    sigma: float = 0,
     lcc: bool = True,
+    spacing: list = [1,1,1],
+    smooth_iters: int = 50,
     translate_to_origin: bool = True,
-    center: np.array = None,
+    offset: np.array = None,
 ):
 
-    """Converts a numpy array into a vtkImageData and then into a 3d mesh
-    using vtkContourFilter. The input is assumed to be binary and the
-    isosurface value is set to 0.5.
-
-    Optionally the input can be pre-processed by i) extracting the largest
-    connected component and ii) applying a gaussian smooth to it. In case
-    smooth is used, the image is binarize using thershold 1/e.
-
-    A size threshold is applying to garantee that enough points will be
-    used to compute the SH parametrization.
-
-    Also, points as the edge of the image are set to zero (background)
-    to make sure the mesh forms a manifold.
+    """Converts a binary 3d image into a closed 3d mesh with marching cubes
+    (see mask_to_polydata). The isosurface value is 0.5 and the image is
+    padded with background so the mesh always forms a manifold.
 
     Parameters
     ----------
     image : np.array
-        Input array where the mesh will be computed on
+        Input array (Z, Y, X) where the mesh will be computed on.
     Returns
     -------
     mesh : vtkPolyData
-        3d mesh in VTK format
-    img_output : np.array
-        Input image after pre-processing
-    centroid : np.array
-        x, y, z coordinates of the mesh centroid
+        3d mesh in VTK format, with (x, y, z) point coordinates.
 
     Other parameters
     ----------------
     lcc : bool, optional
         Wheather or not to compute the mesh only on the largest
-        connected component found in the input connected component,
+        connected component found in the input,
         default is True.
-    sigma : float, optional
-        The degree of smooth to be applied to the input image, default
-        is 0 (no smooth).
+    spacing : list, optional
+        (z, y, x) size of a voxel; the mesh is in these units, default is
+        voxels. Note that this is z first, unlike the x, y, z order of
+        offset, which is in the units of spacing (so voxels for the
+        default, microns for a spacing in microns).
+    smooth_iters : int, optional
+        Iterations of the windowed sinc smoothing of the mesh surface,
+        default is 50, 0 leaves the marching cubes surface as it is.
     translate_to_origin : bool, optional
         Wheather or not translate the mesh to the origin (0,0,0),
         default is True.
+    offset : np.array, optional
+        Only used if translate_to_origin is False: x, y, z translation added to
+        the mesh, in the units of spacing. For the crop offset (the position of
+        the image's first voxel within a larger image) this is the voxel index
+        times the voxel size, so that the vertices are in the coordinates of
+        the larger image; a negative offset subtracts a point. Without offset
+        the mesh is left where it is in the image.
     """
 
     img = image.copy()
 
-    # VTK requires YXZ
-    img = np.swapaxes(img, 0, 2)
-
     # Extracting the largest connected component
     if lcc:
-
-        img = skmorpho.label(img.astype(np.uint8))
-
-        counts = np.bincount(img.flatten())
-
-        lcc = 1 + np.argmax(counts[1:])
-
-        img[img != lcc] = 0
-        img[img == lcc] = 1
-
-    # Smooth binarize the input image and binarize
-    if sigma>0:
-
-        img = skfilters.gaussian(img.astype(np.float32), sigma=(sigma, sigma, sigma))
-
-        img[img < 1.0 / np.exp(1.0)] = 0
-        img[img > 0] = 1
-
-        if img.sum() == 0:
-            raise ValueError(
-                "No foreground voxels found after pre-processing. Try using sigma=0."
-            )
-
-    # Set image border to 0 so that the mesh forms a manifold
-    img[[0, -1], :, :] = 0
-    img[:, [0, -1], :] = 0
-    img[:, :, [0, -1]] = 0
-    img = img.astype(np.float32)
+        img = largest_connected_component(img)
 
     if img.sum() == 0:
         raise ValueError(
@@ -189,206 +248,23 @@ def get_mesh_from_image(
             "Is the object of interest centered?"
         )
 
-    # Create vtkImageData
-    imgdata = vtk.vtkImageData()
-    imgdata.SetDimensions(img.shape)
-
-    img = img.transpose(2, 1, 0)
-    img_output = img.copy()
-    img = img.flatten()
-    arr = numpy_support.numpy_to_vtk(img, array_type=vtk.VTK_FLOAT)
-    arr.SetName("Scalar")
-    imgdata.GetPointData().SetScalars(arr)
-
-    # Create 3d mesh
-    cf = vtk.vtkContourFilter()
-    cf.SetInputData(imgdata)
-    cf.SetValue(0, 0.5)
-    cf.Update()
-
-    mesh = cf.GetOutput()
+    ### convert image to mesh
+    mesh = mask_to_polydata(img, spacing, smooth_iters)
 
     if translate_to_origin:
-        # Calculate the mesh centroid
-        coords = numpy_support.vtk_to_numpy(mesh.GetPoints().GetData())
-        centroid = coords.mean(axis=0, keepdims=True)
-    
-        #subtract centroid from coordinates
-        coords -= centroid
         # Translate to origin
-        mesh = update_mesh_points(mesh, coords[:, 0], coords[:, 1], coords[:, 2])
+        mesh, _ = translate_mesh_to_origin(mesh)
 
     else:
-        #this will translate to "center", a optional specificed point
-        coords = numpy_support.vtk_to_numpy(mesh.GetPoints().GetData())
-        centroid = center.copy()
-        coords -= centroid
-        mesh = update_mesh_points(mesh, coords[:, 0], coords[:, 1], coords[:, 2])
+        #leave the mesh where it is in the image, translated by the optional offset
+        if offset is not None:
+            coords = numpy_support.vtk_to_numpy(mesh.GetPoints().GetData())
+            coords += np.asarray(offset, dtype=np.float64)
+            mesh = update_mesh_points(mesh, coords[:, 0], coords[:, 1], coords[:, 2])
 
-    
-    return mesh, img_output, tuple(centroid.squeeze())
-
+    return mesh
 
 
-
-def rotate_image_2d(image: np.array, angle: float, interpolation_order: int = 0):
-
-    """Rotate multichannel image in 2D by a given angle. The
-    expected shape of image is (C,Z,Y,X). The rotation will
-    be done clock-wise around the center of the image.
-
-    Parameters
-    ----------
-    angle : float
-        Angle in degrees
-    interpolation_order : int
-        Order of interpolation used during the image rotation
-    Returns
-    -------
-    img_rot : np.array
-        Rotated image
-    """
-
-    if image.ndim != 4:
-        raise ValueError(
-            f"Invalid shape {image.shape} of input image."
-            "Expected 4 dimensional images as input."
-        )
-
-    if not isinstance(interpolation_order, int):
-        raise ValueError("Only integer values are accepted for interpolation order.")
-
-    # Make z to be the last axis. Required for skimage rotation
-    image = np.swapaxes(image, 1, 3)
-
-    img_aligned = []
-    for stack in image:
-        stack_aligned = sktrans.rotate(
-            image=stack,
-            angle=-angle,
-            resize=True,
-            order=interpolation_order,
-            preserve_range=True,
-        )
-        img_aligned.append(stack_aligned)
-    img_aligned = np.array(img_aligned)
-
-    # Swap axes back
-    img_aligned = np.swapaxes(img_aligned, 1, 3)
-
-    img_aligned = img_aligned.astype(image.dtype)
-
-    return img_aligned
-
-
-def align_image_2d(
-    image: np.array, alignment_channel: int = None, make_unique: bool = False
-):
-
-    """Align a multichannel 3D image based on the channel
-    specified by alignment_channel. The expected shape of
-    image is (C,Z,Y,X) or (Z,Y,X).
-
-    Parameters
-    ----------
-    image : np.array
-        Input array of shape (C,Z,Y,X) or (Z,Y,X).
-    alignment_channel : int
-        Number of channel to be used as reference for alignemnt. The
-        alignment will be propagated to all other channels.
-    make_unique : bool
-        Set true to make sure the alignment rotation is unique.
-    Returns
-    -------
-    img_aligned : np.array
-        Aligned image
-    angle : float
-        Angle used for align the shape.
-    """
-
-    if image.ndim not in [3, 4]:
-        raise ValueError(f"Invalid shape {image.shape} of input image.")
-
-    if image.ndim == 4:
-        if alignment_channel is None:
-            raise ValueError(
-                "An alignment channel must be provided with multichannel images."
-            )
-        if not isinstance(alignment_channel, int):
-            raise ValueError("Number of alignment channel must be an integer")
-
-    if image.ndim == 3:
-        alignment_channel = 0
-        image = image.reshape(1, *image.shape)
-
-    z, y, x = np.where(image[alignment_channel])
-
-    xy = np.hstack([x.reshape(-1, 1), y.reshape(-1, 1)])
-
-    pca = skdecomp.PCA(n_components=2)
-
-    pca = pca.fit(xy)
-
-    eigenvecs = pca.components_
-
-    if make_unique:
-
-        # Calculate angle with arctan2
-        angle = 180.0 * np.arctan2(eigenvecs[0][1], eigenvecs[0][0]) / np.pi
-
-        # Rotate x coordinates
-        x_rot = (x - x.mean()) * np.cos(np.pi * angle / 180) + (y - y.mean()) * np.sin(
-            np.pi * angle / 180
-        )
-
-        # Check the skewness of the rotated x coordinate
-        xsk = scistats.skew(x_rot)
-        if xsk < 0.0:
-            angle += 180
-
-        # Map all angles to anti-clockwise
-        angle = angle % 360
-
-    else:
-
-        # Calculate smallest angle
-        angle = 0.0
-        if np.abs(eigenvecs[0][0]) > EPS:
-            angle = 180.0 * np.arctan(eigenvecs[0][1] / eigenvecs[0][0]) / np.pi
-
-    # Apply skimage rotation clock-wise
-    img_aligned = rotate_image_2d(image=image, angle=angle)
-
-    return img_aligned, angle
-
-
-def apply_image_alignment_2d(image: np.array, angle: float):
-
-    """Apply an existing set of alignment parameters to a
-    multichannel 3D image. The expected shape of
-    image is (C,Z,Y,X) or (Z,Y,X).
-
-    Parameters
-    ----------
-    image : np.array
-        Input array of shape (C,Z,Y,X) or (Z,Y,X).
-    angle : float
-        2D rotation angle in degrees
-    Returns
-    -------
-    img_aligned : np.array
-        Aligned image
-    """
-
-    if image.ndim not in [3, 4]:
-        raise ValueError(f"Invalid shape {image.shape} of input image.")
-
-    if image.ndim == 3:
-        image = image.reshape(1, *image.shape)
-
-    img_aligned = rotate_image_2d(image=image, angle=angle)
-
-    return img_aligned
 
 
 
@@ -480,6 +356,7 @@ def get_even_reconstruction_from_grid(
     # Compute normal vectors
     normals = vtk.vtkPolyDataNormals()
     normals.SetInputData(rec)
+    normals.SplittingOff()
     normals.Update()
 
     mesh = normals.GetOutput()

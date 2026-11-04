@@ -230,6 +230,8 @@ rendered_images = []
 
 ### read mesh
 mesh = pv.read(meshpath)
+#the saved meshes are in their real-space positions: center the mesh on the origin
+mesh.points = mesh.points - mesh.points.mean(axis=0)
 ### get trajectory
 traj_cols = ['Trajectory_Vec_X','Trajectory_Vec_Y','Trajectory_Vec_Z']
 next_traj_cols = ['Next_'+t for t in traj_cols]
