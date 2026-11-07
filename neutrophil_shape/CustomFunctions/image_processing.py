@@ -14,7 +14,7 @@ import tifffile
 from aicspylibczi import CziFile
 from scipy.spatial import KDTree, distance
 from scipy.spatial.transform import Rotation as R
-from .segment_cells2short import confocal_segmentation_wrapper
+from .segment_confocal import confocal_segmentation_wrapper
 from . import shparam_mod, metadata_funcs, segment_LLS
 from .shapePCAtools import load_shcoeffs, get_nonzero_shcoeff_columns
 from .track_functions import segment_caax_tracks_confocal_40x_fromsingle

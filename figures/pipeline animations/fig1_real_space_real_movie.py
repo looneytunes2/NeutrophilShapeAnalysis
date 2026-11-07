@@ -4,7 +4,7 @@
 import os 
 import numpy as np
 import pandas as pd
-from CustomFunctions import segment_cells2short
+from CustomFunctions import segment_confocal
 import math
 from aicsimageio.writers.ome_tiff_writer import OmeTiffWriter
 
@@ -59,7 +59,7 @@ croppedmovie = np.zeros((len(timerange),
 
 for i,t in enumerate(timerange):
     #open the full zstack at this movie frame
-    frameim = segment_cells2short.MM_slicetostack_reader(direct, t, imshape[-3:], range(croparr[4],croparr[5]))
+    frameim = segment_confocal.MM_slicetostack_reader(direct, t, imshape[-3:], range(croparr[4],croparr[5]))
     #crop frame to the cell
     croppedmovie[i] = frameim[
                     :,

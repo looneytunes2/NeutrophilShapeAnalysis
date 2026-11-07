@@ -15,7 +15,7 @@ from matplotlib.animation import FuncAnimation
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 from neutrophil_shape.config.loader import load_config
-from neutrophil_shape.CustomFunctions.segment_cells2short import read_cropped_substack_confocal
+from neutrophil_shape.CustomFunctions.segment_confocal import read_cropped_substack_confocal
 
 
 

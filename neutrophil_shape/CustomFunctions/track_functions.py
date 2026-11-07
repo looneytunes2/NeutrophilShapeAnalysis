@@ -13,7 +13,7 @@ from ..aicssegmentation.core.pre_processing_utils import intensity_normalization
 from skimage.morphology import remove_small_objects    
 from ..aicssegmentation.core.MO_threshold import MO
 
-from .segment_cells2short import MM_slicetostack_reader, twodholefill
+from .segment_confocal import MM_slicetostack_reader, twodholefill
 
 
 

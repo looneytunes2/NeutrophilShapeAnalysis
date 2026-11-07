@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 import os
 import pandas as pd
-from CustomFunctions.segment_cells2short import MM_slicetostack_reader
+from CustomFunctions.segment_confocal import MM_slicetostack_reader
 from matplotlib import cm
 from scipy.spatial import distance
 from scipy import interpolate
