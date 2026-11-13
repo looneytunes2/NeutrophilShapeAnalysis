@@ -10,7 +10,6 @@ from vtk.util import numpy_support
 from skimage import transform as sktrans
 from skimage import filters as skfilters
 from skimage import morphology as skmorpho
-from skimage import measure as skmeasure
 from sklearn import decomposition as skdecomp
 from scipy import interpolate as sciinterp
 from scipy import stats as scistats
@@ -89,17 +88,20 @@ def update_mesh_points(
     Notes
     -----
     This function also re-calculate the new normal vectors
-    for the updated mesh.
+    for the updated mesh. The polygon winding is left as it is.
     """
 
     mesh.GetPoints().SetData(numpy_support.numpy_to_vtk(np.c_[x_new, y_new, z_new]))
     mesh.Modified()
 
-    # Fix normal vectors orientation
-
+    # Recompute the normal vectors
     normals = vtk.vtkPolyDataNormals()
     normals.SetInputData(mesh)
     normals.SplittingOff()  #splitting duplicates the points along sharp edges, which opens the mesh
+    # Only the points move, so the existing winding is still right.  Consistency re-orders polygons
+    # by traversing neighbors, which flips patches of the surface wherever the mesh has a non-manifold
+    # edge (e.g. a mask that touches itself diagonally) -> inverted normals and a wrong volume.
+    normals.ConsistencyOff()
     normals.Update()
 
     mesh_updated = normals.GetOutput()
@@ -123,7 +125,7 @@ def mask_to_polydata(
         spacing = [1,1,1],
         smooth_iters=0
         ):
-    """Marching cubes on a padded mask -> closed, smoothed vtkPolyData
+    """Flying edges (vtk marching cubes) on a padded mask -> closed, smoothed vtkPolyData
     with (x, y, z) point coordinates.
 
     Parameters
@@ -141,22 +143,44 @@ def mask_to_polydata(
     smooth_iters : int, optional
         Number of iterations to smooth the surface with a windowed sinc filter.
     """
+    # pad with background so the surface is closed, then contour the padded image with flying edges
     padded = np.pad(mask, 1).astype(np.float32)
-    verts, faces, _, _ = skmeasure.marching_cubes(
-        padded, level=0.5, spacing=spacing, step_size=1)
-    verts -= np.array(spacing)      # undo padding offset
-    verts = verts[:, ::-1].copy()   # (z, y, x) -> (x, y, z)
+    nz, ny, nx = padded.shape
+    imgdata = vtk.vtkImageData()
+    imgdata.SetDimensions(nx, ny, nz)
+    imgdata.SetSpacing(spacing[2], spacing[1], spacing[0])      # x, y, z
+    imgdata.SetOrigin(-spacing[2], -spacing[1], -spacing[0])    # undo the padding offset
+    # a (z, y, x) C-ordered array
+    arr = numpy_support.numpy_to_vtk(padded.ravel(), deep=True, array_type=vtk.VTK_FLOAT)
+    arr.SetName("Scalar")
+    imgdata.GetPointData().SetScalars(arr)
 
-    pts = vtk.vtkPoints()
-    pts.SetData(numpy_support.numpy_to_vtk(verts, deep=True))
-    cells = vtk.vtkCellArray()
-    f = np.hstack([np.full((len(faces), 1), 3, dtype=np.int64),
-                   faces.astype(np.int64)]).ravel()
-    cells.SetCells(len(faces), numpy_support.numpy_to_vtkIdTypeArray(f, deep=True))
+    cf = vtk.vtkFlyingEdges3D()
+    cf.SetInputData(imgdata)
+    cf.SetValue(0, 0.5)
+    cf.ComputeNormalsOff()
+    cf.ComputeGradientsOff()
+    cf.Update()
 
-    pd = vtk.vtkPolyData()
-    pd.SetPoints(pts)
-    pd.SetPolys(cells)
+    # flying edges does not merge points; merging them is what makes the surface a connected mesh
+    clean = vtk.vtkCleanPolyData()
+    clean.SetInputData(cf.GetOutput())
+    clean.ConvertPolysToLinesOff()
+    clean.Update()
+    pd = clean.GetOutput()
+
+    # orient outward using the signed volume (the traversal based AutoOrient/Consistency of
+    # vtkPolyDataNormals flips patches of the surface at non-manifold edges)
+    verts = numpy_support.vtk_to_numpy(pd.GetPoints().GetData()).astype(np.float64)
+    tris = numpy_support.vtk_to_numpy(pd.GetPolys().GetConnectivityArray()).reshape(-1, 3)
+    signed_vol = np.einsum('ij,ij->i', verts[tris[:, 0]], np.cross(verts[tris[:, 1]], verts[tris[:, 2]])).sum()
+    if signed_vol < 0:
+        rev = vtk.vtkReverseSense()
+        rev.SetInputData(pd)
+        rev.ReverseCellsOn()
+        rev.ReverseNormalsOff()
+        rev.Update()
+        pd = rev.GetOutput()
 
     if smooth_iters > 0:
         sm = vtk.vtkWindowedSincPolyDataFilter()
@@ -172,8 +196,8 @@ def mask_to_polydata(
     nrm = vtk.vtkPolyDataNormals()
     nrm.SetInputData(pd)
     nrm.SplittingOff()  #splitting duplicates the points along sharp (voxel stair-step) edges, which opens the mesh
-    nrm.ConsistencyOn()
-    nrm.AutoOrientNormalsOn()
+    nrm.ConsistencyOff()
+    nrm.AutoOrientNormalsOff()
     nrm.Update()
     return nrm.GetOutput()
 

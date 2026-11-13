@@ -433,20 +433,16 @@ def update_confocal_mesh(
     #get cell name
     cell_name = row.cell
 
-    seg_file = procimdir.joinpath(cell_name + '_segmented.tiff')
+    seg_file = procimdir.joinpath(cell_name + '_segmented.ome.tiff')
     if seg_file.exists():
-        seg_rimg = tifffile.imread(procimdir.joinpath(cell_name + '_segmented.tiff'))
-
-        ## rewrite compressed version
-        seg_file.unlink()
-        tifffile.imwrite(seg_file, seg_rimg, compression='zlib')
+        seg_rimg = tifffile.imread(procimdir.joinpath(cell_name + '_segmented.ome.tiff'))
 
 
         #### MAKE AND SAVE MESH 
         #make mesh in microns (spacing is z, y, x), at its real-space position in the full image
         #(the crop offset, x, y, z in microns, is added) instead of centered on the origin
         mesh = shtools_mod.get_mesh_from_image(
-            seg_rimg,
+            seg_rimg[0],
             spacing = [zstep, xyres, xyres],
             translate_to_origin = False,
             offset = np.array([

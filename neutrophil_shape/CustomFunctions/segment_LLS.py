@@ -420,9 +420,10 @@ def getbb_movie(
                 z,y,x = np.array(prop.centroid)*4
                 thebox = np.array(prop.bbox)*4
                 area = prop.area * 64
-                ### get the surface coords in xyz order
+                ### get the surface coords in xyz order and in full sized units to match the output
+                ### from detect_skewed_image_bounds
                 boundaries = find_boundaries(im_labeled  ==  (count+1), mode='outer')
-                coords = np.flip(np.argwhere(boundaries), axis = 1)
+                coords = np.flip(np.argwhere(boundaries), axis = 1) * 4
                 ### get the distance of this object to the skewed edges
                 min_dist_start = np.min(np.abs(np.dot(coords - start_point, start_normal)))
                 min_dist_end  =  np.min(np.abs(np.dot(coords - end_point, end_normal)))
